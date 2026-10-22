@@ -154,7 +154,8 @@ func makeService(_ transport: MockTransport, keys: [String: String], config: Con
         ])
         let (svc, _) = try makeService(t, keys: ["MISTRAL_API_KEY": "m", "GEMINI_API_KEY": "g"])
         let out = try await svc.listRemoteModels(providerID: nil)
-        #expect(out.contains("- a\n- b"))
+        #expect(out.contains("- a"))
+        #expect(out.contains("- b"))
         #expect(out.contains("- gemini-x"))
         #expect(!out.contains("emb"))
     }
@@ -202,5 +203,81 @@ func makeService(_ transport: MockTransport, keys: [String: String], config: Con
         #expect(ProviderStatus.evaluate(off, hasKey: true, onDevice: .available) == .disabled)
         let a = ProviderConfig(id: "a", kind: .foundation)
         #expect(ProviderStatus.evaluate(a, hasKey: false, onDevice: .available) == .ready)
+    }
+}
+
+
+@Suite struct CatalogTests {
+    @Test func tagSuggestionsFromIdsAndMetadata() {
+        #expect(ModelInfo(id: "codestral-latest").suggestedTags == ["code"])
+        #expect(ModelInfo(id: "mistral-small-latest").suggestedTags == ["general", "translate", "summarize", "fast"])
+        #expect(ModelInfo(id: "deepseek-reasoner").suggestedTags == ["reasoning"])
+        #expect(ModelInfo(id: "gemini-pro-latest", contextLength: 1_000_000).suggestedTags == ["reasoning", "long-context"])
+        #expect(ModelInfo(id: "mistral-embed").suggestedTags.isEmpty)
+        #expect(ModelInfo(id: "x", vision: true).suggestedTags.contains("vision"))
+    }
+
+    @Test func openRouterMetadataGivesPricesPerMillion() async throws {
+        let body = #"{"data":[{"id":"a/b","context_length":128000,"pricing":{"prompt":"0.00000015","completion":"0.0000006"},"architecture":{"input_modalities":["text","image"]},"supported_parameters":["tools","reasoning"]},{"id":"c/free:free","pricing":{"prompt":"0","completion":"0"}}]}"#
+        let t = MockTransport(["openrouter.ai": .init(status: 200, body: body)])
+        let (svc, _) = try makeService(t, keys: ["OPENROUTER_API_KEY": "k"])
+        let p = try Config.parse(DefaultConfig.toml).providers.first { $0.id == "openrouter" }!
+        let infos = try await svc.modelInfos(for: p)
+        let a = try #require(infos.first { $0.id == "a/b" })
+        #expect(abs((a.priceIn ?? 0) - 0.15) < 1e-9)
+        #expect(abs((a.priceOut ?? 0) - 0.6) < 1e-9)
+        #expect(a.vision && a.reasoning && a.tools)
+        #expect(a.contextLength == 128000)
+        #expect(infos.first { $0.id == "c/free:free" }?.suggestedCategory == "free")
+    }
+
+    @Test func mistralCapabilitiesMarkNonChat() async throws {
+        let body = #"{"data":[{"id":"mistral-embed","capabilities":{"completion_chat":false},"max_context_length":8000},{"id":"pixtral-x","capabilities":{"completion_chat":true,"vision":true}}]}"#
+        let t = MockTransport(["api.mistral.ai": .init(status: 200, body: body)])
+        let (svc, _) = try makeService(t, keys: ["MISTRAL_API_KEY": "k"])
+        let p = try Config.parse(DefaultConfig.toml).providers[0]
+        let infos = try await svc.modelInfos(for: p)
+        #expect(infos.first { $0.id == "mistral-embed" }?.isChat == false)
+        #expect(infos.first { $0.id == "pixtral-x" }?.suggestedTags.contains("vision") == true)
+    }
+
+    @Test func costLabelAndTomlRoundTripWithPrices() throws {
+        var c = try Config.parse(DefaultConfig.toml)
+        c.providers[0].models[0].cost = nil
+        c.providers[0].models[0].priceIn = 0.1
+        c.providers[0].models[0].priceOut = 3
+        #expect(c.providers[0].models[0].costLabel == "$0.1 in / $3 out za 1M tok.")
+        #expect(try Config.parse(try c.serialized()) == c)
+        let hand = try Config.parse("[[provider]]\nid='x'\ntype='openai'\n[[provider.model]]\nid='m'\nprice_in = 1\nprice_out = 2")
+        #expect(hand.providers[0].models[0].priceIn == 1)
+    }
+
+    @Test func updateModelsUpsertsAndKeepsCostModesExclusive() throws {
+        let box = ConfigBox(try Config.parse(DefaultConfig.toml))
+        let svc = DelegateService(loadConfig: { box.value }, secrets: FixedSecrets(values: [:]),
+                                  transport: MockTransport([:]), onDevice: FakeOnDevice(),
+                                  saveConfig: { box.value = $0 },
+                                  usage: UsageLog(url: FileManager.default.temporaryDirectory.appendingPathComponent("u-\(UUID()).jsonl")))
+        let msg = try svc.updateModels(provider: "mistral", updates: [
+            ModelUpdate(id: "mistral-small-latest", tags: [" Code ", "code", "Fast"], priceIn: 0.1, priceOut: 0.3),
+            ModelUpdate(id: "new-model", cost: "cheap"),
+        ])
+        #expect(msg.contains("zaktualizowano 1, dodano 1"))
+        let models = box.value.providers[0].models
+        let small = try #require(models.first { $0.id == "mistral-small-latest" })
+        #expect(small.tags == ["code", "fast"])
+        #expect(small.cost == nil && small.priceIn == 0.1)
+        #expect(models.first { $0.id == "new-model" }?.cost == "cheap")
+        #expect(throws: DelegateError.self) { try svc.updateModels(provider: "nope", updates: []) }
+    }
+}
+
+final class ConfigBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: Config
+    init(_ c: Config) { stored = c }
+    var value: Config {
+        get { lock.withLock { stored } }
+        set { lock.withLock { stored = newValue } }
     }
 }

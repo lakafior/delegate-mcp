@@ -24,7 +24,8 @@ urządzeniu (Apple Foundation Models, `type = "foundation"`): bez klucza, offlin
 |---|---|
 | `list_models` | Lista dostawców i modeli wg priorytetu, z tagami, kosztami, statusem klucza i zasadami routingu |
 | `delegate` | Wysyła zadanie: `model` (`provider/model`), `task` (tag) albo automatycznie wg priorytetu; opcjonalnie `system`, `temperature`, `max_tokens`, `fallback=false` |
-| `list_remote_models` | Pyta API dostawcy o aktualne ID modeli, do aktualizacji configu |
+| `list_remote_models` | Pyta API dostawcy o aktualne ID modeli, z sugerowanymi tagami, kontekstem i cenami (jeśli API je podaje) |
+| `update_models` | Zapisuje tagi i koszt modeli w `delegate.toml` (upsert, bez kluczy). Koszt: kategoria (`free`/`cheap`/`paid`/`varies`) albo `price_in`/`price_out` w USD za 1M tokenów |
 | `usage_summary` | Podsumowanie wywołań i tokenów z lokalnego logu |
 
 Każda odpowiedź `delegate` zaczyna się od nagłówka: który model odpowiedział, ile tokenów

@@ -15,20 +15,32 @@ public struct ModelConfig: Codable, Sendable, Equatable, Identifiable {
     public let uid = UUID()
     public var id: String
     public var tags: [String]
+    /// Kategoria kosztu (`free`, `cheap`, `paid`, `varies`) albo `nil`, gdy podano kwoty.
     public var cost: String?
+    /// Cena w USD za 1M tokenów wejścia / wyjścia (alternatywa dla kategorii).
+    public var priceIn: Double?
+    public var priceOut: Double?
     public var note: String?
 
-    public init(id: String, tags: [String] = [], cost: String? = nil, note: String? = nil) {
+    public init(id: String, tags: [String] = [], cost: String? = nil,
+                priceIn: Double? = nil, priceOut: Double? = nil, note: String? = nil) {
         self.id = id
         self.tags = tags
         self.cost = cost
+        self.priceIn = priceIn
+        self.priceOut = priceOut
         self.note = note
     }
 
-    enum CodingKeys: String, CodingKey { case id, tags, cost, note }
+    enum CodingKeys: String, CodingKey {
+        case id, tags, cost, note
+        case priceIn = "price_in"
+        case priceOut = "price_out"
+    }
 
     public static func == (a: ModelConfig, b: ModelConfig) -> Bool {
         a.id == b.id && a.tags == b.tags && a.cost == b.cost && a.note == b.note
+            && a.priceIn == b.priceIn && a.priceOut == b.priceOut
     }
 
     public init(from decoder: Decoder) throws {
@@ -36,7 +48,30 @@ public struct ModelConfig: Codable, Sendable, Equatable, Identifiable {
         id = try c.decode(String.self, forKey: .id)
         tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
         cost = try c.decodeIfPresent(String.self, forKey: .cost)
+        priceIn = try c.decodeNumberIfPresent(forKey: .priceIn)
+        priceOut = try c.decodeNumberIfPresent(forKey: .priceOut)
         note = try c.decodeIfPresent(String.self, forKey: .note)
+    }
+
+    /// Czytelny koszt: kwoty, jeśli są, w przeciwnym razie kategoria.
+    public var costLabel: String? {
+        if priceIn != nil || priceOut != nil {
+            return "$\(Self.money(priceIn)) in / $\(Self.money(priceOut)) out za 1M tok."
+        }
+        return cost
+    }
+
+    public static func money(_ v: Double?) -> String {
+        guard let v else { return "?" }
+        return String(format: "%g", v)
+    }
+}
+
+extension KeyedDecodingContainer {
+    /// TOML rozróżnia `1` i `1.0`; tu przyjmujemy oba.
+    func decodeNumberIfPresent(forKey key: Key) throws -> Double? {
+        if let d = try? decodeIfPresent(Double.self, forKey: key) { return d }
+        return try decodeIfPresent(Int.self, forKey: key).map(Double.init)
     }
 }
 
@@ -109,13 +144,7 @@ public struct Config: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         routingGuidance = try c.decodeIfPresent(String.self, forKey: .routingGuidance) ?? ""
         // TOML rozróżnia liczby całkowite i zmiennoprzecinkowe: `120` nie zdekoduje się jako Double.
-        if let d = try? c.decodeIfPresent(Double.self, forKey: .timeoutSeconds) {
-            timeoutSeconds = d
-        } else if let i = try c.decodeIfPresent(Int.self, forKey: .timeoutSeconds) {
-            timeoutSeconds = Double(i)
-        } else {
-            timeoutSeconds = 120
-        }
+        timeoutSeconds = try c.decodeNumberIfPresent(forKey: .timeoutSeconds) ?? 120
         providers = try c.decodeIfPresent([ProviderConfig].self, forKey: .providers) ?? []
     }
 

@@ -62,23 +62,65 @@ struct ProviderClient {
     }
 
     func listModels(provider: ProviderConfig, apiKey: String) async throws -> [String] {
-        guard provider.kind != .foundation else { return ["on-device"] }
+        try await listModelInfo(provider: provider, apiKey: apiKey).map(\.id)
+    }
+
+    /// Lista modeli z metadanymi, które dostawca udostępnia (zdolności, kontekst, ceny).
+    func listModelInfo(provider: ProviderConfig, apiKey: String) async throws -> [ModelInfo] {
+        guard provider.kind != .foundation else { return [ModelInfo(id: "on-device", contextLength: 4096, priceIn: 0, priceOut: 0)] }
         var req = try makeRequest(url: join(provider.baseURL, "models"), method: "GET")
         authorize(&req, provider: provider, apiKey: apiKey)
         let json = try await perform(req)
+
         switch provider.kind {
         case .openai:
-            return (json["data"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }.sorted()
+            return (json["data"] as? [[String: Any]] ?? []).compactMap(Self.openAIInfo).sorted { $0.id < $1.id }
         case .gemini:
-            return (json["models"] as? [[String: Any]] ?? []).compactMap { m -> String? in
-                let methods = m["supportedGenerationMethods"] as? [String] ?? []
-                guard methods.isEmpty || methods.contains("generateContent"),
-                      let name = m["name"] as? String else { return nil }
-                return name.hasPrefix("models/") ? String(name.dropFirst(7)) : name
-            }.sorted()
+            return (json["models"] as? [[String: Any]] ?? []).compactMap(Self.geminiInfo).sorted { $0.id < $1.id }
         case .foundation:
-            return ["on-device"]
+            return []
         }
+    }
+
+    private static func number(_ v: Any?) -> Double? {
+        if let n = v as? NSNumber { return n.doubleValue }
+        if let s = v as? String { return Double(s) }
+        return nil
+    }
+
+    /// Mistral podaje `capabilities` i `max_context_length`, OpenRouter `architecture`, `pricing`
+    /// (USD za token jako tekst) i `supported_parameters`; DeepSeek tylko ID.
+    private static func openAIInfo(_ m: [String: Any]) -> ModelInfo? {
+        guard let id = m["id"] as? String else { return nil }
+        let caps = m["capabilities"] as? [String: Any]
+        let params = m["supported_parameters"] as? [String] ?? []
+        let arch = m["architecture"] as? [String: Any]
+        let inputs = arch?["input_modalities"] as? [String] ?? []
+        let pricing = m["pricing"] as? [String: Any]
+
+        var chat: Bool? = nil
+        if let c = caps?["completion_chat"] as? Bool { chat = c }
+        let perMillion: (Any?) -> Double? = { number($0).map { $0 * 1_000_000 } }
+        return ModelInfo(
+            id: id,
+            contextLength: (number(m["max_context_length"]) ?? number(m["context_length"])).map(Int.init),
+            priceIn: perMillion(pricing?["prompt"]),
+            priceOut: perMillion(pricing?["completion"]),
+            vision: (caps?["vision"] as? Bool) == true || inputs.contains("image"),
+            reasoning: params.contains("reasoning") || params.contains("include_reasoning"),
+            tools: (caps?["function_calling"] as? Bool) == true || params.contains("tools"),
+            isChat: chat
+        )
+    }
+
+    private static func geminiInfo(_ m: [String: Any]) -> ModelInfo? {
+        let methods = m["supportedGenerationMethods"] as? [String] ?? []
+        guard methods.isEmpty || methods.contains("generateContent"), let name = m["name"] as? String else { return nil }
+        return ModelInfo(
+            id: name.hasPrefix("models/") ? String(name.dropFirst(7)) : name,
+            contextLength: number(m["inputTokenLimit"]).map(Int.init),
+            reasoning: (m["thinking"] as? Bool) == true
+        )
     }
 
     // MARK: OpenAI-compatible

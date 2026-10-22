@@ -29,6 +29,44 @@ public struct Candidate: Sendable, Equatable {
     public var ref: String { "\(provider.id)/\(model.id)" }
 }
 
+/// Zmiana jednego modelu; pola `nil` zostają bez zmian. Kategoria i kwoty wykluczają się.
+public struct ModelUpdate: Sendable {
+    public var id: String
+    public var tags: [String]?
+    public var cost: String?
+    public var priceIn: Double?
+    public var priceOut: Double?
+    public var note: String?
+
+    public init(id: String, tags: [String]? = nil, cost: String? = nil,
+                priceIn: Double? = nil, priceOut: Double? = nil, note: String? = nil) {
+        self.id = id
+        self.tags = tags
+        self.cost = cost
+        self.priceIn = priceIn
+        self.priceOut = priceOut
+        self.note = note
+    }
+
+    func apply(to m: inout ModelConfig) {
+        if let tags {
+            var seen = Set<String>()
+            m.tags = tags.map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+                .filter { !$0.isEmpty && seen.insert($0).inserted }
+        }
+        if priceIn != nil || priceOut != nil {
+            m.priceIn = priceIn
+            m.priceOut = priceOut
+            m.cost = nil
+        } else if let cost {
+            m.cost = cost
+            m.priceIn = nil
+            m.priceOut = nil
+        }
+        if let note { m.note = note.isEmpty ? nil : note }
+    }
+}
+
 public enum ProviderStatus: Sendable, Equatable {
     case ready
     case disabled
@@ -62,6 +100,7 @@ public struct DelegateError: Error, CustomStringConvertible, Sendable {
 /// Logika czterech narzędzi MCP; zwraca gotowy tekst dla Claude'a.
 public struct DelegateService: Sendable {
     let loadConfig: @Sendable () throws -> Config
+    let saveConfig: (@Sendable (Config) throws -> Void)?
     let secrets: any SecretStore
     let transport: any HTTPTransport
     let usage: UsageLog
@@ -72,9 +111,11 @@ public struct DelegateService: Sendable {
         secrets: any SecretStore,
         transport: any HTTPTransport = URLSessionTransport(),
         onDevice: any OnDeviceModel = FoundationOnDeviceModel(),
+        saveConfig: (@Sendable (Config) throws -> Void)? = nil,
         usage: UsageLog
     ) {
         self.loadConfig = loadConfig
+        self.saveConfig = saveConfig
         self.secrets = secrets
         self.transport = transport
         self.onDevice = onDevice
@@ -89,6 +130,7 @@ public struct DelegateService: Sendable {
             secrets: CompositeSecretStore([EnvSecretStore(dotEnv: home.envURL), KeychainSecretStore()]),
             transport: transport,
             onDevice: onDevice,
+            saveConfig: { try home.save($0) },
             usage: UsageLog(url: home.usageURL)
         )
     }
@@ -130,7 +172,7 @@ public struct DelegateService: Sendable {
             for m in p.models {
                 var line = "   - `\(p.id)/\(m.id)`"
                 if !m.tags.isEmpty { line += " tagi: \(m.tags.joined(separator: ", "))" }
-                if let c = m.cost { line += " · koszt: \(c)" }
+                if let c = m.costLabel { line += " · koszt: \(c)" }
                 if let n = m.note { line += " · \(n)" }
                 out += line + "\n"
             }
@@ -209,9 +251,14 @@ public struct DelegateService: Sendable {
 
     /// ID modeli z API dostawcy (do GUI); dla modelu lokalnego `["on-device"]`.
     public func remoteModelIDs(for p: ProviderConfig) async throws -> [String] {
-        if p.kind == .foundation { return ["on-device"] }
+        try await modelInfos(for: p).map(\.id)
+    }
+
+    /// Modele z metadanymi i sugestiami tagów (do GUI i `list_remote_models`).
+    public func modelInfos(for p: ProviderConfig) async throws -> [ModelInfo] {
+        if p.kind == .foundation { return [ModelInfo(id: "on-device", contextLength: 4096, priceIn: 0, priceOut: 0)] }
         guard let key = secrets.secret(for: p.apiKeyEnv) else { throw ProviderError.missingKey(p.apiKeyEnv) }
-        return try await ProviderClient(transport: transport, timeout: 30).listModels(provider: p, apiKey: key)
+        return try await ProviderClient(transport: transport, timeout: 30).listModelInfo(provider: p, apiKey: key)
     }
 
     public func listRemoteModels(providerID: String?) async throws -> String {
@@ -231,13 +278,47 @@ public struct DelegateService: Sendable {
                 continue
             }
             do {
-                let ids = try await client.listModels(provider: p, apiKey: key)
-                out += "## \(p.id) (\(ids.count))\n" + ids.map { "- \($0)" }.joined(separator: "\n") + "\n\n"
+                let infos = try await client.listModelInfo(provider: p, apiKey: key)
+                let lines = infos.map { i -> String in
+                    var line = "- \(i.id)"
+                    let tags = i.suggestedTags
+                    if !tags.isEmpty { line += " — sugerowane tagi: \(tags.joined(separator: ", "))" }
+                    if !i.summary.isEmpty { line += " (\(i.summary))" }
+                    return line
+                }
+                out += "## \(p.id) (\(infos.count))\n" + lines.joined(separator: "\n") + "\n\n"
             } catch {
                 out += "## \(p.id)\nbłąd: \(error)\n\n"
             }
         }
         return out
+    }
+
+    // MARK: update_models
+
+    /// Upsert modeli (tagi, koszt) w configu; klucze API i reszta pliku nietknięte.
+    public func updateModels(provider providerID: String, updates: [ModelUpdate]) throws -> String {
+        guard let saveConfig else { throw DelegateError(description: "Zapis configu niedostępny w tym trybie.") }
+        var config = try loadConfig()
+        guard let pi = config.providers.firstIndex(where: { $0.id == providerID }) else {
+            throw DelegateError(description: "Nie ma dostawcy „\(providerID)”. Użyj list_models.")
+        }
+        var changed = 0, added = 0
+        for u in updates {
+            let id = u.id.trimmingCharacters(in: .whitespaces)
+            guard !id.isEmpty else { continue }
+            if let mi = config.providers[pi].models.firstIndex(where: { $0.id == id }) {
+                u.apply(to: &config.providers[pi].models[mi])
+                changed += 1
+            } else {
+                var m = ModelConfig(id: id)
+                u.apply(to: &m)
+                config.providers[pi].models.append(m)
+                added += 1
+            }
+        }
+        try saveConfig(config)
+        return "Zapisano delegate.toml: zaktualizowano \(changed), dodano \(added) (dostawca \(providerID))."
     }
 
     // MARK: usage_summary

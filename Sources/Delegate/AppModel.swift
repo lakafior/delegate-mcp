@@ -150,8 +150,8 @@ final class AppModel {
         }
     }
 
-    func remoteModels(for p: ProviderConfig) async throws -> [String] {
-        try await DelegateService(home: home).remoteModelIDs(for: p)
+    func modelInfos(for p: ProviderConfig) async throws -> [ModelInfo] {
+        try await DelegateService(home: home).modelInfos(for: p)
     }
 
     // MARK: edycja listy dostawców

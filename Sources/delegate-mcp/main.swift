@@ -69,6 +69,30 @@ let tools: [Tool] = [
         annotations: .init(readOnlyHint: true)
     ),
     Tool(
+        name: "update_models",
+        description: "Zapisuje tagi i koszt modeli w delegate.toml (upsert). Użyj po list_remote_models, żeby uzupełnić tagi i dodać nowe modele. Koszt: kategoria (free, cheap, paid, varies) ALBO ceny w USD za 1M tokenów (price_in, price_out). Nie dotyka kluczy API.",
+        inputSchema: schema([
+            "provider": prop("string", "ID dostawcy, np. mistral."),
+            "models": .object([
+                "type": .string("array"),
+                "description": .string("Modele do zmiany lub dodania."),
+                "items": .object([
+                    "type": .string("object"),
+                    "properties": .object([
+                        "id": prop("string", "ID modelu u dostawcy."),
+                        "tags": .object(["type": .string("array"), "items": .object(["type": .string("string")]),
+                                         "description": .string("Pełna lista tagów, np. code, translate, reasoning.")]),
+                        "cost": prop("string", "Kategoria: free, cheap, paid, varies."),
+                        "price_in": prop("number", "USD za 1M tokenów wejścia."),
+                        "price_out": prop("number", "USD za 1M tokenów wyjścia."),
+                        "note": prop("string", "Krótka uwaga."),
+                    ]),
+                    "required": .array([.string("id")]),
+                ]),
+            ]),
+        ], required: ["provider", "models"])
+    ),
+    Tool(
         name: "usage_summary",
         description: "Podsumowanie wywołań i tokenów z lokalnego logu.",
         inputSchema: schema(["days": prop("integer", "Z ilu ostatnich dni (domyślnie 7).")]),
@@ -108,6 +132,23 @@ await server.withMethodHandler(CallTool.self) { params in
 
         case "list_remote_models":
             return .init(content: [reply(try await service.listRemoteModels(providerID: a["provider"]?.stringValue))], isError: false)
+
+        case "update_models":
+            guard let provider = a["provider"]?.stringValue, let items = a["models"]?.arrayValue else {
+                return .init(content: [reply("Wymagane: provider i models.")], isError: true)
+            }
+            func number(_ v: Value?) -> Double? { v?.doubleValue ?? v?.intValue.map(Double.init) }
+            let updates = items.compactMap { item -> ModelUpdate? in
+                guard let o = item.objectValue, let id = o["id"]?.stringValue else { return nil }
+                return ModelUpdate(
+                    id: id,
+                    tags: o["tags"]?.arrayValue?.compactMap(\.stringValue),
+                    cost: o["cost"]?.stringValue,
+                    priceIn: number(o["price_in"]),
+                    priceOut: number(o["price_out"]),
+                    note: o["note"]?.stringValue)
+            }
+            return .init(content: [reply(try service.updateModels(provider: provider, updates: updates))], isError: false)
 
         case "usage_summary":
             return .init(content: [reply(service.usageSummary(days: a["days"]?.intValue ?? 7))], isError: false)

@@ -6,6 +6,10 @@ struct ProviderDetailView: View {
     @Binding var provider: ProviderConfig
     @State private var keyDraft = ""
     @State private var showRemote = false
+    @State private var showBulkCost = false
+    @State private var bulkCost = CostSetting(category: "cheap")
+    @State private var autofillMessage: String?
+    @State private var autofilling = false
 
     var body: some View {
         Form {
@@ -36,13 +40,32 @@ struct ProviderDetailView: View {
         .formStyle(.grouped)
         .navigationTitle(provider.id)
         .sheet(isPresented: $showRemote) {
-            RemoteModelsSheet(model: model, provider: provider) { ids in
-                for id in ids where !provider.models.contains(where: { $0.id == id }) {
-                    provider.models.append(ModelConfig(id: id))
+            RemoteModelsSheet(model: model, provider: provider) { infos in
+                for info in infos where !provider.models.contains(where: { $0.id == info.id }) {
+                    provider.models.append(Self.newModel(from: info))
                 }
             }
         }
     }
+
+    /// Nowy wpis z metadanych API: tagi z heurystyki, koszt tylko gdy API go podaje.
+    private static func newModel(from info: ModelInfo) -> ModelConfig {
+        var m = ModelConfig(id: info.id, tags: info.suggestedTags)
+        fillCost(&m, from: info)
+        return m
+    }
+
+    private static func fillCost(_ m: inout ModelConfig, from info: ModelInfo) {
+        guard m.cost == nil, m.priceIn == nil, m.priceOut == nil else { return }
+        if let category = info.suggestedCategory {
+            m.cost = category
+        } else if info.priceIn != nil || info.priceOut != nil {
+            m.priceIn = info.priceIn
+            m.priceOut = info.priceOut
+        }
+    }
+
+    // MARK: połączenie
 
     private var connection: some View {
         Section("Połączenie") {
@@ -91,21 +114,97 @@ struct ProviderDetailView: View {
         }
     }
 
+    // MARK: modele
+
     private var modelsSection: some View {
         Section {
-            ForEach($provider.models) { $m in
-                ModelRow(model: $m) { provider.models.removeAll { $0.uid == m.uid } }
+            if !provider.models.isEmpty {
+                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                    GridRow {
+                        Text("ID modelu")
+                        Text("Tagi")
+                        Text("Koszt")
+                        Color.clear.frame(width: 22, height: 1)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                    ForEach($provider.models) { $m in
+                        ModelRow(model: $m) { provider.models.removeAll { $0.uid == m.uid } }
+                    }
+                }
             }
+
             HStack {
                 Button("Dodaj model", systemImage: "plus") { provider.models.append(ModelConfig(id: "nowy-model")) }
                 if provider.kind != .foundation {
                     Button("Pobierz z API…", systemImage: "arrow.down.circle") { showRemote = true }
                 }
+                Spacer()
+                Menu("Uzupełnij tagi", systemImage: "tag") {
+                    Button("Tylko modele bez tagów") { autofill(overwrite: false) }
+                    Button("Nadpisz tagi wszystkich modeli") { autofill(overwrite: true) }
+                }
+                .disabled(provider.models.isEmpty || autofilling)
+                .fixedSize()
+                Button("Koszt dla wszystkich…", systemImage: "dollarsign.circle") { showBulkCost = true }
+                    .disabled(provider.models.isEmpty)
+                    .popover(isPresented: $showBulkCost, arrowEdge: .bottom) { bulkCostPopover }
+            }
+            if let autofillMessage {
+                Label(autofillMessage, systemImage: "info.circle").font(.callout).foregroundStyle(.secondary)
             }
         } header: {
             Text("Modele")
         } footer: {
-            Text("Tagi oddziel przecinkami (np. code, translate). Claude wybiera model po tagu zadania.")
+            Text("Tagi oddziel przecinkami. „Uzupełnij tagi” bierze metadane z API dostawcy (zdolności, kontekst, ceny, jeśli je podaje) i ID modelu. Claude też może to zrobić przez narzędzie update_models.")
+        }
+    }
+
+    private var bulkCostPopover: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Koszt dla wszystkich modeli „\(provider.id)”").font(.headline)
+            CostEditor(setting: $bulkCost)
+            HStack {
+                Spacer()
+                Button("Zastosuj do wszystkich (\(provider.models.count))") {
+                    for i in provider.models.indices { provider.models[i].costSetting = bulkCost }
+                    showBulkCost = false
+                }
+                .buttonStyle(.glassProminent)
+            }
+        }
+        .padding(16)
+        .frame(width: 320)
+    }
+
+    /// Tagi (i koszt, jeśli API go podaje) z metadanych dostawcy; bez klucza tylko z ID modelu.
+    private func autofill(overwrite: Bool) {
+        autofilling = true
+        autofillMessage = nil
+        let snapshot = provider
+        Task {
+            var infos: [String: ModelInfo] = [:]
+            var source = "z ID modeli"
+            if let list = try? await model.modelInfos(for: snapshot) {
+                for i in list { infos[i.id] = i }
+                source = "z metadanych API"
+            }
+            var touched = 0
+            for idx in provider.models.indices {
+                let id = provider.models[idx].id
+                let info = infos[id] ?? ModelInfo(id: id)
+                if overwrite || provider.models[idx].tags.isEmpty {
+                    let tags = info.suggestedTags
+                    if !tags.isEmpty, tags != provider.models[idx].tags {
+                        provider.models[idx].tags = tags
+                        touched += 1
+                    }
+                }
+                Self.fillCost(&provider.models[idx], from: info)
+            }
+            autofillMessage = "Uzupełniono tagi \(source): zmieniono \(touched) modeli."
+            autofilling = false
         }
     }
 }
@@ -114,6 +213,7 @@ private struct ModelRow: View {
     @Binding var model: ModelConfig
     let onDelete: () -> Void
     @State private var tagsText: String
+    @State private var showCost = false
 
     init(model: Binding<ModelConfig>, onDelete: @escaping () -> Void) {
         _model = model
@@ -121,24 +221,37 @@ private struct ModelRow: View {
         _tagsText = State(initialValue: model.wrappedValue.tags.joined(separator: ", "))
     }
 
+    private static func parse(_ text: String) -> [String] {
+        text.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
     var body: some View {
-        HStack(spacing: 8) {
+        GridRow {
             TextField("ID modelu", text: $model.id)
+                .labelsHidden()
                 .textFieldStyle(.roundedBorder)
-                .frame(minWidth: 160)
-            TextField("tagi", text: $tagsText)
+                .frame(width: 230)
+            TextField("tagi", text: $tagsText, prompt: Text("np. code, translate"))
+                .labelsHidden()
                 .textFieldStyle(.roundedBorder)
-                .onChange(of: tagsText) {
-                    model.tags = tagsText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                .frame(maxWidth: .infinity)
+                .onChange(of: tagsText) { model.tags = Self.parse(tagsText) }
+                // zmiana z zewnątrz (autouzupełnianie), bez nadpisywania wpisywanego tekstu
+                .onChange(of: model.tags) {
+                    if Self.parse(tagsText) != model.tags { tagsText = model.tags.joined(separator: ", ") }
                 }
-            TextField("koszt", text: Binding(
-                get: { model.cost ?? "" },
-                set: { model.cost = $0.isEmpty ? nil : $0 }))
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 80)
+            Button { showCost = true } label: {
+                Text(model.shortCost).frame(width: 96)
+            }
+            .popover(isPresented: $showCost, arrowEdge: .bottom) {
+                CostEditor(setting: $model.costSetting)
+                    .padding(16)
+                    .frame(width: 300)
+            }
             Button("Usuń model", systemImage: "trash", role: .destructive, action: onDelete)
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
+                .frame(width: 22)
         }
     }
 }
@@ -146,16 +259,17 @@ private struct ModelRow: View {
 private struct RemoteModelsSheet: View {
     let model: AppModel
     let provider: ProviderConfig
-    let onAdd: ([String]) -> Void
+    let onAdd: ([ModelInfo]) -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var ids: [String] = []
+    @State private var infos: [ModelInfo] = []
     @State private var chosen: Set<String> = []
     @State private var loading = true
     @State private var error: String?
     @State private var filter = ""
+    @State private var showNonChat = false
 
-    private var visible: [String] {
-        filter.isEmpty ? ids : ids.filter { $0.localizedCaseInsensitiveContains(filter) }
+    private var visible: [ModelInfo] {
+        infos.filter { (showNonChat || $0.isChat) && (filter.isEmpty || $0.id.localizedCaseInsensitiveContains(filter)) }
     }
 
     var body: some View {
@@ -166,14 +280,28 @@ private struct RemoteModelsSheet: View {
             } else if let error {
                 ContentUnavailableView("Nie udało się pobrać", systemImage: "wifi.exclamationmark", description: Text(error))
             } else {
-                TextField("Filtruj", text: $filter).textFieldStyle(.roundedBorder)
-                List(visible, id: \.self, selection: $chosen) { id in Text(id) }
+                HStack {
+                    TextField("Filtruj", text: $filter).textFieldStyle(.roundedBorder)
+                    Toggle("Także nie-czatowe", isOn: $showNonChat).toggleStyle(.checkbox)
+                }
+                List(visible, selection: $chosen) { info in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(info.id)
+                        let tags = info.suggestedTags.joined(separator: ", ")
+                        if !tags.isEmpty || !info.summary.isEmpty {
+                            Text([tags, info.summary].filter { !$0.isEmpty }.joined(separator: " · "))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .tag(info.id)
+                }
             }
             HStack {
                 Button("Anuluj") { dismiss() }
                 Spacer()
                 Button("Dodaj zaznaczone (\(chosen.count))") {
-                    onAdd(ids.filter { chosen.contains($0) })
+                    onAdd(infos.filter { chosen.contains($0.id) })
                     dismiss()
                 }
                 .buttonStyle(.glassProminent)
@@ -181,9 +309,9 @@ private struct RemoteModelsSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 440, height: 480)
+        .frame(width: 560, height: 520)
         .task {
-            do { ids = try await model.remoteModels(for: provider) }
+            do { infos = try await model.modelInfos(for: provider) }
             catch { self.error = "\(error)" }
             loading = false
         }
