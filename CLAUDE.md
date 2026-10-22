@@ -44,6 +44,16 @@ podpis ad-hoc; `SIGN_ID="Developer ID Application: …"` do dystrybucji). Flagi 
 sprawdzania widoków: `--settings` otwiera okno przy starcie, `--select=routing|usage|general|<id dostawcy>`
 wybiera panel. `DELEGATE_HOME=/tmp/x` odcina od prawdziwego configu.
 
+## Instalacja i dystrybucja
+
+Ikona: `Assets/AppIcon.icon` (Icon Composer), kompilowana przez `actool` w `build-app.sh`.
+
+- **Na własnym Macu:** `SIGN_ID="Apple Development: …" ./scripts/install.sh` buduje, podpisuje i kopiuje do
+  `/Applications`. Stabilny podpis zespołu (zamiast ad-hoc) sprawia, że zgoda „Zawsze zezwalaj” na
+  Keychain przeżywa przebudowania. Tożsamości: `security find-identity -v -p codesigning`.
+- **Dla innych ludzi:** podpis „Developer ID Application” → `./scripts/build-app.sh` →
+  `./scripts/notarize.sh` (profil `notarytool store-credentials`) → `./scripts/make-dmg.sh`.
+
 ## Pliki użytkownika
 
 Katalog: `~/Library/Application Support/Delegate/` (nadpisywany przez `$DELEGATE_HOME`).

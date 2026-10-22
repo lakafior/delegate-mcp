@@ -16,6 +16,15 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
 cp "$BIN/Delegate" "$APP/Contents/MacOS/Delegate"
 cp "$BIN/delegate-mcp" "$APP/Contents/Helpers/delegate-mcp"
 
+# Ikona: Assets/AppIcon.icon (Icon Composer) -> Assets.car + AppIcon.icns
+ICON_TMP="$(mktemp -d)"
+xcrun actool Assets/AppIcon.icon --compile "$APP/Contents/Resources" \
+  --output-format human-readable-text --notices --warnings --errors \
+  --app-icon AppIcon --include-all-app-icons --platform macosx \
+  --minimum-deployment-target 26.0 --target-device mac \
+  --output-partial-info-plist "$ICON_TMP/partial.plist" >/dev/null
+rm -rf "$ICON_TMP"
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -25,6 +34,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>Delegate</string>
   <key>CFBundleDisplayName</key><string>Delegate</string>
   <key>CFBundleExecutable</key><string>Delegate</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>CFBundleIconName</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
   <key>CFBundleVersion</key><string>1</string>
@@ -35,6 +46,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-codesign --force --sign "$SIGN_ID" --options runtime "$APP/Contents/Helpers/delegate-mcp"
-codesign --force --sign "$SIGN_ID" --options runtime "$APP"
+# Znacznik czasu jest wymagany do notaryzacji (tylko przy prawdziwej tożsamości).
+TS=(); [[ "$SIGN_ID" != "-" ]] && TS=(--timestamp)
+codesign --force --sign "$SIGN_ID" --identifier com.mar.delegate.mcp --options runtime ${TS[@]+"${TS[@]}"} "$APP/Contents/Helpers/delegate-mcp"
+codesign --force --sign "$SIGN_ID" --options runtime ${TS[@]+"${TS[@]}"} "$APP"
+codesign --verify --deep --strict "$APP"
 echo "Gotowe: $APP"
