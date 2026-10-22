@@ -29,16 +29,25 @@ struct FixedSecrets: SecretStore {
 let openAIBody = #"{"choices":[{"message":{"content":"cześć"}}],"usage":{"prompt_tokens":10,"completion_tokens":3}}"#
 let geminiBody = #"{"candidates":[{"content":{"parts":[{"text":"hej"}]}}],"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":2}}"#
 
-func makeService(_ transport: MockTransport, keys: [String: String], config: Config? = nil) throws -> (DelegateService, URL) {
+struct FakeOnDevice: OnDeviceModel {
+    var availability: OnDeviceAvailability = .unavailable("test")
+    func respond(_ request: ChatRequest) async throws -> ChatReply {
+        ChatReply(text: "lokalnie: \(request.prompt)", inputTokens: nil, outputTokens: nil)
+    }
+}
+
+func makeService(_ transport: MockTransport, keys: [String: String], config: Config? = nil,
+                 onDevice: FakeOnDevice = FakeOnDevice()) throws -> (DelegateService, URL) {
     let cfg = try config ?? Config.parse(DefaultConfig.toml)
     let log = FileManager.default.temporaryDirectory.appendingPathComponent("usage-\(UUID().uuidString).jsonl")
-    return (DelegateService(loadConfig: { cfg }, secrets: FixedSecrets(values: keys), transport: transport, usage: UsageLog(url: log)), log)
+    return (DelegateService(loadConfig: { cfg }, secrets: FixedSecrets(values: keys), transport: transport,
+                            onDevice: onDevice, usage: UsageLog(url: log)), log)
 }
 
 @Suite struct ConfigTests {
     @Test func defaultConfigParses() throws {
         let c = try Config.parse(DefaultConfig.toml)
-        #expect(c.providers.map(\.id) == ["mistral", "gemini", "deepseek", "openrouter"])
+        #expect(c.providers.map(\.id) == ["mistral", "gemini", "deepseek", "openrouter", "apple"])
         #expect(c.providers[1].kind == .gemini)
         #expect(c.providers[0].models.first?.tags.contains("translate") == true)
         #expect(c.routingGuidance.contains("Deleguj"))
@@ -101,9 +110,24 @@ func makeService(_ transport: MockTransport, keys: [String: String], config: Con
         let cfg = try Config.parse(DefaultConfig.toml)
         let with = svc.candidates(for: .init(prompt: "x", model: "deepseek/deepseek-chat"), config: cfg)
         #expect(with.first?.ref == "deepseek/deepseek-chat")
-        #expect(with.count == 4)
+        #expect(with.count == 4)  // apple niedostępny w teście
         let only = svc.candidates(for: .init(prompt: "x", model: "deepseek-chat", allowFallback: false), config: cfg)
         #expect(only.map(\.ref) == ["deepseek/deepseek-chat"])
+    }
+
+    @Test func onDeviceModelNeedsNoKeyAndIsLastResort() async throws {
+        let t = MockTransport([:])
+        let (svc, _) = try makeService(t, keys: [:], onDevice: FakeOnDevice(availability: .available))
+        let out = try await svc.delegate(.init(prompt: "cześć", task: "private"))
+        #expect(out.contains("model: apple/on-device"))
+        #expect(out.hasSuffix("lokalnie: cześć"))
+        #expect(t.calls.isEmpty)
+    }
+
+    @Test func unavailableOnDeviceIsSkippedAndExplained() throws {
+        let (svc, _) = try makeService(MockTransport([:]), keys: [:])
+        let out = try svc.listModels()
+        #expect(out.contains("**apple** (foundation) — niedostępny: test"))
     }
 
     @Test func allFailuresThrowWithDetails() async throws {
@@ -117,7 +141,7 @@ func makeService(_ transport: MockTransport, keys: [String: String], config: Con
     @Test func listModelsShowsKeyStatusButNeverKeys() throws {
         let (svc, _) = try makeService(MockTransport([:]), keys: ["MISTRAL_API_KEY": "sekret-123"])
         let out = try svc.listModels()
-        #expect(out.contains("**mistral** (openai) — klucz OK"))
+        #expect(out.contains("**mistral** (openai) — gotowy"))
         #expect(out.contains("brak klucza (GEMINI_API_KEY)"))
         #expect(!out.contains("sekret-123"))
         #expect(out.contains("Zasady routingu"))

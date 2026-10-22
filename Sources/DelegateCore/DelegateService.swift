@@ -29,6 +29,22 @@ public struct Candidate: Sendable, Equatable {
     public var ref: String { "\(provider.id)/\(model.id)" }
 }
 
+public enum ProviderStatus: Sendable, Equatable {
+    case ready
+    case disabled
+    case missingKey(String)
+    case unavailable(String)
+
+    public var label: String {
+        switch self {
+        case .ready: "gotowy"
+        case .disabled: "wyłączony"
+        case .missingKey(let name): "brak klucza (\(name))"
+        case .unavailable(let why): "niedostępny: \(why)"
+        }
+    }
+}
+
 public struct DelegateError: Error, CustomStringConvertible, Sendable {
     public let description: String
 }
@@ -39,27 +55,64 @@ public struct DelegateService: Sendable {
     let secrets: any SecretStore
     let transport: any HTTPTransport
     let usage: UsageLog
+    let onDevice: any OnDeviceModel
 
     public init(
         loadConfig: @escaping @Sendable () throws -> Config,
         secrets: any SecretStore,
         transport: any HTTPTransport = URLSessionTransport(),
+        onDevice: any OnDeviceModel = FoundationOnDeviceModel(),
         usage: UsageLog
     ) {
         self.loadConfig = loadConfig
         self.secrets = secrets
         self.transport = transport
+        self.onDevice = onDevice
         self.usage = usage
     }
 
     /// Standardowe podpięcie: katalog domowy, `.env` + Keychain.
-    public init(home: DelegateHome, transport: any HTTPTransport = URLSessionTransport()) {
+    public init(home: DelegateHome, transport: any HTTPTransport = URLSessionTransport(),
+                onDevice: any OnDeviceModel = FoundationOnDeviceModel()) {
         self.init(
             loadConfig: { try home.loadConfig() },
             secrets: CompositeSecretStore([EnvSecretStore(dotEnv: home.envURL), KeychainSecretStore()]),
             transport: transport,
+            onDevice: onDevice,
             usage: UsageLog(url: home.usageURL)
         )
+    }
+
+    /// Czy dostawca jest dziś używalny i dlaczego nie (do GUI i `list_models`).
+    public func status(of p: ProviderConfig) -> ProviderStatus {
+        if !p.enabled { return .disabled }
+        if p.kind == .foundation {
+            switch onDevice.availability {
+            case .available: return .ready
+            case .unavailable(let why): return .unavailable(why)
+            }
+        }
+        return secrets.secret(for: p.apiKeyEnv) == nil ? .missingKey(p.apiKeyEnv) : .ready
+    }
+
+    /// Lekki test połączenia: lista modeli (chmura) albo dostępność (lokalnie).
+    public func test(_ p: ProviderConfig) async -> Result<String, DelegateError> {
+        if p.kind == .foundation {
+            switch onDevice.availability {
+            case .available: return .success("Model na urządzeniu dostępny")
+            case .unavailable(let why): return .failure(DelegateError(description: why))
+            }
+        }
+        guard let key = secrets.secret(for: p.apiKeyEnv) else {
+            return .failure(DelegateError(description: "Brak klucza \(p.apiKeyEnv)"))
+        }
+        do {
+            let client = ProviderClient(transport: transport, timeout: 20)
+            let ids = try await client.listModels(provider: p, apiKey: key)
+            return .success("OK, \(ids.count) modeli")
+        } catch {
+            return .failure(DelegateError(description: "\(error)"))
+        }
     }
 
     // MARK: list_models
@@ -68,10 +121,7 @@ public struct DelegateService: Sendable {
         let config = try loadConfig()
         var out = "# Dostawcy i modele (wg priorytetu)\n\n"
         for (i, p) in config.providers.enumerated() {
-            let status: String
-            if !p.enabled { status = "wyłączony" }
-            else if secrets.secret(for: p.apiKeyEnv) == nil { status = "brak klucza (\(p.apiKeyEnv))" }
-            else { status = "klucz OK" }
+            let status = self.status(of: p).label
             out += "\(i + 1). **\(p.id)** (\(p.kind.rawValue)) — \(status)\n"
             if let n = p.note { out += "   uwaga: \(n)\n" }
             for m in p.models {
@@ -90,7 +140,7 @@ public struct DelegateService: Sendable {
     // MARK: delegate
 
     public func candidates(for request: DelegateRequest, config: Config) -> [Candidate] {
-        let usable = config.providers.filter { $0.enabled && secrets.secret(for: $0.apiKeyEnv) != nil }
+        let usable = config.providers.filter { status(of: $0) == .ready }
         var all = usable.flatMap { p in p.models.map { Candidate(provider: p, model: $0) } }
 
         if let task = request.task?.lowercased(), !task.isEmpty {
@@ -123,7 +173,12 @@ public struct DelegateService: Sendable {
             let key = secrets.secret(for: c.provider.apiKeyEnv) ?? ""
             let started = Date()
             do {
-                let reply = try await client.chat(provider: c.provider, model: c.model.id, apiKey: key, request: chat)
+                let reply: ChatReply
+                if c.provider.kind == .foundation {
+                    reply = try await onDevice.respond(chat)
+                } else {
+                    reply = try await client.chat(provider: c.provider, model: c.model.id, apiKey: key, request: chat)
+                }
                 let ms = Int(Date().timeIntervalSince(started) * 1000)
                 usage.append(UsageEntry(provider: c.provider.id, model: c.model.id, task: request.task,
                                         inputTokens: reply.inputTokens, outputTokens: reply.outputTokens,
@@ -157,6 +212,10 @@ public struct DelegateService: Sendable {
         let client = ProviderClient(transport: transport, timeout: config.timeoutSeconds)
         var out = ""
         for p in targets {
+            if p.kind == .foundation {
+                out += "## \(p.id)\n- on-device (\(status(of: p).label))\n\n"
+                continue
+            }
             guard let key = secrets.secret(for: p.apiKeyEnv) else {
                 out += "## \(p.id)\nbrak klucza (\(p.apiKeyEnv))\n\n"
                 continue

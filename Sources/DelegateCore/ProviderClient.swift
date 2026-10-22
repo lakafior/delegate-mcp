@@ -57,10 +57,12 @@ struct ProviderClient {
         switch provider.kind {
         case .openai: try await chatOpenAI(provider, model, apiKey, request)
         case .gemini: try await chatGemini(provider, model, apiKey, request)
+        case .foundation: throw ProviderError.badResponse("model na urządzeniu obsługuje DelegateService")
         }
     }
 
     func listModels(provider: ProviderConfig, apiKey: String) async throws -> [String] {
+        guard provider.kind != .foundation else { return ["on-device"] }
         var req = try makeRequest(url: join(provider.baseURL, "models"), method: "GET")
         authorize(&req, provider: provider, apiKey: apiKey)
         let json = try await perform(req)
@@ -74,6 +76,8 @@ struct ProviderClient {
                       let name = m["name"] as? String else { return nil }
                 return name.hasPrefix("models/") ? String(name.dropFirst(7)) : name
             }.sorted()
+        case .foundation:
+            return ["on-device"]
         }
     }
 
@@ -144,6 +148,7 @@ struct ProviderClient {
         switch provider.kind {
         case .openai: req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         case .gemini: req.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
+        case .foundation: break
         }
     }
 

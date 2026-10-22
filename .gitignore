@@ -226,3 +226,32 @@ __marimo__/
 DerivedData/
 # delegate
 delegate_usage.jsonl
+
+# Swift / Xcode
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+timeline.xctimeline
+playground.xcworkspace
+.swiftpm/xcode/
+.swiftpm/configuration/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+.build/
+build/
+Packages/
+Carthage/Build/
+Pods/
+.index-build/
+*.trace
+
+# Aplikacja
+dist/
+*.app
+*.dmg
+.DS_Store

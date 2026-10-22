@@ -6,6 +6,8 @@ public enum ProviderKind: String, Codable, Sendable {
     case openai
     /// Gemini (`generateContent`).
     case gemini
+    /// Model na urządzeniu (Apple Foundation Models): bez klucza, bez sieci.
+    case foundation
 }
 
 public struct ModelConfig: Codable, Sendable, Equatable {
@@ -43,7 +45,7 @@ public struct ProviderConfig: Codable, Sendable, Equatable {
     public var models: [ModelConfig]
 
     public init(
-        id: String, kind: ProviderKind, baseURL: String, apiKeyEnv: String,
+        id: String, kind: ProviderKind, baseURL: String = "", apiKeyEnv: String = "",
         enabled: Bool = true, note: String? = nil, models: [ModelConfig] = []
     ) {
         self.id = id
@@ -54,6 +56,9 @@ public struct ProviderConfig: Codable, Sendable, Equatable {
         self.note = note
         self.models = models
     }
+
+    /// Czy dostawca wymaga klucza API (model na urządzeniu nie).
+    public var needsKey: Bool { kind != .foundation }
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -68,8 +73,8 @@ public struct ProviderConfig: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
         kind = try c.decode(ProviderKind.self, forKey: .kind)
-        baseURL = try c.decode(String.self, forKey: .baseURL)
-        apiKeyEnv = try c.decode(String.self, forKey: .apiKeyEnv)
+        baseURL = try c.decodeIfPresent(String.self, forKey: .baseURL) ?? ""
+        apiKeyEnv = try c.decodeIfPresent(String.self, forKey: .apiKeyEnv) ?? ""
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
         note = try c.decodeIfPresent(String.self, forKey: .note)
         models = try c.decodeIfPresent([ModelConfig].self, forKey: .models) ?? []
@@ -228,5 +233,15 @@ enum DefaultConfig {
     id = "openrouter/auto"
     tags = ["general"]
     cost = "varies"
+
+    [[provider]]
+    id = "apple"
+    type = "foundation"
+    note = "Model na urządzeniu (Apple Intelligence): za darmo, prywatnie, offline. Małe okno kontekstu, tylko krótkie zadania."
+
+    [[provider.model]]
+    id = "on-device"
+    tags = ["private", "short", "offline"]
+    cost = "free"
     """#
 }
