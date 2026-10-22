@@ -7,6 +7,7 @@ let package = Package(
     products: [
         .library(name: "DelegateCore", targets: ["DelegateCore"]),
         .executable(name: "delegate-mcp", targets: ["delegate-mcp"]),
+        .executable(name: "Delegate", targets: ["Delegate"]),
     ],
     dependencies: [
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.12.1"),
@@ -24,6 +25,7 @@ let package = Package(
                 .product(name: "MCP", package: "swift-sdk"),
             ]
         ),
+        .executableTarget(name: "Delegate", dependencies: ["DelegateCore"]),
         .testTarget(name: "DelegateCoreTests", dependencies: ["DelegateCore"]),
     ]
 )

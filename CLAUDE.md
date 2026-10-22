@@ -5,17 +5,18 @@ do Mistrala, Gemini, DeepSeeka albo OpenRoutera. Kolejność prób ustalasz w
 `delegate.toml` (kolejność `[[provider]]` = priorytet). Gdy model zwróci błąd (limit,
 brak środków, awaria), serwer automatycznie próbuje następnego.
 
-Całość jest w Swift, bez Pythona i `uv`. Docelowo: aplikacja menu bar (SwiftUI) do edycji
-configu i kluczy + serwer MCP po stdio.
+Całość jest w Swift, bez Pythona i `uv`: aplikacja menu bar (SwiftUI, Liquid Glass) do edycji
+configu i kluczy + serwer MCP po stdio. Minimum: macOS 26. Dostawcą może być też model na
+urządzeniu (Apple Foundation Models, `type = "foundation"`): bez klucza, offline, krótkie zadania.
 
 ## Struktura
 
 | Element | Rola | Stan |
 |---|---|---|
-| `Sources/DelegateCore` | config (TOML), klienci dostawców, router z fallbackiem, log użycia, klucze | gotowe |
+| `Sources/DelegateCore` | config (TOML), klienci dostawców, model na urządzeniu, router z fallbackiem, log użycia, klucze, integracja z Claude | gotowe |
 | `Sources/delegate-mcp` | serwer MCP po stdio (oficjalne `modelcontextprotocol/swift-sdk`) | gotowe |
 | `Tests/DelegateCoreTests` | testy na mockowanym transporcie HTTP (swift-testing) | gotowe |
-| Aplikacja menu bar (`Delegate.app`) | GUI: klucze (Keychain), kolejność, modele/tagi, routing, użycie, instalacja w Claude | faza 2–3 |
+| `Sources/Delegate` | aplikacja menu bar: klucze (Keychain), kolejność (przeciąganie), modele/tagi, routing, użycie, instalacja w Claude Desktop/Code | gotowe, do testów z prawdziwymi kluczami |
 
 ## Narzędzia, które widzi Claude
 
@@ -36,7 +37,12 @@ swift build
 swift test
 ```
 
-Wymaga Xcode z Swift 6.1+ i macOS 14+. Zależności (swift-sdk, TOMLKit) pobiera SwiftPM.
+Wymaga Xcode z Swift 6.2+ i macOS 26+. Zależności (swift-sdk, TOMLKit) pobiera SwiftPM.
+
+Aplikacja: `./scripts/build-app.sh` składa `dist/Delegate.app` (serwer w `Contents/Helpers/delegate-mcp`,
+podpis ad-hoc; `SIGN_ID="Developer ID Application: …"` do dystrybucji). Flagi aplikacji do ręcznego
+sprawdzania widoków: `--settings` otwiera okno przy starcie, `--select=routing|usage|general|<id dostawcy>`
+wybiera panel. `DELEGATE_HOME=/tmp/x` odcina od prawdziwego configu.
 
 ## Pliki użytkownika
 
@@ -50,7 +56,10 @@ Katalog: `~/Library/Application Support/Delegate/` (nadpisywany przez `$DELEGATE
 Klucze: zmienna środowiska → `.env` → Keychain (service `com.mar.delegate`, account =
 `api_key_env` z configu). Dostawca bez klucza jest pomijany, nic się nie psuje.
 
-## Podpięcie ręczne (do czasu aplikacji)
+## Podpięcie w Claude
+
+Najprościej z aplikacji: Ogólne → Claude → „Zainstaluj” (Desktop, Code, blok instrukcji).
+Ręcznie:
 
 ```bash
 swift build -c release

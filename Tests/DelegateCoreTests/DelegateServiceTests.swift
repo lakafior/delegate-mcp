@@ -168,3 +168,39 @@ func makeService(_ transport: MockTransport, keys: [String: String], config: Con
         #expect(out.contains("`p/m`: 2 wywołań (błędy: 1), tokeny: 5 in / 7 out"))
     }
 }
+
+@Suite struct ClaudeIntegrationTests {
+    @Test func desktopConfigMergePreservesOtherKeys() throws {
+        let original = Data(#"{"theme":"dark","mcpServers":{"other":{"command":"/x"}}}"#.utf8)
+        let added = try ClaudeIntegration.updatingDesktopConfig(original, command: "/app/delegate-mcp")
+        #expect(ClaudeIntegration.registeredCommand(in: added) == "/app/delegate-mcp")
+        let obj = try JSONSerialization.jsonObject(with: added) as! [String: Any]
+        #expect(obj["theme"] as? String == "dark")
+        #expect((obj["mcpServers"] as! [String: Any])["other"] != nil)
+
+        let removed = try ClaudeIntegration.updatingDesktopConfig(added, command: nil)
+        #expect(ClaudeIntegration.registeredCommand(in: removed) == nil)
+        #expect(String(decoding: removed, as: UTF8.self).contains("other"))
+    }
+
+    @Test func createsConfigFromNothing() throws {
+        let data = try ClaudeIntegration.updatingDesktopConfig(nil, command: "/p")
+        #expect(ClaudeIntegration.registeredCommand(in: data) == "/p")
+    }
+
+    @Test func instructionsAreIdempotentAndRemovable() {
+        let once = ClaudeIntegration.addingInstructions(to: "# Moje\n")
+        #expect(ClaudeIntegration.hasInstructions(once))
+        #expect(ClaudeIntegration.addingInstructions(to: once) == once)
+        #expect(ClaudeIntegration.removingInstructions(from: once) == "# Moje\n")
+    }
+
+    @Test func statusRule() {
+        let p = ProviderConfig(id: "x", kind: .openai, baseURL: "u", apiKeyEnv: "K")
+        #expect(ProviderStatus.evaluate(p, hasKey: false, onDevice: .available) == .missingKey("K"))
+        var off = p; off.enabled = false
+        #expect(ProviderStatus.evaluate(off, hasKey: true, onDevice: .available) == .disabled)
+        let a = ProviderConfig(id: "a", kind: .foundation)
+        #expect(ProviderStatus.evaluate(a, hasKey: false, onDevice: .available) == .ready)
+    }
+}

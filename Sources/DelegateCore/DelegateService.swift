@@ -35,6 +35,16 @@ public enum ProviderStatus: Sendable, Equatable {
     case missingKey(String)
     case unavailable(String)
 
+    /// Wspólna reguła dla narzędzi MCP i GUI.
+    public static func evaluate(_ p: ProviderConfig, hasKey: Bool, onDevice: OnDeviceAvailability) -> ProviderStatus {
+        if !p.enabled { return .disabled }
+        if p.kind == .foundation {
+            if case .unavailable(let why) = onDevice { return .unavailable(why) }
+            return .ready
+        }
+        return hasKey ? .ready : .missingKey(p.apiKeyEnv)
+    }
+
     public var label: String {
         switch self {
         case .ready: "gotowy"
@@ -85,14 +95,7 @@ public struct DelegateService: Sendable {
 
     /// Czy dostawca jest dziś używalny i dlaczego nie (do GUI i `list_models`).
     public func status(of p: ProviderConfig) -> ProviderStatus {
-        if !p.enabled { return .disabled }
-        if p.kind == .foundation {
-            switch onDevice.availability {
-            case .available: return .ready
-            case .unavailable(let why): return .unavailable(why)
-            }
-        }
-        return secrets.secret(for: p.apiKeyEnv) == nil ? .missingKey(p.apiKeyEnv) : .ready
+        ProviderStatus.evaluate(p, hasKey: p.needsKey && secrets.secret(for: p.apiKeyEnv) != nil, onDevice: onDevice.availability)
     }
 
     /// Lekki test połączenia: lista modeli (chmura) albo dostępność (lokalnie).
@@ -203,6 +206,13 @@ public struct DelegateService: Sendable {
     }
 
     // MARK: list_remote_models
+
+    /// ID modeli z API dostawcy (do GUI); dla modelu lokalnego `["on-device"]`.
+    public func remoteModelIDs(for p: ProviderConfig) async throws -> [String] {
+        if p.kind == .foundation { return ["on-device"] }
+        guard let key = secrets.secret(for: p.apiKeyEnv) else { throw ProviderError.missingKey(p.apiKeyEnv) }
+        return try await ProviderClient(transport: transport, timeout: 30).listModels(provider: p, apiKey: key)
+    }
 
     public func listRemoteModels(providerID: String?) async throws -> String {
         let config = try loadConfig()

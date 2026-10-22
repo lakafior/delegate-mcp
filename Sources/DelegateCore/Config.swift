@@ -10,7 +10,9 @@ public enum ProviderKind: String, Codable, Sendable {
     case foundation
 }
 
-public struct ModelConfig: Codable, Sendable, Equatable {
+public struct ModelConfig: Codable, Sendable, Equatable, Identifiable {
+    /// Tożsamość wiersza w GUI; `id` modelu jest edytowalne, więc nie nadaje się na klucz widoku.
+    public let uid = UUID()
     public var id: String
     public var tags: [String]
     public var cost: String?
@@ -25,6 +27,10 @@ public struct ModelConfig: Codable, Sendable, Equatable {
 
     enum CodingKeys: String, CodingKey { case id, tags, cost, note }
 
+    public static func == (a: ModelConfig, b: ModelConfig) -> Bool {
+        a.id == b.id && a.tags == b.tags && a.cost == b.cost && a.note == b.note
+    }
+
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -34,7 +40,7 @@ public struct ModelConfig: Codable, Sendable, Equatable {
     }
 }
 
-public struct ProviderConfig: Codable, Sendable, Equatable {
+public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
     public var id: String
     public var kind: ProviderKind
     public var baseURL: String
@@ -147,6 +153,12 @@ public struct DelegateHome: Sendable {
             try writeDefaultConfig()
         }
         return try Config.parse(String(contentsOf: configURL, encoding: .utf8))
+    }
+
+    /// Zapis z GUI. Uwaga: serializacja nie zachowuje komentarzy z ręcznie edytowanego TOML.
+    public func save(_ config: Config) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try config.serialized().write(to: configURL, atomically: true, encoding: .utf8)
     }
 
     @discardableResult
