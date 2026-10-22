@@ -218,3 +218,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# SwiftPM
+.build/
+.swiftpm/
+*.xcodeproj/xcuserdata/
+DerivedData/
+# delegate
+delegate_usage.jsonl
