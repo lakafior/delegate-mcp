@@ -56,6 +56,7 @@ final class AppModel {
     init() {
         load()
         refresh()
+        migrateKeychainAccessIfNeeded()
     }
 
     // MARK: config
@@ -126,12 +127,45 @@ final class AppModel {
 
     func setKey(_ value: String, for p: ProviderConfig) {
         do {
-            try keychain.set(value.trimmingCharacters(in: .whitespacesAndNewlines), for: p.apiKeyEnv)
+            try keychain.set(value.trimmingCharacters(in: .whitespacesAndNewlines), for: p.apiKeyEnv,
+                             trusting: trustedHelperPaths)
             saveError = nil
         } catch {
             saveError = "Keychain: \(error)"
         }
         refresh()
+    }
+
+    /// Serwer MCP musi czytać klucze bez pytania o hasło (uruchamia go Claude, nie my).
+    private var trustedHelperPaths: [String] { helperExists ? [helperURL.path] : [] }
+
+    private static let aclVersionKey = "keychainACLVersion"
+    private static let currentACLVersion = 1
+
+    /// Jednorazowo przepisuje istniejące klucze z listą zaufanych programów (po aktualizacji aplikacji).
+    private func migrateKeychainAccessIfNeeded() {
+        guard UserDefaults.standard.integer(forKey: Self.aclVersionKey) < Self.currentACLVersion, helperExists else { return }
+        if reauthorizeKeys() { UserDefaults.standard.set(Self.currentACLVersion, forKey: Self.aclVersionKey) }
+    }
+
+    /// Przepisuje wszystkie klucze z Keychain tak, by serwer czytał je bez pytania. Zwraca `true`, gdy się udało.
+    @discardableResult
+    func reauthorizeKeys() -> Bool {
+        var ok = true
+        var count = 0
+        for p in config.providers where p.needsKey {
+            guard let value = keychain.secret(for: p.apiKeyEnv) else { continue }
+            do {
+                try keychain.set(value, for: p.apiKeyEnv, trusting: trustedHelperPaths)
+                count += 1
+            } catch {
+                ok = false
+                saveError = "Keychain: \(error)"
+            }
+        }
+        integrationMessage = ok ? "Serwer ma dostęp do kluczy (\(count)) bez pytania o hasło." : integrationMessage
+        refresh()
+        return ok
     }
 
     func removeKey(for p: ProviderConfig) {

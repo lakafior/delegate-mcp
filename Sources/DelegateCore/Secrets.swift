@@ -57,6 +57,33 @@ public struct KeychainSecretStore: SecretStore {
         return s
     }
 
+    /// Zapisuje klucz tak, żeby wskazane programy (oraz ten proces) czytały go bez pytania o hasło.
+    /// Wpis jest zakładany od nowa z listą zaufanych aplikacji (ACL), bo samej listy nie da się
+    /// zmienić w istniejącym wpisie bez zgody użytkownika.
+    public func set(_ value: String, for name: String, trusting paths: [String]) throws {
+        let data = Data(value.utf8)
+        var access: SecAccess?
+        var apps: [SecTrustedApplication] = []
+        var me: SecTrustedApplication?
+        if SecTrustedApplicationCreateFromPath(nil, &me) == errSecSuccess, let me { apps.append(me) }
+        for path in paths {
+            var app: SecTrustedApplication?
+            if SecTrustedApplicationCreateFromPath(path, &app) == errSecSuccess, let app { apps.append(app) }
+        }
+        let accessStatus = SecAccessCreate(name as CFString, apps as CFArray, &access)
+        guard accessStatus == errSecSuccess, let access else { throw KeychainError(status: accessStatus) }
+
+        _ = SecItemDelete(query(name) as CFDictionary)
+        var add = query(name)
+        add[kSecValueData as String] = data
+        add[kSecAttrAccess as String] = access
+        let status = SecItemAdd(add as CFDictionary, nil)
+        guard status == errSecSuccess else {
+            try? set(value, for: name)   // nie zostawiaj użytkownika bez klucza
+            throw KeychainError(status: status)
+        }
+    }
+
     public func set(_ value: String, for name: String) throws {
         let data = Data(value.utf8)
         let status = SecItemUpdate(query(name) as CFDictionary, [kSecValueData as String: data] as CFDictionary)

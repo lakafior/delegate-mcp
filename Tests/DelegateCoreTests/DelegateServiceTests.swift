@@ -281,3 +281,14 @@ final class ConfigBox: @unchecked Sendable {
         set { lock.withLock { stored = newValue } }
     }
 }
+
+@Suite struct KeychainTests {
+    @Test func setWithTrustedAppsRoundTripsAndReplaces() throws {
+        let store = KeychainSecretStore(service: "com.mar.delegate.tests-\(UUID().uuidString)")
+        defer { try? store.remove("K") }
+        try store.set("one", for: "K", trusting: ["/bin/ls"])
+        #expect(store.secret(for: "K") == "one")
+        try store.set("two", for: "K", trusting: [])
+        #expect(store.secret(for: "K") == "two")
+    }
+}

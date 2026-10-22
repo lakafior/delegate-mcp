@@ -23,6 +23,10 @@ struct GeneralView: View {
                         }
                     }
                 }
+                LabeledContent("Dostęp do Keychain") {
+                    Button("Zezwól serwerowi na odczyt kluczy") { model.reauthorizeKeys() }
+                        .disabled(!model.helperExists)
+                }
                 if let message = model.integrationMessage {
                     Label(message, systemImage: "info.circle").font(.callout).foregroundStyle(.secondary)
                 }
@@ -59,7 +63,7 @@ struct GeneralView: View {
             } header: {
                 Text("Pliki")
             } footer: {
-                Text("Zapis z aplikacji przepisuje delegate.toml i nie zachowuje komentarzy. Przy pierwszym użyciu klucza z Keychain przez serwer macOS zapyta o zgodę — wybierz „Zawsze zezwalaj”.")
+                Text("Zapis z aplikacji przepisuje delegate.toml i nie zachowuje komentarzy. Jeśli macOS pyta o hasło przy użyciu kluczy przez serwer, kliknij „Zezwól serwerowi na odczyt kluczy” w sekcji Claude.")
             }
         }
         .formStyle(.grouped)
