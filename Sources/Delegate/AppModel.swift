@@ -45,6 +45,8 @@ final class AppModel {
     private(set) var desktopState: IntegrationState = .notInstalled
     private(set) var codeState: IntegrationState = .notInstalled
     private(set) var instructionsInstalled = false
+    private(set) var instructionsOutdated = false
+    private(set) var gruntInstalled = false
     var integrationMessage: String?
 
     private var saved = Config()
@@ -252,6 +254,29 @@ final class AppModel {
         codeState = state(for: ClaudeIntegration.registeredCommand(in: code))
         let text = (try? String(contentsOf: ClaudeIntegration.globalInstructionsURL, encoding: .utf8)) ?? ""
         instructionsInstalled = ClaudeIntegration.hasInstructions(text)
+        instructionsOutdated = instructionsInstalled && !ClaudeIntegration.instructionsUpToDate(text)
+        gruntInstalled = ClaudeIntegration.gruntInstalled(try? String(contentsOf: ClaudeIntegration.gruntAgentURL, encoding: .utf8))
+    }
+
+    func installGrunt(_ install: Bool) {
+        let url = ClaudeIntegration.gruntAgentURL
+        do {
+            if install {
+                if let existing = try? String(contentsOf: url, encoding: .utf8), !ClaudeIntegration.gruntInstalled(existing) {
+                    integrationMessage = "Istnieje już inny plik \(url.lastPathComponent) (nie nasz). Nie nadpisuję go."
+                    return
+                }
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try ClaudeIntegration.gruntAgent.write(to: url, atomically: true, encoding: .utf8)
+                integrationMessage = "Dodano subagenta grunt (Haiku) w ~/.claude/agents. Zrestartuj sesje Claude Code."
+            } else if ClaudeIntegration.gruntInstalled(try? String(contentsOf: url, encoding: .utf8)) {
+                try FileManager.default.removeItem(at: url)
+                integrationMessage = "Usunięto subagenta grunt."
+            }
+        } catch {
+            integrationMessage = "Subagent grunt: \(error)"
+        }
+        refreshIntegrations()
     }
 
     func installDesktop(_ install: Bool) {
@@ -292,7 +317,7 @@ final class AppModel {
             let updated = install ? ClaudeIntegration.addingInstructions(to: text) : ClaudeIntegration.removingInstructions(from: text)
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try updated.write(to: url, atomically: true, encoding: .utf8)
-            integrationMessage = install ? "Dopisano blok „Delegowanie” do ~/.claude/CLAUDE.md." : "Usunięto blok z ~/.claude/CLAUDE.md."
+            integrationMessage = install ? "Zapisano blok „Delegowanie i tańsze modele” w ~/.claude/CLAUDE.md." : "Usunięto blok z ~/.claude/CLAUDE.md."
         } catch {
             integrationMessage = "CLAUDE.md: \(error)"
         }

@@ -196,6 +196,24 @@ func makeService(_ transport: MockTransport, keys: [String: String], config: Con
         #expect(ClaudeIntegration.removingInstructions(from: once) == "# Moje\n")
     }
 
+    @Test func oldInstructionBlockIsReplacedInPlace() {
+        let old = "# Moje\n\n\(ClaudeIntegration.marker)\n## Delegowanie\nstary tekst\n\(ClaudeIntegration.marker)\n\n## Inne\nzostaje\n"
+        #expect(!ClaudeIntegration.instructionsUpToDate(old))
+        let updated = ClaudeIntegration.addingInstructions(to: old)
+        #expect(ClaudeIntegration.instructionsUpToDate(updated))
+        #expect(!updated.contains("stary tekst"))
+        #expect(updated.contains("## Inne\nzostaje"))
+        #expect(updated.components(separatedBy: ClaudeIntegration.marker).count == 3)
+    }
+
+    @Test func gruntAgentHasHaikuFrontmatter() {
+        let a = ClaudeIntegration.gruntAgent
+        #expect(a.hasPrefix("---\nname: grunt\n"))
+        #expect(a.contains("model: haiku"))
+        #expect(ClaudeIntegration.gruntInstalled(a))
+        #expect(!ClaudeIntegration.gruntInstalled("---\nname: grunt\n---\ninny plik"))
+    }
+
     @Test func statusRule() {
         let p = ProviderConfig(id: "x", kind: .openai, baseURL: "u", apiKeyEnv: "K")
         #expect(ProviderStatus.evaluate(p, hasKey: false, onDevice: .available) == .missingKey("K"))

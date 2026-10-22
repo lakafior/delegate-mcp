@@ -13,13 +13,25 @@ struct GeneralView: View {
                 IntegrationRow(
                     title: "Claude Code", state: model.codeState, enabled: model.helperExists,
                     install: { model.installCode(true) }, remove: { model.installCode(false) })
-                LabeledContent("Instrukcja delegowania") {
+                LabeledContent("Instrukcja dla Claude") {
                     HStack {
-                        Text(model.instructionsInstalled ? "dopisana" : "brak").foregroundStyle(.secondary)
+                        Text(model.instructionsOutdated ? "starsza wersja" : (model.instructionsInstalled ? "aktualna" : "brak"))
+                            .foregroundStyle(.secondary)
                         if model.instructionsInstalled {
+                            if model.instructionsOutdated { Button("Zaktualizuj") { model.installInstructions(true) } }
                             Button("Usuń") { model.installInstructions(false) }
                         } else {
                             Button("Dopisz do ~/.claude/CLAUDE.md") { model.installInstructions(true) }
+                        }
+                    }
+                }
+                LabeledContent("Subagent grunt (Haiku)") {
+                    HStack {
+                        Text(model.gruntInstalled ? "zainstalowano" : "brak").foregroundStyle(.secondary)
+                        if model.gruntInstalled {
+                            Button("Usuń") { model.installGrunt(false) }
+                        } else {
+                            Button("Zainstaluj w ~/.claude/agents") { model.installGrunt(true) }
                         }
                     }
                 }

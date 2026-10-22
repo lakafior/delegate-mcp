@@ -98,16 +98,18 @@ dostawcy i zaktualizuj delegate.toml”*.
 
 ## Żeby Claude faktycznie delegował
 
-Zasady routingu są w `routing_guidance` w `delegate.toml`, a Claude czyta je przez
-`list_models`. Dodatkowo dopisz do `~/.claude/CLAUDE.md`:
+Zasady routingu są w `routing_guidance` w `delegate.toml`, a Claude czyta je przez `list_models`.
+Aplikacja (Ogólne → Claude) dopisuje do `~/.claude/CLAUDE.md` blok „Delegowanie i tańsze modele”
+(treść: `ClaudeIntegration.instructions`) i może zainstalować subagenta `grunt` (`~/.claude/agents/grunt.md`,
+`model: haiku`). Reguła w bloku:
 
-```markdown
-## Delegowanie
-Masz serwer MCP `delegate`. Przy zadaniach samowystarczalnych (masowe generowanie,
-tłumaczenia, pierwsze drafty, streszczenia wklejonego tekstu, druga opinia o fragmencie kodu)
-najpierw wywołaj `list_models`, potem `delegate` zgodnie z routing_guidance.
-Wynik zawsze zweryfikuj. Nie wysyłaj danych z pracy, sekretów ani danych osobowych.
-```
+1. mechaniczna praca na repo → subagent `grunt` (Haiku),
+2. zadanie samowystarczalne w tekście → `delegate` (modele zewnętrzne widzą tylko prompt),
+3. decyzje projektowe, debugowanie, wiele plików → główny model.
+
+Subagenci (`.claude/agents`) działają tylko w Claude Code (także w zakładce Code aplikacji Claude);
+zwykły czat w Claude Desktop ma tylko narzędzia MCP, czyli `delegate`.
+Starszy blok w `CLAUDE.md` aplikacja podmienia w miejscu przyciskiem „Zaktualizuj”.
 
 ## Ważne
 

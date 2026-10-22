@@ -3,7 +3,7 @@ import Foundation
 /// Podpięcie serwera w Claude Desktop / Claude Code oraz blok instrukcji dla `~/.claude/CLAUDE.md`.
 public enum ClaudeIntegration {
     public static let serverName = "delegate"
-    static let marker = "<!-- delegate-mcp -->"
+    public static let marker = "<!-- delegate-mcp -->"
 
     public static var desktopConfigURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -44,21 +44,53 @@ public enum ClaudeIntegration {
 
     public static let instructions = """
     \(marker)
-    ## Delegowanie
-    Masz serwer MCP `delegate`. Przy zadaniach samowystarczalnych (masowe generowanie,
-    tłumaczenia, pierwsze drafty, streszczenia wklejonego tekstu, druga opinia o fragmencie kodu)
-    najpierw wywołaj `list_models`, potem `delegate` zgodnie z routing_guidance.
-    Wynik zawsze zweryfikuj. Nie wysyłaj danych z pracy, sekretów ani danych osobowych.
+    ## Delegowanie i tańsze modele
+    Przy prostych zadaniach nie używaj głównego modelu, jeśli tańszy wystarczy:
+    1. Mechaniczna praca na repo lub plikach (szukanie w kodzie, przemianowania, testy wg istniejącego
+       wzorca, streszczanie logów): oddaj subagentowi `grunt` (Haiku).
+    2. Zadanie samowystarczalne w samym tekście (tłumaczenie, pierwszy draft, streszczenie wklejonego
+       tekstu, druga opinia o fragmencie kodu, masowe generowanie): najpierw `list_models`, potem
+       `delegate` zgodnie z routing_guidance. Modele z `delegate` widzą tylko prompt, więc wklej cały kontekst.
+    3. Decyzje projektowe, debugowanie, zmiany obejmujące wiele plików, bezpieczeństwo: rób sam.
+    Wynik zawsze zweryfikuj. Do `delegate` nie wysyłaj danych z pracy, sekretów ani danych osobowych
+    (to zewnętrzni dostawcy); `grunt` działa w ramach Claude, więc takich ograniczeń nie ma.
     \(marker)
     """
 
     public static func hasInstructions(_ text: String) -> Bool { text.contains(marker) }
 
+    /// Czy blok w pliku jest identyczny z aktualnym wzorcem.
+    public static func instructionsUpToDate(_ text: String) -> Bool { text.contains(instructions) }
+
+    /// Dopisuje blok albo podmienia istniejący (np. starszą wersję) w miejscu.
     public static func addingInstructions(to text: String) -> String {
-        guard !hasInstructions(text) else { return text }
+        let parts = text.components(separatedBy: marker)
+        if parts.count >= 3 {
+            return parts[0] + instructions + parts[2...].joined(separator: marker)
+        }
         let sep = text.isEmpty ? "" : (text.hasSuffix("\n") ? "\n" : "\n\n")
         return text + sep + instructions + "\n"
     }
+
+    // MARK: subagent `grunt`
+
+    public static var gruntAgentURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/agents/grunt.md")
+    }
+
+    public static let gruntAgent = """
+    ---
+    name: grunt
+    description: Mechaniczna praca na repo: szukanie w kodzie, przemianowania, testy wg istniejącego wzorca, streszczanie logów. Użyj, gdy nie trzeba decyzji projektowych.
+    model: haiku
+    ---
+    \(marker)
+    Wykonaj dokładnie to zadanie, które dostałeś. Jeśli okaże się, że wymaga decyzji projektowej
+    albo wykracza poza zakres, zatrzymaj się i opisz, co znalazłeś, zamiast zgadywać.
+    Na końcu podaj krótkie podsumowanie: co zrobiłeś, które pliki zmieniłeś, co zostało niepewne.
+    """
+
+    public static func gruntInstalled(_ text: String?) -> Bool { text?.contains(marker) == true }
 
     public static func removingInstructions(from text: String) -> String {
         let parts = text.components(separatedBy: marker)
