@@ -36,8 +36,7 @@ Zapewnienie deweloperom pracującym z Claude (Desktop & Code) najwygodniejszego,
   - Dodanie natywnej obsługi protokołu Anthropic (`/v1/messages` z nagłówkami `x-api-key` i `anthropic-version`).
   - Obsługa pobierania modeli (`/v1/models`) i tagowania modeli Claude (Haiku, Sonnet, Opus).
 - [x] **2.3. Format strukturyzowany (Structured Output / JSON Mode)**
-  - Dodany parametr `json: true` w narzędziu `delegate`.
-  - Przekazywanie `response_format: {"type": "json_object"}` dla OpenAI, `responseMimeType: "application/json"` dla Gemini oraz instrukcji wymuszenia JSON dla Anthropic.
+  - Dodany parametr `json: true` w narzędziu `delegate`.\n  - Przekazywanie `response_format: {"type": "json_object"}` dla OpenAI, `responseMimeType: "application/json"` dla Gemini oraz instrukcji wymuszenia JSON dla Anthropic.
 - [x] **2.4. Adaptacyjne timeouty i limit per dostawca**
   - Wprowadzenie adaptacyjnego wyliczania timeoutu (`computeTimeout`), automatycznie wydłużającego czas dla długich promptów oraz dużych wartości `max_tokens`.
   - Możliwość ustawienia własnego bazowego `timeout_seconds` per dostawca w `delegate.toml` oraz w GUI aplikacji.
@@ -47,14 +46,14 @@ Zapewnienie deweloperom pracującym z Claude (Desktop & Code) najwygodniejszego,
 ## Faza 3: Koszty, analityka i zwrot z inwestycji (Cost & ROI Tracking)
 *Cel: Namacalne pokazanie użytkownikowi, ile zaoszczędził delegując zadania.*
 
-- [ ] **3.1. Wyliczanie faktycznych kosztów zapytań (USD)**
-  - Rozszerzenie wpisu `UsageEntry` lub kalkulatora o koszt obliczany na podstawie `priceIn` / `priceOut` z konfiguracji modelu.
-  - Wyświetlanie sumy wydatków w `UsageView` i narzędziu `usage_summary`.
-- [ ] **3.2. Licznik zaoszczędzonych środków (ROI Ticker)**
-  - Porównanie faktycznego kosztu wykonanego zapytania z hipotetycznym kosztem przetworzenia tych samych tokenów przez Claude 3.5 Sonnet / Opus.
-  - Kafelek w interfejsie: *„Zaoszczędzono w tym miesiącu: ~$14.20”*.
-- [ ] **3.3. Eksport historii użycia**
-  - Opcja eksportu danych użycia do formatu CSV / JSON z poziomu widoku „Użycie”.
+- [x] **3.1. Wyliczanie faktycznych kosztów zapytań (USD)**
+  - Rozszerzenie wpisu `UsageEntry` i `CostCalculator` o precyzyjny koszt obliczany na podstawie `priceIn` / `priceOut` z konfiguracji modelu.
+  - Wyświetlanie sumy wydatków w nagłówku odpowiedzi, w `UsageView` i narzędziu `usage_summary`.
+- [x] **3.2. Licznik zaoszczędzonych środków (ROI Ticker)**
+  - Porównanie faktycznego kosztu wykonanego zapytania ze standardowym benchmarkiem Claude 3.5 Sonnet ($3 in / $15 out za 1M tokenów).
+  - Kafelki w interfejsie `UsageView`: *„Koszt”* oraz *„Zaoszczędzono vs Sonnet”*, z pełnym podsumowaniem w `usage_summary`.
+- [x] **3.3. Eksport historii użycia**
+  - Eksport danych użycia do formatów CSV oraz JSON z poziomu widoku „Użycie” za pomocą natywnego systemowego okna `NSSavePanel`.
 
 ---
 

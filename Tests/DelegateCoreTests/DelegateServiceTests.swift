@@ -451,3 +451,71 @@ final class ConfigBox: @unchecked Sendable {
         #expect(computed == 155)
     }
 }
+
+@Suite struct Phase3Tests {
+    @Test func costCalculatorAccuratePricingAndSavings() {
+        let model = ModelConfig(id: "deepseek-chat", priceIn: 0.14, priceOut: 0.28)
+        let cost = CostCalculator.computeCost(model: model, inputTokens: 1_000_000, outputTokens: 1_000_000)
+        #expect(cost != nil)
+        #expect(abs(cost! - 0.42) < 0.0001)
+
+        let freeModel = ModelConfig(id: "apple-on-device", cost: "free")
+        #expect(CostCalculator.computeCost(model: freeModel, inputTokens: 5000, outputTokens: 5000) == 0.0)
+
+        // Benchmark Claude 3.5 Sonnet: $3 in / $15 out za 1M tokenów = $18
+        let sonnetCost = CostCalculator.benchmarkSonnetCost(inputTokens: 1_000_000, outputTokens: 1_000_000)
+        #expect(abs(sonnetCost - 18.0) < 0.0001)
+
+        let savings = CostCalculator.savingsVsSonnet(cost: cost, inputTokens: 1_000_000, outputTokens: 1_000_000)
+        #expect(abs(savings - 17.58) < 0.0001)
+    }
+
+    @Test func delegateLogsCostAndFormatsHeader() async throws {
+        let t = MockTransport(["api.deepseek.com": .init(status: 200, body: openAIBody)])
+        let costConfig = Config(routingGuidance: "", timeoutSeconds: 30, providers: [
+            ProviderConfig(id: "deepseek", kind: .openai, baseURL: "https://api.deepseek.com/v1", apiKeyEnv: "DEEPSEEK_API_KEY", models: [
+                ModelConfig(id: "deepseek-chat", priceIn: 0.14, priceOut: 0.28)
+            ])
+        ])
+        let (svc, log) = try makeService(t, keys: ["DEEPSEEK_API_KEY": "d"], config: costConfig)
+        let reply = try await svc.delegate(.init(prompt: "ile kosztujesz?"))
+
+        // openAIBody ma 10 in / 3 out tokenów
+        #expect(reply.contains("koszt: $0.0000"))
+        let entries = UsageLog(url: log).entries()
+        #expect(entries.count == 1)
+        #expect(entries.first?.costUSD != nil)
+        #expect(entries.first!.costUSD! > 0)
+    }
+
+    @Test func usageSummaryAggregatesTotalCostAndSavings() throws {
+        let (svc, log) = try makeService(MockTransport([:]), keys: [:])
+        let l = UsageLog(url: log)
+        l.append(.init(provider: "deepseek", model: "deepseek-chat", inputTokens: 100_000, outputTokens: 50_000, costUSD: 0.028, ok: true, ms: 500))
+        l.append(.init(provider: "mistral", model: "mistral-small", inputTokens: 200_000, outputTokens: 100_000, costUSD: 0.12, ok: true, ms: 800))
+
+        let summary = svc.usageSummary()
+        #expect(summary.contains("Koszt całkowity: $0.1480"))
+        #expect(summary.contains("Zaoszczędzono vs Sonnet: $"))
+        #expect(summary.contains("· $0.0280"))
+        #expect(summary.contains("· $0.1200"))
+    }
+
+    @Test func exportCsvAndJsonFormats() throws {
+        let entries = [
+            UsageEntry(ts: Date(timeIntervalSince1970: 1700000000), provider: "deepseek", model: "deepseek-chat", task: "code", inputTokens: 100, outputTokens: 50, costUSD: 0.0002, ok: true, ms: 250),
+            UsageEntry(ts: Date(timeIntervalSince1970: 1700001000), provider: "mistral", model: "mistral-small", ok: false, error: "timeout", ms: 5000)
+        ]
+
+        let csv = UsageLog.csv(from: entries)
+        #expect(csv.contains("timestamp,provider,model,task,input_tokens,output_tokens,cost_usd,ok,ms"))
+        #expect(csv.contains("deepseek,deepseek-chat,code,100,50,0.000200,true,250"))
+        #expect(csv.contains("mistral,mistral-small,,0,0,,false,5000"))
+
+        let json = try UsageLog.json(from: entries)
+        let decoded = try UsageLog.parseJSON(json)
+        #expect(decoded.count == 2)
+        #expect(decoded[0].costUSD == 0.0002)
+        #expect(decoded[1].error == "timeout")
+    }
+}

@@ -1,6 +1,8 @@
+import AppKit
 import Charts
 import DelegateCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct UsageView: View {
     let model: AppModel
@@ -40,6 +42,7 @@ struct UsageView: View {
         var failed = 0
         var input = 0
         var output = 0
+        var cost: Double = 0.0
     }
 
     private var byModel: [ModelRowData] {
@@ -51,6 +54,7 @@ struct UsageView: View {
             if !e.ok { row.failed += 1 }
             row.input += e.inputTokens ?? 0
             row.output += e.outputTokens ?? 0
+            row.cost += e.costUSD ?? 0.0
             rows[ref] = row
         }
         return rows.values.sorted { $0.calls > $1.calls }
@@ -60,21 +64,48 @@ struct UsageView: View {
         entries.reduce(0) { $0 + ($1.inputTokens ?? 0) + ($1.outputTokens ?? 0) }
     }
 
+    private var totalCost: Double {
+        entries.compactMap(\.costUSD).reduce(0, +)
+    }
+
+    private var totalSavings: Double {
+        let totalIn = entries.compactMap(\.inputTokens).reduce(0, +)
+        let totalOut = entries.compactMap(\.outputTokens).reduce(0, +)
+        let sonnet = CostCalculator.benchmarkSonnetCost(inputTokens: totalIn, outputTokens: totalOut)
+        return max(0, sonnet - totalCost)
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Picker("Zakres", selection: $days) {
-                    Text("7 dni").tag(7)
-                    Text("30 dni").tag(30)
+                HStack {
+                    Picker("Zakres", selection: $days) {
+                        Text("7 dni").tag(7)
+                        Text("30 dni").tag(30)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 220)
+
+                    Spacer()
+
+                    Menu {
+                        Button("Eksportuj CSV...") { exportCSV() }
+                        Button("Eksportuj JSON...") { exportJSON() }
+                    } label: {
+                        Label("Eksportuj", systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(entries.isEmpty)
                 }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 220)
 
                 GlassEffectContainer(spacing: 12) {
                     HStack(spacing: 12) {
                         StatTile(title: "Wywołania", value: "\(entries.count)")
-                        StatTile(title: "Błędy", value: "\(entries.filter { !$0.ok }.count)")
                         StatTile(title: "Tokeny", value: totalTokens.formatted())
+                        StatTile(title: "Błędy", value: "\(entries.filter { !$0.ok }.count)")
+                    }
+                    HStack(spacing: 12) {
+                        StatTile(title: "Koszt", value: String(format: "$%.4f", totalCost))
+                        StatTile(title: "Zaoszczędzono vs Sonnet", value: String(format: "~$%.2f", totalSavings))
                     }
                 }
 
@@ -91,7 +122,8 @@ struct UsageView: View {
                         HStack {
                             Text(row.ref).font(.body.monospaced())
                             Spacer()
-                            Text("\(row.calls) wywołań · błędy \(row.failed) · \(row.input) in / \(row.output) out")
+                            let costStr = row.cost > 0 ? String(format: " · $%.4f", row.cost) : (row.cost == 0 && row.calls > 0 ? " · $0.00" : "")
+                            Text("\(row.calls) wywołań · błędy \(row.failed) · \(row.input) in / \(row.output) out\(costStr)")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                         }
@@ -105,6 +137,31 @@ struct UsageView: View {
         .onAppear { entries = model.usage(days: days) }
         .onChange(of: days) { entries = model.usage(days: days) }
     }
+
+    @MainActor
+    private func exportCSV() {
+        let panel = NSSavePanel()
+        panel.title = "Eksportuj historię użycia (CSV)"
+        panel.nameFieldStringValue = "delegate-usage.csv"
+        panel.allowedContentTypes = [.commaSeparatedText]
+        if panel.runModal() == .OK, let url = panel.url {
+            let csv = UsageLog.csv(from: entries)
+            try? csv.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
+    @MainActor
+    private func exportJSON() {
+        let panel = NSSavePanel()
+        panel.title = "Eksportuj historię użycia (JSON)"
+        panel.nameFieldStringValue = "delegate-usage.json"
+        panel.allowedContentTypes = [.json]
+        if panel.runModal() == .OK, let url = panel.url {
+            if let json = try? UsageLog.json(from: entries) {
+                try? json.write(to: url, atomically: true, encoding: .utf8)
+            }
+        }
+    }
 }
 
 private struct StatTile: View {
@@ -114,7 +171,7 @@ private struct StatTile: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).font(.caption).foregroundStyle(.secondary)
-            Text(value).font(.title.bold())
+            Text(value).font(.title2.bold())
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)

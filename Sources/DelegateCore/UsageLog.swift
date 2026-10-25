@@ -8,18 +8,21 @@ public struct UsageEntry: Codable, Sendable, Equatable {
     public var task: String?
     public var inputTokens: Int?
     public var outputTokens: Int?
+    public var costUSD: Double?
     public var ok: Bool
     public var error: String?
     public var ms: Int
 
     public init(ts: Date = Date(), provider: String, model: String, task: String? = nil,
-                inputTokens: Int? = nil, outputTokens: Int? = nil, ok: Bool, error: String? = nil, ms: Int) {
+                inputTokens: Int? = nil, outputTokens: Int? = nil, costUSD: Double? = nil,
+                ok: Bool, error: String? = nil, ms: Int) {
         self.ts = ts
         self.provider = provider
         self.model = model
         self.task = task
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
+        self.costUSD = costUSD
         self.ok = ok
         self.error = error
         self.ms = ms
@@ -29,7 +32,49 @@ public struct UsageEntry: Codable, Sendable, Equatable {
         case ts, provider, model, task
         case inputTokens = "input_tokens"
         case outputTokens = "output_tokens"
+        case costUSD = "cost_usd"
         case ok, error, ms
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ts = try c.decode(Date.self, forKey: .ts)
+        provider = try c.decode(String.self, forKey: .provider)
+        model = try c.decode(String.self, forKey: .model)
+        task = try c.decodeIfPresent(String.self, forKey: .task)
+        inputTokens = try c.decodeIfPresent(Int.self, forKey: .inputTokens)
+        outputTokens = try c.decodeIfPresent(Int.self, forKey: .outputTokens)
+        costUSD = try c.decodeIfPresent(Double.self, forKey: .costUSD)
+        ok = try c.decode(Bool.self, forKey: .ok)
+        error = try c.decodeIfPresent(String.self, forKey: .error)
+        ms = try c.decode(Int.self, forKey: .ms)
+    }
+}
+
+/// Narzędzia do szacowania kosztów i zaoszczędzonych środków względem modelu referencyjnego (Claude 3.5 Sonnet).
+public enum CostCalculator {
+    /// Benchmark Claude 3.5 Sonnet: $3.00 wejście / $15.00 wyjście za 1M tokenów.
+    public static let sonnetPriceIn: Double = 3.0
+    public static let sonnetPriceOut: Double = 15.0
+
+    public static func computeCost(model: ModelConfig, inputTokens: Int?, outputTokens: Int?) -> Double? {
+        if model.cost == "free" { return 0.0 }
+        guard let priceIn = model.priceIn, let priceOut = model.priceOut else { return nil }
+        let inCost = (Double(inputTokens ?? 0) / 1_000_000.0) * priceIn
+        let outCost = (Double(outputTokens ?? 0) / 1_000_000.0) * priceOut
+        return inCost + outCost
+    }
+
+    public static func benchmarkSonnetCost(inputTokens: Int?, outputTokens: Int?) -> Double {
+        let inCost = (Double(inputTokens ?? 0) / 1_000_000.0) * sonnetPriceIn
+        let outCost = (Double(outputTokens ?? 0) / 1_000_000.0) * sonnetPriceOut
+        return inCost + outCost
+    }
+
+    public static func savingsVsSonnet(cost: Double?, inputTokens: Int?, outputTokens: Int?) -> Double {
+        let sonnet = benchmarkSonnetCost(inputTokens: inputTokens, outputTokens: outputTokens)
+        let actual = cost ?? 0.0
+        return max(0, sonnet - actual)
     }
 }
 
@@ -96,5 +141,30 @@ public struct UsageLog: Sendable {
         }
         try data.write(to: url, options: .atomic)
         return removed
+    }
+
+    /// Eksportuje wpisy do formatu CSV.
+    public static func csv(from entries: [UsageEntry]) -> String {
+        var out = "timestamp,provider,model,task,input_tokens,output_tokens,cost_usd,ok,ms\n"
+        let df = ISO8601DateFormatter()
+        for e in entries {
+            let costStr = e.costUSD.map { String(format: "%.6f", $0) } ?? ""
+            out += "\(df.string(from: e.ts)),\(e.provider),\(e.model),\(e.task ?? ""),\(e.inputTokens ?? 0),\(e.outputTokens ?? 0),\(costStr),\(e.ok),\(e.ms)\n"
+        }
+        return out
+    }
+
+    /// Eksportuje wpisy do formatu JSON.
+    public static func json(from entries: [UsageEntry]) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(entries)
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// Parsuje wpisy z formatu JSON.
+    public static func parseJSON(_ json: String) throws -> [UsageEntry] {
+        try decoder().decode([UsageEntry].self, from: Data(json.utf8))
     }
 }

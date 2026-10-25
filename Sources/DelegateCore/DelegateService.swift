@@ -259,10 +259,12 @@ public struct DelegateService: Sendable {
                     reply = try await client.chat(provider: c.provider, model: c.model.id, apiKey: key, request: chat)
                 }
                 let ms = Int(Date().timeIntervalSince(started) * 1000)
+                let cost = CostCalculator.computeCost(model: c.model, inputTokens: reply.inputTokens, outputTokens: reply.outputTokens)
                 usage.append(UsageEntry(provider: c.provider.id, model: c.model.id, task: request.task,
                                         inputTokens: reply.inputTokens, outputTokens: reply.outputTokens,
+                                        costUSD: cost,
                                         ok: true, ms: ms))
-                return header(c, reply, ms: ms, failures: failures) + "\n\n" + reply.text
+                return header(c, reply, ms: ms, cost: cost, failures: failures) + "\n\n" + reply.text
             } catch {
                 let ms = Int(Date().timeIntervalSince(started) * 1000)
                 usage.append(UsageEntry(provider: c.provider.id, model: c.model.id, task: request.task,
@@ -274,9 +276,13 @@ public struct DelegateService: Sendable {
         throw DelegateError(description: "Wszystkie próby zawiodły:\n" + failures.map { "- \($0)" }.joined(separator: "\n"))
     }
 
-    private func header(_ c: Candidate, _ r: ChatReply, ms: Int, failures: [String]) -> String {
+    private func header(_ c: Candidate, _ r: ChatReply, ms: Int, cost: Double?, failures: [String]) -> String {
         let tokens = "\(r.inputTokens.map(String.init) ?? "?") in / \(r.outputTokens.map(String.init) ?? "?") out"
-        var h = "[delegate] model: \(c.ref) · tokeny: \(tokens) · \(String(format: "%.1f", Double(ms) / 1000)) s"
+        var h = "[delegate] model: \(c.ref) · tokeny: \(tokens)"
+        if let cost {
+            h += String(format: " · koszt: $%.4f", cost)
+        }
+        h += " · \(String(format: "%.1f", Double(ms) / 1000)) s"
         h += failures.isEmpty ? " · fallbacki: brak" : " · fallbacki: " + failures.joined(separator: "; ")
         return h
     }
@@ -364,7 +370,7 @@ public struct DelegateService: Sendable {
         let entries = usage.entries(since: since)
         guard !entries.isEmpty else { return "Brak wywołań w ostatnich \(days) dniach." }
 
-        struct Agg { var calls = 0, failed = 0, input = 0, output = 0 }
+        struct Agg { var calls = 0, failed = 0, input = 0, output = 0, cost: Double = 0.0 }
         var byModel: [String: Agg] = [:]
         for e in entries {
             var a = byModel["\(e.provider)/\(e.model)", default: Agg()]
@@ -372,13 +378,25 @@ public struct DelegateService: Sendable {
             if !e.ok { a.failed += 1 }
             a.input += e.inputTokens ?? 0
             a.output += e.outputTokens ?? 0
+            a.cost += e.costUSD ?? 0.0
             byModel["\(e.provider)/\(e.model)"] = a
         }
         var out = "# Użycie z ostatnich \(days) dni\n\n"
         for (ref, a) in byModel.sorted(by: { $0.value.calls > $1.value.calls }) {
-            out += "- `\(ref)`: \(a.calls) wywołań (błędy: \(a.failed)), tokeny: \(a.input) in / \(a.output) out\n"
+            var line = "- `\(ref)`: \(a.calls) wywołań (błędy: \(a.failed)), tokeny: \(a.input) in / \(a.output) out"
+            if a.cost > 0 {
+                line += String(format: " · $%.4f", a.cost)
+            }
+            out += line + "\n"
         }
-        out += "\nRazem: \(entries.count) wywołań, \(entries.compactMap(\.inputTokens).reduce(0, +)) in / \(entries.compactMap(\.outputTokens).reduce(0, +)) out"
+        let totalCost = entries.compactMap(\.costUSD).reduce(0, +)
+        let totalInput = entries.compactMap(\.inputTokens).reduce(0, +)
+        let totalOutput = entries.compactMap(\.outputTokens).reduce(0, +)
+        let sonnetCost = CostCalculator.benchmarkSonnetCost(inputTokens: totalInput, outputTokens: totalOutput)
+        let saved = max(0, sonnetCost - totalCost)
+
+        out += "\nRazem: \(entries.count) wywołań, \(totalInput) in / \(totalOutput) out"
+        out += String(format: "\nKoszt całkowity: $%.4f · Zaoszczędzono vs Sonnet: $%.4f", totalCost, saved)
         return out
     }
 }
