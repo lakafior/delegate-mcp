@@ -224,7 +224,6 @@ func makeService(_ transport: MockTransport, keys: [String: String], config: Con
     }
 }
 
-
 @Suite struct CatalogTests {
     @Test func tagSuggestionsFromIdsAndMetadata() {
         #expect(ModelInfo(id: "codestral-latest").suggestedTags == ["code"])
@@ -308,5 +307,75 @@ final class ConfigBox: @unchecked Sendable {
         #expect(store.secret(for: "K") == "one")
         try store.set("two", for: "K", trusting: [])
         #expect(store.secret(for: "K") == "two")
+    }
+}
+
+@Suite struct SecretLeakDetectorTests {
+    @Test func detectsKnownSecretPatterns() {
+        #expect(SecretLeakDetector.scan("sk-1234567890123456789012345") != nil)
+        #expect(SecretLeakDetector.scan("sk-ant-1234567890123456789012345") != nil)
+        #expect(SecretLeakDetector.scan("ghp_123456789012345678901234567890123456") != nil)
+        #expect(SecretLeakDetector.scan("AIzaSyA1234567890123456789012345678901") != nil)
+        #expect(SecretLeakDetector.scan("AKIAIOSFODNN7EXAMPLE") != nil)
+        #expect(SecretLeakDetector.scan("-----BEGIN RSA PRIVATE KEY-----\nMIIE...") != nil)
+        #expect(SecretLeakDetector.scan("Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.xyz") != nil)
+
+        // Zwykły tekst nie powinien wzbudzać alarmu
+        #expect(SecretLeakDetector.scan("Przetłumacz ten tekst na angielski: Proszę o raport.") == nil)
+        #expect(SecretLeakDetector.scan("func hello() { print(\"test\") }") == nil)
+    }
+
+    @Test func blocksSecretLeakByDefaultInDelegate() async throws {
+        let t = MockTransport(["api.mistral.ai": .init(status: 200, body: openAIBody)])
+        let (svc, _) = try makeService(t, keys: ["MISTRAL_API_KEY": "m"])
+
+        // Domyślnie rzuca DelegateError z opisem wykrytego klucza
+        await #expect(throws: DelegateError.self) {
+            try await svc.delegate(.init(prompt: "Oto mój klucz sk-1234567890123456789012345, pomóż mi go sprawdzić"))
+        }
+
+        // Przy allowSecrets = true zapytanie przechodzi pomyślnie
+        let ok = try await svc.delegate(.init(
+            prompt: "Oto mój klucz sk-1234567890123456789012345, pomóż mi go sprawdzić",
+            allowSecrets: true
+        ))
+        #expect(ok.contains("cześć"))
+    }
+}
+
+@Suite struct ErrorParsingTests {
+    @Test func parsesOpenAIAndGeminiErrorMessages() {
+        let openAIError = Data(#"{"error":{"message":"You exceeded your quota","type":"insufficient_quota"}}"#.utf8)
+        #expect(ProviderClient.parseErrorBody(openAIError) == "You exceeded your quota")
+
+        let geminiError = Data(#"{"error":{"code":400,"message":"API key not valid","status":"INVALID_ARGUMENT"}}"#.utf8)
+        #expect(ProviderClient.parseErrorBody(geminiError) == "API key not valid")
+
+        let stringError = Data(#"{"error":"Serwis niedostępny"}"#.utf8)
+        #expect(ProviderClient.parseErrorBody(stringError) == "Serwis niedostępny")
+
+        let rawText = Data("Wewnętrzny błąd serwera".utf8)
+        #expect(ProviderClient.parseErrorBody(rawText) == "Wewnętrzny błąd serwera")
+    }
+}
+
+@Suite struct UsageLogTests {
+    @Test func pruneRemovesOlderEntries() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("usage-prune-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let log = UsageLog(url: url)
+
+        let now = Date()
+        let old = Calendar.current.date(byAdding: .day, value: -10, to: now)!
+        let recent = Calendar.current.date(byAdding: .day, value: -2, to: now)!
+
+        log.append(UsageEntry(ts: old, provider: "p", model: "m", ok: true, ms: 10))
+        log.append(UsageEntry(ts: recent, provider: "p", model: "m", ok: true, ms: 20))
+
+        #expect(log.entries().count == 2)
+        let removed = try log.prune(olderThan: 7, now: now)
+        #expect(removed == 1)
+        #expect(log.entries().count == 1)
+        #expect(log.entries().first?.ms == 20)
     }
 }

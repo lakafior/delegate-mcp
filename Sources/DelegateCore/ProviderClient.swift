@@ -194,6 +194,32 @@ struct ProviderClient {
         }
     }
 
+    static func parseErrorBody(_ data: Data) -> String {
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let errObj = json["error"] as? [String: Any] {
+                if let msg = errObj["message"] as? String, !msg.isEmpty {
+                    return msg
+                }
+                if let status = errObj["status"] as? String, !status.isEmpty {
+                    return status
+                }
+            } else if let errMsg = json["error"] as? String, !errMsg.isEmpty {
+                return errMsg
+            } else if let msg = json["message"] as? String, !msg.isEmpty {
+                return msg
+            }
+        } else if let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+                  let first = arr.first {
+            if let errObj = first["error"] as? [String: Any], let msg = errObj["message"] as? String, !msg.isEmpty {
+                return msg
+            }
+        }
+        let raw = String(decoding: data.prefix(300), as: UTF8.self)
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespaces)
+        return raw.isEmpty ? "brak treści błędu" : raw
+    }
+
     private func perform(_ req: URLRequest) async throws -> [String: Any] {
         let data: Data, http: HTTPURLResponse
         do { (data, http) = try await transport.send(req) }
@@ -201,8 +227,7 @@ struct ProviderClient {
         catch { throw ProviderError.network(error.localizedDescription) }
 
         guard (200..<300).contains(http.statusCode) else {
-            let body = String(decoding: data.prefix(300), as: UTF8.self)
-                .replacingOccurrences(of: "\n", with: " ")
+            let body = Self.parseErrorBody(data)
             throw ProviderError.http(status: http.statusCode, body: body)
         }
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {

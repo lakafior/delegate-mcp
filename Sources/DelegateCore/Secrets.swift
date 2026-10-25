@@ -57,12 +57,9 @@ public struct KeychainSecretStore: SecretStore {
         return s
     }
 
-    /// Zapisuje klucz tak, żeby wskazane programy (oraz ten proces) czytały go bez pytania o hasło.
-    /// Wpis jest zakładany od nowa z listą zaufanych aplikacji (ACL), bo samej listy nie da się
-    /// zmienić w istniejącym wpisie bez zgody użytkownika.
-    public func set(_ value: String, for name: String, trusting paths: [String]) throws {
-        let data = Data(value.utf8)
-        var access: SecAccess?
+    /// Tworzy obiekt SecAccess z listą zaufanych binariów w starszym modelu Keychain (macOS ACL).
+    @available(macOS, deprecated: 10.10)
+    private static func createLegacyAccess(name: String, paths: [String]) throws -> SecAccess {
         var apps: [SecTrustedApplication] = []
         var me: SecTrustedApplication?
         if SecTrustedApplicationCreateFromPath(nil, &me) == errSecSuccess, let me { apps.append(me) }
@@ -70,8 +67,22 @@ public struct KeychainSecretStore: SecretStore {
             var app: SecTrustedApplication?
             if SecTrustedApplicationCreateFromPath(path, &app) == errSecSuccess, let app { apps.append(app) }
         }
+        var access: SecAccess?
         let accessStatus = SecAccessCreate(name as CFString, apps as CFArray, &access)
         guard accessStatus == errSecSuccess, let access else { throw KeychainError(status: accessStatus) }
+        return access
+    }
+
+    /// Zapisuje klucz tak, żeby wskazane programy (oraz ten proces) czytały go bez pytania o hasło.
+    /// Wpis jest zakładany od nowa z listą zaufanych aplikacji (ACL), bo samej listy nie da się
+    /// zmienić w istniejącym wpisie bez zgody użytkownika.
+    public func set(_ value: String, for name: String, trusting paths: [String]) throws {
+        guard !paths.isEmpty else {
+            try set(value, for: name)
+            return
+        }
+        let data = Data(value.utf8)
+        let access = try Self.createLegacyAccess(name: name, paths: paths)
 
         _ = SecItemDelete(query(name) as CFDictionary)
         var add = query(name)

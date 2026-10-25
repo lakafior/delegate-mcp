@@ -60,6 +60,7 @@ let tools: [Tool] = [
             "temperature": prop("number", "Opcjonalna temperatura."),
             "max_tokens": prop("integer", "Opcjonalny limit tokenów odpowiedzi."),
             "fallback": prop("boolean", "Domyślnie true. false = tylko wskazany model."),
+            "allow_secrets": prop("boolean", "Domyślnie false. Ustaw true, jeśli celowo wysyłasz fragmenty kodu zawierające klucze lub tokeny API."),
         ], required: ["prompt"])
     ),
     Tool(
@@ -126,7 +127,8 @@ await server.withMethodHandler(CallTool.self) { params in
                 task: a["task"]?.stringValue,
                 temperature: a["temperature"]?.doubleValue,
                 maxTokens: a["max_tokens"]?.intValue,
-                allowFallback: a["fallback"]?.boolValue ?? true
+                allowFallback: a["fallback"]?.boolValue ?? true,
+                allowSecrets: a["allow_secrets"]?.boolValue ?? false
             )
             return .init(content: [reply(try await service.delegate(request))], isError: false)
 

@@ -10,9 +10,12 @@ public struct DelegateRequest: Sendable {
     public var maxTokens: Int?
     /// `false`: tylko wskazany model, bez przechodzenia do następnych.
     public var allowFallback: Bool
+    /// `false`: zablokuj, jeśli w prompcie lub system prompt wykryto potencjalny klucz API/sekret.
+    public var allowSecrets: Bool
 
     public init(prompt: String, system: String? = nil, model: String? = nil, task: String? = nil,
-                temperature: Double? = nil, maxTokens: Int? = nil, allowFallback: Bool = true) {
+                temperature: Double? = nil, maxTokens: Int? = nil, allowFallback: Bool = true,
+                allowSecrets: Bool = false) {
         self.prompt = prompt
         self.system = system
         self.model = model
@@ -20,6 +23,7 @@ public struct DelegateRequest: Sendable {
         self.temperature = temperature
         self.maxTokens = maxTokens
         self.allowFallback = allowFallback
+        self.allowSecrets = allowSecrets
     }
 }
 
@@ -207,6 +211,16 @@ public struct DelegateService: Sendable {
                 throw DelegateError(description: "Model „\(m)” niedostępny (brak w configu, wyłączony albo bez klucza). Użyj list_models.")
             }
             throw DelegateError(description: "Brak dostępnych modeli. Sprawdź klucze i config przez list_models.")
+        }
+
+        // Weryfikacja pod kątem wycieku sekretów do dostawców zewnętrznych
+        if !request.allowSecrets {
+            let targetsCloud = list.contains { $0.provider.kind != .foundation }
+            if targetsCloud, let leak = SecretLeakDetector.scan(request.prompt) ?? (request.system.flatMap(SecretLeakDetector.scan)) {
+                throw DelegateError(
+                    description: "Wykryto potencjalny sekret w prompcie (\(leak.type): \(leak.matched)). Jeśli celowo wysyłasz te dane do zewnętrznego modelu, ustaw allow_secrets = true."
+                )
+            }
         }
 
         let client = ProviderClient(transport: transport, timeout: config.timeoutSeconds)

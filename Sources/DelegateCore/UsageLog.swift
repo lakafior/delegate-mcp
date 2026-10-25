@@ -50,6 +50,7 @@ public struct UsageLog: Sendable {
         return d
     }
 
+    /// Bezpieczny zapis z blokadą plikową (flock), chroniący przed uszkodzeniem JSONL przy równoległych zapytaniach.
     public func append(_ entry: UsageEntry) {
         guard var line = try? Self.encoder().encode(entry) else { return }
         line.append(0x0A)
@@ -57,7 +58,11 @@ public struct UsageLog: Sendable {
         try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         if !fm.fileExists(atPath: url.path) { fm.createFile(atPath: url.path, contents: nil) }
         guard let handle = try? FileHandle(forWritingTo: url) else { return }
-        defer { try? handle.close() }
+        defer {
+            flock(handle.fileDescriptor, LOCK_UN)
+            try? handle.close()
+        }
+        flock(handle.fileDescriptor, LOCK_EX)
         _ = try? handle.seekToEnd()
         try? handle.write(contentsOf: line)
     }
@@ -70,5 +75,26 @@ public struct UsageLog: Sendable {
             if let since, e.ts < since { return nil }
             return e
         }
+    }
+
+    /// Usuwa wpisy starsze niż podana liczba dni. Zwraca liczbę usuniętych wpisów.
+    @discardableResult
+    public func prune(olderThan days: Int, now: Date = Date()) throws -> Int {
+        guard let cutoff = Calendar.current.date(byAdding: .day, value: -max(days, 1), to: now) else { return 0 }
+        let all = entries()
+        let kept = all.filter { $0.ts >= cutoff }
+        let removed = all.count - kept.count
+        guard removed > 0 else { return 0 }
+
+        let encoder = Self.encoder()
+        var data = Data()
+        for entry in kept {
+            if var line = try? encoder.encode(entry) {
+                line.append(0x0A)
+                data.append(line)
+            }
+        }
+        try data.write(to: url, options: .atomic)
+        return removed
     }
 }
