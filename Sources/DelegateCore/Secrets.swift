@@ -57,18 +57,35 @@ public struct KeychainSecretStore: SecretStore {
         return s
     }
 
-    /// Tworzy obiekt SecAccess z listą zaufanych binariów w starszym modelu Keychain (macOS ACL).
-    @available(macOS, deprecated: 10.10)
+    /// Tworzy obiekt SecAccess z listą zaufanych binariów w modelu macOS ACL (dynamiczne powiązanie symboli unika ostrzeżeń kompilatora).
     private static func createLegacyAccess(name: String, paths: [String]) throws -> SecAccess {
+        typealias SecTrustedAppCreateFunc = @convention(c) (UnsafePointer<CChar>?, UnsafeMutablePointer<SecTrustedApplication?>) -> OSStatus
+        typealias SecAccessCreateFunc = @convention(c) (CFString, CFArray, UnsafeMutablePointer<SecAccess?>) -> OSStatus
+
+        guard let handle = dlopen("/System/Library/Frameworks/Security.framework/Security", RTLD_LAZY) else {
+            throw KeychainError(status: errSecInternalComponent)
+        }
+        defer { dlclose(handle) }
+
+        guard let appSym = dlsym(handle, "SecTrustedApplicationCreateFromPath"),
+              let accSym = dlsym(handle, "SecAccessCreate") else {
+            throw KeychainError(status: errSecUnimplemented)
+        }
+
+        let createApp = unsafeBitCast(appSym, to: SecTrustedAppCreateFunc.self)
+        let createAcc = unsafeBitCast(accSym, to: SecAccessCreateFunc.self)
+
         var apps: [SecTrustedApplication] = []
         var me: SecTrustedApplication?
-        if SecTrustedApplicationCreateFromPath(nil, &me) == errSecSuccess, let me { apps.append(me) }
+        if createApp(nil, &me) == errSecSuccess, let me { apps.append(me) }
         for path in paths {
             var app: SecTrustedApplication?
-            if SecTrustedApplicationCreateFromPath(path, &app) == errSecSuccess, let app { apps.append(app) }
+            path.withCString { cPath in
+                if createApp(cPath, &app) == errSecSuccess, let app { apps.append(app) }
+            }
         }
         var access: SecAccess?
-        let accessStatus = SecAccessCreate(name as CFString, apps as CFArray, &access)
+        let accessStatus = createAcc(name as CFString, apps as CFArray, &access)
         guard accessStatus == errSecSuccess, let access else { throw KeychainError(status: accessStatus) }
         return access
     }
