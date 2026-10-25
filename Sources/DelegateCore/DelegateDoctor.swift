@@ -166,7 +166,7 @@ public struct DelegateDoctor: Sendable {
             severity: hasInstructions ? .ok : .warning,
             message: hasInstructions ? "Instrukcje delegowania zainstalowane" : "Brak instrukcji delegowania w ~/.claude/CLAUDE.md",
             detail: ClaudeIntegration.globalInstructionsURL.path,
-            fixable: true
+            fixable: !hasInstructions
         ))
 
         // 4. Claude Code Subagent grunt Check
@@ -177,7 +177,7 @@ public struct DelegateDoctor: Sendable {
             severity: hasGrunt ? .ok : .warning,
             message: hasGrunt ? "Agent grunt zainstalowany" : "Brak pliku agenta ~/.claude/agents/grunt.md",
             detail: ClaudeIntegration.gruntAgentURL.path,
-            fixable: true
+            fixable: !hasGrunt
         ))
 
         // 5. On-Device Foundation Model Check

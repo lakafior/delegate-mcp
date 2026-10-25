@@ -148,7 +148,7 @@ struct DiagnosticsView: View {
 
             Spacer()
 
-            if check.fixable {
+            if check.severity != .ok && check.fixable {
                 Button("Napraw") {
                     fixCheck(check)
                 }

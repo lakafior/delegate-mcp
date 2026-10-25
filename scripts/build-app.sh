@@ -4,7 +4,15 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONFIG="${CONFIG:-release}"
-SIGN_ID="${SIGN_ID:--}"   # "-" = ad-hoc; ustaw "Developer ID Application: ..." do dystrybucji
+if [[ -z "${SIGN_ID:-}" ]]; then
+  # Automatycznie wykryj lokalny certyfikat Apple Development lub Developer ID.
+  # Podpisanie prawdziwym certyfikatem (zamiast ad-hoc "-") sprawia, że macOS Keychain
+  # nie pyta o hasło do kluczy API po każdej aktualizacji/przebudowie aplikacji.
+  DETECTED_ID="$(security find-identity -v -p codesigning 2>/dev/null | grep -E 'Apple Development|Developer ID Application' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || true)"
+  SIGN_ID="${DETECTED_ID:--}"
+fi
+
+echo "Tożsamość podpisu: $SIGN_ID"
 
 swift build -c "$CONFIG" --product Delegate
 swift build -c "$CONFIG" --product delegate-mcp
