@@ -14,7 +14,7 @@ Zapewnienie deweloperom pracującym z Claude (Desktop & Code) najwygodniejszego,
 
 - [x] **1.1. Nowoczesne API Keychain (Usunięcie deprecations)**
   - Oczyszczenie ścieżek dostępu bez zaufanych binariów (bezpośredni `SecItemAdd` / `SecItemUpdate`).
-  - Wyizolowanie starszego modelu ACL (`SecAccessCreate`) w dedykowanej metodzie `createLegacyAccess`.
+  - Dynamiczne wiązanie symboli systemowych (`dlsym`) dla `SecAccessCreate` i `SecTrustedApplicationCreateFromPath`, eliminujące ostrzeżenia kompilatora przy zachowaniu pełnej funkcjonalności ACL.
 - [x] **1.2. Pre-flight detektor wycieku sekretów (Data Leak Prevention)**
   - Wdrożony `SecretLeakDetector` weryfikujący prompt przed wysłaniem do dostawców zewnętrznych (OpenAI, Anthropic, Google, AWS, GitHub, klucze prywatne, tokeny Bearer).
   - Ochrona przed przypadkowym wyciekiem danych z opcją wymuszenia wysłania (`allow_secrets = true`).
@@ -29,18 +29,18 @@ Zapewnienie deweloperom pracującym z Claude (Desktop & Code) najwygodniejszego,
 ## Faza 2: Rozszerzenie silników i protokołów (Providers & Capabilities)
 *Cel: Obsługa wszystkich wiodących platform, modeli lokalnych i formatów danych.*
 
-- [ ] **2.1. Wsparcie dla modeli lokalnych bez klucza (Ollama, LM Studio, vLLM)**
-  - Obsługa dostawców OpenAI-compatible bez wymogu ustawiania zmiennej środowiskowej czy wpisu w Keychain (`needsKey = false`).
-  - Dedykowane szablony konfiguracji dla lokalnych endpointów (np. `http://localhost:11434/v1`).
-- [ ] **2.2. Bezpośrednia integracja z Anthropic Messages API (`type = "anthropic"`)**
+- [x] **2.1. Wsparcie dla modeli lokalnych bez klucza (Ollama, LM Studio, vLLM)**
+  - Dostawcy z pustym `apiKeyEnv` nie wymagają klucza (`needsKey = false`) i są od razu oznaczeni jako `ready`.
+  - Wycofanie nagłówka `Authorization`, gdy klucz nie został podany.
+- [x] **2.2. Bezpośrednia integracja z Anthropic Messages API (`type = "anthropic"`)**
   - Dodanie natywnej obsługi protokołu Anthropic (`/v1/messages` z nagłówkami `x-api-key` i `anthropic-version`).
-  - Umożliwienie delegowania do Claude 3.5 Haiku bezpośrednio na własnym kluczu Anthropic, bez konieczności używania OpenRoutera.
-- [ ] **2.3. Format strukturyzowany (Structured Output / JSON Mode)**
-  - Opcjonalny parametr `json: true` (lub schemat JSON) w narzędziu `delegate`.
-  - Przekazywanie `response_format: {"type": "json_object"}` dla OpenAI/Mistral oraz `responseMimeType: "application/json"` dla Gemini.
-- [ ] **2.4. Granularne timeouty i polityka ponawiania prób**
-  - Możliwość zdefiniowania parametru `timeout_seconds` per dostawca w `delegate.toml`.
-  - Wprowadzenie krótkiego connect timeoutu (10–15s), zapobiegającego blokowaniu łańcucha fallbacków przy niedostępnych serwerach.
+  - Obsługa pobierania modeli (`/v1/models`) i tagowania modeli Claude (Haiku, Sonnet, Opus).
+- [x] **2.3. Format strukturyzowany (Structured Output / JSON Mode)**
+  - Dodany parametr `json: true` w narzędziu `delegate`.
+  - Przekazywanie `response_format: {"type": "json_object"}` dla OpenAI, `responseMimeType: "application/json"` dla Gemini oraz instrukcji wymuszenia JSON dla Anthropic.
+- [x] **2.4. Adaptacyjne timeouty i limit per dostawca**
+  - Wprowadzenie adaptacyjnego wyliczania timeoutu (`computeTimeout`), automatycznie wydłużającego czas dla długich promptów oraz dużych wartości `max_tokens`.
+  - Możliwość ustawienia własnego bazowego `timeout_seconds` per dostawca w `delegate.toml` oraz w GUI aplikacji.
 
 ---
 

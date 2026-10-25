@@ -12,10 +12,12 @@ public struct DelegateRequest: Sendable {
     public var allowFallback: Bool
     /// `false`: zablokuj, jeśli w prompcie lub system prompt wykryto potencjalny klucz API/sekret.
     public var allowSecrets: Bool
+    /// `true`: wymuś format odpowiedzi jako czysty JSON.
+    public var jsonMode: Bool
 
     public init(prompt: String, system: String? = nil, model: String? = nil, task: String? = nil,
                 temperature: Double? = nil, maxTokens: Int? = nil, allowFallback: Bool = true,
-                allowSecrets: Bool = false) {
+                allowSecrets: Bool = false, jsonMode: Bool = false) {
         self.prompt = prompt
         self.system = system
         self.model = model
@@ -24,6 +26,7 @@ public struct DelegateRequest: Sendable {
         self.maxTokens = maxTokens
         self.allowFallback = allowFallback
         self.allowSecrets = allowSecrets
+        self.jsonMode = jsonMode
     }
 }
 
@@ -84,6 +87,7 @@ public enum ProviderStatus: Sendable, Equatable {
             if case .unavailable(let why) = onDevice { return .unavailable(why) }
             return .ready
         }
+        if !p.needsKey { return .ready }
         return hasKey ? .ready : .missingKey(p.apiKeyEnv)
     }
 
@@ -139,6 +143,19 @@ public struct DelegateService: Sendable {
         )
     }
 
+    /// Wylicza adaptacyjny timeout: uwzględnia bazowy timeout dostawcy/configu, długość promptu oraz limit tokenów.
+    public static func computeTimeout(for request: DelegateRequest, provider: ProviderConfig, config: Config) -> TimeInterval {
+        let base = provider.timeoutSeconds ?? config.timeoutSeconds
+        let charCount = request.prompt.count + (request.system?.count ?? 0)
+        // Każde 1000 znaków promptu powyżej 2000 znaków dodaje 1.5s na processing/prefill
+        let promptAllowance = Double(max(0, charCount - 2000)) / 1000.0 * 1.5
+        // Każdy oczekiwany token wyjściowy (maxTokens) dodaje 0.04s (odpowiednik ~25 tok/s generowania)
+        let tokenAllowance = request.maxTokens.map { Double($0) * 0.04 } ?? 0
+        let total = base + promptAllowance + tokenAllowance
+        // Ograniczenie: dolna granica to bazowy timeout, górna to max 600 sekund (10 minut)
+        return min(max(base, total), 600)
+    }
+
     /// Czy dostawca jest dziś używalny i dlaczego nie (do GUI i `list_models`).
     public func status(of p: ProviderConfig) -> ProviderStatus {
         ProviderStatus.evaluate(p, hasKey: p.needsKey && secrets.secret(for: p.apiKeyEnv) != nil, onDevice: onDevice.availability)
@@ -152,7 +169,8 @@ public struct DelegateService: Sendable {
             case .unavailable(let why): return .failure(DelegateError(description: why))
             }
         }
-        guard let key = secrets.secret(for: p.apiKeyEnv) else {
+        let key = secrets.secret(for: p.apiKeyEnv) ?? ""
+        if p.needsKey && key.isEmpty {
             return .failure(DelegateError(description: "Brak klucza \(p.apiKeyEnv)"))
         }
         do {
@@ -223,12 +241,14 @@ public struct DelegateService: Sendable {
             }
         }
 
-        let client = ProviderClient(transport: transport, timeout: config.timeoutSeconds)
         let chat = ChatRequest(prompt: request.prompt, system: request.system,
-                               temperature: request.temperature, maxTokens: request.maxTokens)
+                               temperature: request.temperature, maxTokens: request.maxTokens,
+                               jsonMode: request.jsonMode)
         var failures: [String] = []
 
         for c in list {
+            let timeout = Self.computeTimeout(for: request, provider: c.provider, config: config)
+            let client = ProviderClient(transport: transport, timeout: timeout)
             let key = secrets.secret(for: c.provider.apiKeyEnv) ?? ""
             let started = Date()
             do {
@@ -271,7 +291,8 @@ public struct DelegateService: Sendable {
     /// Modele z metadanymi i sugestiami tagów (do GUI i `list_remote_models`).
     public func modelInfos(for p: ProviderConfig) async throws -> [ModelInfo] {
         if p.kind == .foundation { return [ModelInfo(id: "on-device", contextLength: 4096, priceIn: 0, priceOut: 0)] }
-        guard let key = secrets.secret(for: p.apiKeyEnv) else { throw ProviderError.missingKey(p.apiKeyEnv) }
+        let key = secrets.secret(for: p.apiKeyEnv) ?? ""
+        if p.needsKey && key.isEmpty { throw ProviderError.missingKey(p.apiKeyEnv) }
         return try await ProviderClient(transport: transport, timeout: 30).listModelInfo(provider: p, apiKey: key)
     }
 
@@ -280,18 +301,19 @@ public struct DelegateService: Sendable {
         let targets = config.providers.filter { providerID == nil || $0.id == providerID }
         guard !targets.isEmpty else { throw DelegateError(description: "Nie ma dostawcy „\(providerID ?? "")”.") }
 
-        let client = ProviderClient(transport: transport, timeout: config.timeoutSeconds)
         var out = ""
         for p in targets {
             if p.kind == .foundation {
                 out += "## \(p.id)\n- on-device (\(status(of: p).label))\n\n"
                 continue
             }
-            guard let key = secrets.secret(for: p.apiKeyEnv) else {
+            let key = secrets.secret(for: p.apiKeyEnv) ?? ""
+            if p.needsKey && key.isEmpty {
                 out += "## \(p.id)\nbrak klucza (\(p.apiKeyEnv))\n\n"
                 continue
             }
             do {
+                let client = ProviderClient(transport: transport, timeout: p.timeoutSeconds ?? config.timeoutSeconds)
                 let infos = try await client.listModelInfo(provider: p, apiKey: key)
                 let lines = infos.map { i -> String in
                     var line = "- \(i.id)"

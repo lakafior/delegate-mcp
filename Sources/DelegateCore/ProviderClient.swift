@@ -34,12 +34,14 @@ public struct ChatRequest: Sendable {
     public var system: String?
     public var temperature: Double?
     public var maxTokens: Int?
+    public var jsonMode: Bool
 
-    public init(prompt: String, system: String? = nil, temperature: Double? = nil, maxTokens: Int? = nil) {
+    public init(prompt: String, system: String? = nil, temperature: Double? = nil, maxTokens: Int? = nil, jsonMode: Bool = false) {
         self.prompt = prompt
         self.system = system
         self.temperature = temperature
         self.maxTokens = maxTokens
+        self.jsonMode = jsonMode
     }
 }
 
@@ -57,6 +59,7 @@ struct ProviderClient {
         switch provider.kind {
         case .openai: try await chatOpenAI(provider, model, apiKey, request)
         case .gemini: try await chatGemini(provider, model, apiKey, request)
+        case .anthropic: try await chatAnthropic(provider, model, apiKey, request)
         case .foundation: throw ProviderError.badResponse("model na urządzeniu obsługuje DelegateService")
         }
     }
@@ -77,6 +80,8 @@ struct ProviderClient {
             return (json["data"] as? [[String: Any]] ?? []).compactMap(Self.openAIInfo).sorted { $0.id < $1.id }
         case .gemini:
             return (json["models"] as? [[String: Any]] ?? []).compactMap(Self.geminiInfo).sorted { $0.id < $1.id }
+        case .anthropic:
+            return (json["data"] as? [[String: Any]] ?? []).compactMap(Self.anthropicInfo).sorted { $0.id < $1.id }
         case .foundation:
             return []
         }
@@ -123,6 +128,15 @@ struct ProviderClient {
         )
     }
 
+    private static func anthropicInfo(_ m: [String: Any]) -> ModelInfo? {
+        guard let id = m["id"] as? String else { return nil }
+        return ModelInfo(
+            id: id,
+            contextLength: 200_000,
+            vision: id.contains("sonnet") || id.contains("opus") || id.contains("haiku")
+        )
+    }
+
     // MARK: OpenAI-compatible
 
     private func chatOpenAI(_ p: ProviderConfig, _ model: String, _ key: String, _ r: ChatRequest) async throws -> ChatReply {
@@ -132,6 +146,7 @@ struct ProviderClient {
         var body: [String: Any] = ["model": model, "messages": messages]
         if let t = r.temperature { body["temperature"] = t }
         if let m = r.maxTokens { body["max_tokens"] = m }
+        if r.jsonMode { body["response_format"] = ["type": "json_object"] }
 
         var req = try makeRequest(url: join(p.baseURL, "chat/completions"), method: "POST")
         authorize(&req, provider: p, apiKey: key)
@@ -156,6 +171,7 @@ struct ProviderClient {
         var gen: [String: Any] = [:]
         if let t = r.temperature { gen["temperature"] = t }
         if let m = r.maxTokens { gen["maxOutputTokens"] = m }
+        if r.jsonMode { gen["responseMimeType"] = "application/json" }
         if !gen.isEmpty { body["generationConfig"] = gen }
 
         var req = try makeRequest(url: join(p.baseURL, "models/\(model):generateContent"), method: "POST")
@@ -170,6 +186,36 @@ struct ProviderClient {
         return ChatReply(text: text,
                          inputTokens: usage?["promptTokenCount"] as? Int,
                          outputTokens: usage?["candidatesTokenCount"] as? Int)
+    }
+
+    // MARK: Anthropic
+
+    private func chatAnthropic(_ p: ProviderConfig, _ model: String, _ key: String, _ r: ChatRequest) async throws -> ChatReply {
+        var body: [String: Any] = [
+            "model": model,
+            "messages": [["role": "user", "content": r.prompt]],
+            "max_tokens": r.maxTokens ?? 4096
+        ]
+        var systemText = r.system ?? ""
+        if r.jsonMode {
+            systemText = (systemText.isEmpty ? "" : systemText + "\n") + "Respond with valid JSON only. Do not surround with markdown codeblocks."
+        }
+        if !systemText.isEmpty { body["system"] = systemText }
+        if let t = r.temperature { body["temperature"] = t }
+
+        var req = try makeRequest(url: join(p.baseURL, "messages"), method: "POST")
+        authorize(&req, provider: p, apiKey: key)
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let json = try await perform(req)
+
+        let content = (json["content"] as? [[String: Any]])?.first
+        guard let text = content?["text"] as? String, !text.isEmpty else {
+            throw ProviderError.badResponse("pusta odpowiedź modelu")
+        }
+        let usage = json["usage"] as? [String: Any]
+        return ChatReply(text: text,
+                         inputTokens: usage?["input_tokens"] as? Int,
+                         outputTokens: usage?["output_tokens"] as? Int)
     }
 
     // MARK: wspólne
@@ -188,9 +234,15 @@ struct ProviderClient {
 
     private func authorize(_ req: inout URLRequest, provider: ProviderConfig, apiKey: String) {
         switch provider.kind {
-        case .openai: req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        case .gemini: req.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
-        case .foundation: break
+        case .openai:
+            if !apiKey.isEmpty { req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization") }
+        case .gemini:
+            if !apiKey.isEmpty { req.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key") }
+        case .anthropic:
+            if !apiKey.isEmpty { req.setValue(apiKey, forHTTPHeaderField: "x-api-key") }
+            req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        case .foundation:
+            break
         }
     }
 

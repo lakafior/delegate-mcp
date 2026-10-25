@@ -28,6 +28,7 @@ struct FixedSecrets: SecretStore {
 
 let openAIBody = #"{"choices":[{"message":{"content":"cześć"}}],"usage":{"prompt_tokens":10,"completion_tokens":3}}"#
 let geminiBody = #"{"candidates":[{"content":{"parts":[{"text":"hej"}]}}],"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":2}}"#
+let anthropicBody = #"{"content":[{"type":"text","text":"witaj od anthropic"}],"usage":{"input_tokens":15,"output_tokens":6}}"#
 
 struct FakeOnDevice: OnDeviceModel {
     var availability: OnDeviceAvailability = .unavailable("test")
@@ -221,6 +222,8 @@ func makeService(_ transport: MockTransport, keys: [String: String], config: Con
         #expect(ProviderStatus.evaluate(off, hasKey: true, onDevice: .available) == .disabled)
         let a = ProviderConfig(id: "a", kind: .foundation)
         #expect(ProviderStatus.evaluate(a, hasKey: false, onDevice: .available) == .ready)
+        let ollama = ProviderConfig(id: "ollama", kind: .openai, baseURL: "u", apiKeyEnv: "")
+        #expect(ProviderStatus.evaluate(ollama, hasKey: false, onDevice: .available) == .ready)
     }
 }
 
@@ -232,6 +235,7 @@ func makeService(_ transport: MockTransport, keys: [String: String], config: Con
         #expect(ModelInfo(id: "gemini-pro-latest", contextLength: 1_000_000).suggestedTags == ["reasoning", "long-context"])
         #expect(ModelInfo(id: "mistral-embed").suggestedTags.isEmpty)
         #expect(ModelInfo(id: "x", vision: true).suggestedTags.contains("vision"))
+        #expect(ModelInfo(id: "claude-3-5-haiku-20241022").suggestedTags.contains("fast"))
     }
 
     @Test func openRouterMetadataGivesPricesPerMillion() async throws {
@@ -377,5 +381,73 @@ final class ConfigBox: @unchecked Sendable {
         #expect(removed == 1)
         #expect(log.entries().count == 1)
         #expect(log.entries().first?.ms == 20)
+    }
+}
+
+@Suite struct Phase2Tests {
+    @Test func localProviderWithoutKeyNeedsNoKeyAndWorks() async throws {
+        let t = MockTransport(["localhost": .init(status: 200, body: openAIBody)])
+        let localConfig = Config(routingGuidance: "", timeoutSeconds: 30, providers: [
+            ProviderConfig(id: "ollama", kind: .openai, baseURL: "http://localhost:11434/v1", apiKeyEnv: "", models: [
+                ModelConfig(id: "llama3.2")
+            ])
+        ])
+        let (svc, _) = try makeService(t, keys: [:], config: localConfig)
+        #expect(svc.status(of: localConfig.providers[0]) == .ready)
+
+        let reply = try await svc.delegate(.init(prompt: "hej lokalnie"))
+        #expect(reply.contains("model: ollama/llama3.2"))
+        #expect(reply.hasSuffix("cześć"))
+        #expect(t.calls.first?.value(forHTTPHeaderField: "Authorization") == nil)
+    }
+
+    @Test func anthropicProviderChatAndModels() async throws {
+        let t = MockTransport([
+            "api.anthropic.com": .init(status: 200, body: anthropicBody)
+        ])
+        let anthropicConfig = Config(routingGuidance: "", timeoutSeconds: 60, providers: [
+            ProviderConfig(id: "anthropic", kind: .anthropic, baseURL: "https://api.anthropic.com/v1", apiKeyEnv: "ANTHROPIC_API_KEY", models: [
+                ModelConfig(id: "claude-3-5-haiku-20241022")
+            ])
+        ])
+        let (svc, _) = try makeService(t, keys: ["ANTHROPIC_API_KEY": "sk-ant-testkey"], config: anthropicConfig)
+        let reply = try await svc.delegate(.init(prompt: "działasz?"))
+        #expect(reply.contains("model: anthropic/claude-3-5-haiku-20241022"))
+        #expect(reply.hasSuffix("witaj od anthropic"))
+        #expect(reply.contains("15 in / 6 out"))
+
+        let call = try #require(t.calls.first)
+        #expect(call.value(forHTTPHeaderField: "x-api-key") == "sk-ant-testkey")
+        #expect(call.value(forHTTPHeaderField: "anthropic-version") == "2023-06-01")
+    }
+
+    @Test func jsonModeEnforcesJsonObject() async throws {
+        let t = MockTransport(["api.mistral.ai": .init(status: 200, body: openAIBody)])
+        let (svc, _) = try makeService(t, keys: ["MISTRAL_API_KEY": "m"])
+        _ = try await svc.delegate(.init(prompt: "Zwróć JSON", jsonMode: true))
+
+        let call = try #require(t.calls.first)
+        let bodyData = try #require(call.httpBody)
+        let json = try #require(try JSONSerialization.jsonObject(with: bodyData) as? [String: Any])
+        let respFormat = json["response_format"] as? [String: Any]
+        #expect(respFormat?["type"] as? String == "json_object")
+    }
+
+    @Test func adaptiveTimeoutScalesWithPromptAndTokens() {
+        let baseConfig = Config(timeoutSeconds: 60, providers: [])
+        let defaultProvider = ProviderConfig(id: "default", kind: .openai)
+        let customProvider = ProviderConfig(id: "custom", kind: .openai, timeoutSeconds: 30)
+
+        // Krótki prompt -> bazowy timeout
+        let shortReq = DelegateRequest(prompt: "Krótkie pytanie")
+        #expect(DelegateService.computeTimeout(for: shortReq, provider: defaultProvider, config: baseConfig) == 60)
+        #expect(DelegateService.computeTimeout(for: shortReq, provider: customProvider, config: baseConfig) == 30)
+
+        // Długi prompt (np. 12,000 znaków) i oczekiwane 2000 tokenów
+        let longPrompt = String(repeating: "a", count: 12_000)
+        let longReq = DelegateRequest(prompt: longPrompt, maxTokens: 2000)
+        let computed = DelegateService.computeTimeout(for: longReq, provider: defaultProvider, config: baseConfig)
+        // 60 bazowy + ((12000 - 2000)/1000 * 1.5 = 15s) + (2000 * 0.04 = 80s) = 155s
+        #expect(computed == 155)
     }
 }

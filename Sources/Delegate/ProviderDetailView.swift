@@ -72,10 +72,11 @@ struct ProviderDetailView: View {
             Picker("Typ API", selection: $provider.kind) {
                 Text(ProviderKind.openai.title).tag(ProviderKind.openai)
                 Text(ProviderKind.gemini.title).tag(ProviderKind.gemini)
+                Text(ProviderKind.anthropic.title).tag(ProviderKind.anthropic)
             }
             TextField("Adres bazowy", text: $provider.baseURL)
                 .textContentType(.URL)
-            TextField("Nazwa klucza", text: $provider.apiKeyEnv)
+            TextField("Nazwa klucza", text: $provider.apiKeyEnv, prompt: Text("Opcjonalna (zostaw puste dla modeli lokalnych, np. Ollama)"))
 
             HStack {
                 SecureField("Klucz API", text: $keyDraft, prompt: Text(model.keySource(for: provider) == .none ? "Wklej klucz" : "Wklej, żeby zastąpić"))
@@ -94,6 +95,14 @@ struct ProviderDetailView: View {
                     }
                 }
             }
+
+            Stepper(value: Binding(
+                get: { provider.timeoutSeconds ?? 0 },
+                set: { provider.timeoutSeconds = $0 > 0 ? $0 : nil }
+            ), in: 0...600, step: 10) {
+                LabeledContent("Własny limit czasu", value: provider.timeoutSeconds.map { "\(Int($0)) s" } ?? "domyślny z routingu")
+            }
+
             testRow
         }
     }

@@ -28,6 +28,7 @@ extension ProviderKind {
         switch self {
         case .openai: "API zgodne z OpenAI"
         case .gemini: "Gemini"
+        case .anthropic: "Anthropic"
         case .foundation: "Na urządzeniu (Apple)"
         }
     }
@@ -36,6 +37,7 @@ extension ProviderKind {
         switch self {
         case .openai: "network"
         case .gemini: "sparkles"
+        case .anthropic: "cpu"
         case .foundation: "apple.intelligence"
         }
     }

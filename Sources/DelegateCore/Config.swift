@@ -2,10 +2,12 @@ import Foundation
 import TOMLKit
 
 public enum ProviderKind: String, Codable, Sendable {
-    /// API zgodne z OpenAI (`/chat/completions`): Mistral, DeepSeek, OpenRouter.
+    /// API zgodne z OpenAI (`/chat/completions`): Mistral, DeepSeek, OpenRouter, Ollama, LM Studio.
     case openai
     /// Gemini (`generateContent`).
     case gemini
+    /// Anthropic (`/v1/messages`).
+    case anthropic
     /// Model na urządzeniu (Apple Foundation Models): bez klucza, bez sieci.
     case foundation
 }
@@ -83,11 +85,13 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
     public var apiKeyEnv: String
     public var enabled: Bool
     public var note: String?
+    /// Opcjonalny dedykowany timeout bazowy (w sekundach) dla tego dostawcy.
+    public var timeoutSeconds: Double?
     public var models: [ModelConfig]
 
     public init(
         id: String, kind: ProviderKind, baseURL: String = "", apiKeyEnv: String = "",
-        enabled: Bool = true, note: String? = nil, models: [ModelConfig] = []
+        enabled: Bool = true, note: String? = nil, timeoutSeconds: Double? = nil, models: [ModelConfig] = []
     ) {
         self.id = id
         self.kind = kind
@@ -95,11 +99,15 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         self.apiKeyEnv = apiKeyEnv
         self.enabled = enabled
         self.note = note
+        self.timeoutSeconds = timeoutSeconds
         self.models = models
     }
 
-    /// Czy dostawca wymaga klucza API (model na urządzeniu nie).
-    public var needsKey: Bool { kind != .foundation }
+    /// Czy dostawca wymaga klucza API (model na urządzeniu oraz dostawcy z pustym `apiKeyEnv` nie wymagają klucza).
+    public var needsKey: Bool {
+        if kind == .foundation { return false }
+        return !apiKeyEnv.trimmingCharacters(in: .whitespaces).isEmpty
+    }
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -107,6 +115,7 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         case baseURL = "base_url"
         case apiKeyEnv = "api_key_env"
         case enabled, note
+        case timeoutSeconds = "timeout_seconds"
         case models = "model"
     }
 
@@ -118,6 +127,7 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         apiKeyEnv = try c.decodeIfPresent(String.self, forKey: .apiKeyEnv) ?? ""
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
         note = try c.decodeIfPresent(String.self, forKey: .note)
+        timeoutSeconds = try c.decodeNumberIfPresent(forKey: .timeoutSeconds)
         models = try c.decodeIfPresent([ModelConfig].self, forKey: .models) ?? []
     }
 }
