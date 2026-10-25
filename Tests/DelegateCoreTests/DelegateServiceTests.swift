@@ -519,3 +519,66 @@ final class ConfigBox: @unchecked Sendable {
         #expect(decoded[1].error == "timeout")
     }
 }
+
+@Suite struct Phase4Tests {
+    @Test func doctorDiagnosesValidEnvironment() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("doc-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let home = DelegateHome(directory: dir)
+        try DefaultConfig.toml.write(to: home.configURL, atomically: true, encoding: .utf8)
+
+        let t = MockTransport(["api.mistral.ai": .init(status: 200, body: #"{"data":[{"id":"a"}]}"#)])
+        let (svc, _) = try makeService(t, keys: ["MISTRAL_API_KEY": "m"])
+
+        let doctor = DelegateDoctor(home: home, service: svc)
+        let report = await doctor.diagnose()
+
+        // Config check
+        let cfgCheck = try #require(report.checks.first { $0.name.contains("delegate.toml") })
+        #expect(cfgCheck.severity == .ok)
+        #expect(cfgCheck.message.contains("5 dostawców"))
+
+        // Terminal output formatting
+        let out = report.terminalOutput()
+        #expect(out.contains("=== Diagnostyka delegate-mcp ==="))
+        #expect(out.contains("Konfiguracja (delegate.toml)"))
+        #expect(out.contains("Podsumowanie:"))
+    }
+
+    @Test func doctorDetectsInvalidToml() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("doc-bad-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let home = DelegateHome(directory: dir)
+        try "[[provider\nniepoprawny toml = 123".write(to: home.configURL, atomically: true, encoding: .utf8)
+
+        let (svc, _) = try makeService(MockTransport([:]), keys: [:])
+        let doctor = DelegateDoctor(home: home, service: svc)
+        let report = await doctor.diagnose()
+
+        let cfgCheck = try #require(report.checks.first { $0.name.contains("delegate.toml") })
+        #expect(cfgCheck.severity == .error)
+        #expect(!report.allOk)
+    }
+
+    @Test func doctorDetectsMissingProviderKeys() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("doc-keys-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let home = DelegateHome(directory: dir)
+        try DefaultConfig.toml.write(to: home.configURL, atomically: true, encoding: .utf8)
+
+        // Puste klucze -> dostawcy chmurowi mają brak klucza
+        let (svc, _) = try makeService(MockTransport([:]), keys: [:])
+        let doctor = DelegateDoctor(home: home, service: svc)
+        let report = await doctor.diagnose()
+
+        let mistral = report.providers.first { $0.providerID == "mistral" }
+        #expect(mistral?.severity == .error)
+        #expect(mistral?.status.contains("brak klucza") == true)
+    }
+}

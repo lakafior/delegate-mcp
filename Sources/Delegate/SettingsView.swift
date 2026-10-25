@@ -5,16 +5,18 @@ enum SidebarItem: Hashable {
     case provider(String)
     case routing
     case usage
+    case diagnostics
     case general
 }
 
 extension SidebarItem {
-    /// `--select=routing|usage|general|<id dostawcy>`: do ręcznego sprawdzania widoków.
+    /// `--select=routing|usage|diagnostics|general|<id dostawcy>`: do ręcznego sprawdzania widoków.
     static func fromLaunchArguments() -> SidebarItem? {
         guard let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--select=") }) else { return nil }
         switch arg.dropFirst("--select=".count) {
         case "routing": return .routing
         case "usage": return .usage
+        case "diagnostics": return .diagnostics
         case "general": return .general
         case let id: return .provider(String(id))
         }
@@ -46,6 +48,7 @@ struct SettingsView: View {
                 Section("Aplikacja") {
                     Label("Routing", systemImage: "arrow.triangle.branch").tag(SidebarItem.routing)
                     Label("Użycie", systemImage: "chart.bar").tag(SidebarItem.usage)
+                    Label("Diagnostyka", systemImage: "stethoscope").tag(SidebarItem.diagnostics)
                     Label("Ogólne", systemImage: "gearshape").tag(SidebarItem.general)
                 }
             }
@@ -95,18 +98,27 @@ struct SettingsView: View {
             }
         case .routing: RoutingView(model: model)
         case .usage: UsageView(model: model)
+        case .diagnostics: DiagnosticsView(model: model)
         case .general, nil: GeneralView(model: model)
         }
     }
 
     @ViewBuilder
     private var errorBar: some View {
-        if let message = model.loadError ?? model.saveError {
-            Label(message, systemImage: "exclamationmark.triangle.fill")
-                .font(.callout)
-                .padding(10)
-                .glassEffect(.regular.tint(.red.opacity(0.25)), in: .rect(cornerRadius: 12))
-                .padding(10)
+        if let err = model.saveError ?? model.loadError {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Text(err).font(.callout).lineLimit(2)
+                Spacer()
+                Button("Zamknij") {
+                    model.saveError = nil
+                    model.loadError = nil
+                }
+                .controlSize(.small)
+            }
+            .padding(10)
+            .glassEffect(.regular, in: .rect(cornerRadius: 10))
+            .padding(12)
         }
     }
 }

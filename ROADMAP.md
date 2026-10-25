@@ -36,7 +36,8 @@ Zapewnienie deweloperom pracującym z Claude (Desktop & Code) najwygodniejszego,
   - Dodanie natywnej obsługi protokołu Anthropic (`/v1/messages` z nagłówkami `x-api-key` i `anthropic-version`).
   - Obsługa pobierania modeli (`/v1/models`) i tagowania modeli Claude (Haiku, Sonnet, Opus).
 - [x] **2.3. Format strukturyzowany (Structured Output / JSON Mode)**
-  - Dodany parametr `json: true` w narzędziu `delegate`.\n  - Przekazywanie `response_format: {"type": "json_object"}` dla OpenAI, `responseMimeType: "application/json"` dla Gemini oraz instrukcji wymuszenia JSON dla Anthropic.
+  - Dodany parametr `json: true` w narzędziu `delegate`.
+  - Przekazywanie `response_format: {"type": "json_object"}` dla OpenAI, `responseMimeType: "application/json"` dla Gemini oraz instrukcji wymuszenia JSON dla Anthropic.
 - [x] **2.4. Adaptacyjne timeouty i limit per dostawca**
   - Wprowadzenie adaptacyjnego wyliczania timeoutu (`computeTimeout`), automatycznie wydłużającego czas dla długich promptów oraz dużych wartości `max_tokens`.
   - Możliwość ustawienia własnego bazowego `timeout_seconds` per dostawca w `delegate.toml` oraz w GUI aplikacji.
@@ -57,19 +58,16 @@ Zapewnienie deweloperom pracującym z Claude (Desktop & Code) najwygodniejszego,
 
 ---
 
-## Faza 4: Narzędzia CLI i diagnostyka (Developer Experience)
-*Cel: Wygodna praca z poziomu konsoli, automatyzacja i utrzymanie konfiguracji.*
+## Faza 4: Narzędzia CLI, diagnostyka i Developer Experience
+*Cel: Wygodna praca z poziomu konsoli i interfejsu graficznego, automatyzacja i utrzymanie konfiguracji.*
 
-- [ ] **4.1. Komenda diagnostyczna `delegate-mcp doctor`**
-  - Jedno polecenie sprawdzające:
-    - Poprawność składni `delegate.toml`.
-    - Dostępność kluczy w Keychain i `.env`.
-    - Ping/test łączności do każdego aktywnego dostawcy.
-    - Stan integracji z Claude Desktop i Claude Code.
-- [ ] **4.2. Bezpieczna edycja `delegate.toml` z zachowaniem komentarzy**
-  - Opcja bezpośredniej edycji surowego pliku TOML w aplikacji z walidacją składni przed zapisem lub zastosowanie bezstratnego parsera/formatera.
-- [ ] **4.3. Pipeline testów CI/CD (GitHub Actions)**
-  - Dodanie `.github/workflows/ci.yml` kompilującego i testującego projekt (`swift test`) pod macOS.
+- [x] **4.1. Silnik diagnostyczny `DelegateDoctor` w GUI i CLI**
+  - Dedykowany widok **„Diagnostyka”** w aplikacji z kafelkami statusu, mierzeniem opóźnień (ms) do API na żywo i przyciskami automatycznej naprawy („Napraw”).
+  - Polecenie konsolowe `delegate-mcp doctor` (oraz `--doctor`) wypisujące kompletny raport ASCII z kodami wyjścia do CI/skryptów.
+- [x] **4.2. Bezpieczna edycja `delegate.toml` z zachowaniem komentarzy**
+  - Dodany modalny edytor tekstowy `RawTomlEditorSheet` w ustawieniach ogólnych z walidacją składni w czasie rzeczywistym przed zapisem, chroniący przed uszkodzeniem konfiguracji i zachowujący wszystkie komentarze.
+- [x] **4.3. Pipeline testów CI/CD (GitHub Actions)**
+  - Dodanie `.github/workflows/ci.yml` kompilującego i testującego projekt (`swift test`) oraz budującego aplikację produkcyjną pod macOS.
 
 ---
 

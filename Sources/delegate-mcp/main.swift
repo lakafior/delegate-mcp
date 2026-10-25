@@ -25,6 +25,12 @@ if args.contains("--init") {
         exit(1)
     }
 }
+if args.contains("doctor") || args.contains("--doctor") {
+    let doctor = DelegateDoctor(home: home)
+    let report = await doctor.diagnose()
+    print(report.terminalOutput())
+    exit(report.allOk ? 0 : 1)
+}
 
 let service = DelegateService(home: home)
 
