@@ -27,6 +27,8 @@ struct SettingsView: View {
     @Bindable var model: AppModel
     @State private var selection: SidebarItem? = SidebarItem.fromLaunchArguments() ?? .general
     @State private var pendingDelete: String?
+    @State private var renamingProvider: String?
+    @State private var renameDraft = ""
 
     var body: some View {
         NavigationSplitView {
@@ -40,6 +42,10 @@ struct SettingsView: View {
                         }
                         .tag(SidebarItem.provider(p.id))
                         .contextMenu {
+                            Button("Zmień nazwę…", systemImage: "pencil") {
+                                renameDraft = p.id
+                                renamingProvider = p.id
+                            }
                             Button("Usuń „\(p.id)”", role: .destructive) { pendingDelete = p.id }
                         }
                     }
@@ -78,6 +84,26 @@ struct SettingsView: View {
         } message: {
             Text("Klucz w Keychain zostaje; usuniesz go w ustawieniach dostawcy przed skasowaniem.")
         }
+        .alert(
+            "Zmień nazwę dostawcy",
+            isPresented: Binding(get: { renamingProvider != nil }, set: { if !$0 { renamingProvider = nil } })
+        ) {
+            TextField("Nowy identyfikator", text: $renameDraft)
+            Button("Anuluj", role: .cancel) { renamingProvider = nil }
+            Button("Zmień") {
+                if let oldId = renamingProvider {
+                    let target = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if model.renameProvider(from: oldId, to: target) {
+                        if selection == .provider(oldId) {
+                            selection = .provider(target)
+                        }
+                        renamingProvider = nil
+                    }
+                }
+            }
+        } message: {
+            Text("Wprowadź nowy unikalny identyfikator dostawcy.")
+        }
         .onChange(of: model.config) { model.configChanged() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             model.reloadIfChangedOnDisk()
@@ -91,8 +117,10 @@ struct SettingsView: View {
         switch selection {
         case .provider(let id):
             if let idx = model.config.providers.firstIndex(where: { $0.id == id }) {
-                ProviderDetailView(model: model, provider: $model.config.providers[idx])
-                    .id(id)
+                ProviderDetailView(model: model, provider: $model.config.providers[idx], onRename: { newId in
+                    selection = .provider(newId)
+                })
+                .id(id)
             } else {
                 ContentUnavailableView("Brak dostawcy", systemImage: "questionmark.circle")
             }

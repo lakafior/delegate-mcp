@@ -11,9 +11,16 @@ struct MenuBarView: View {
                 Label("Delegate", systemImage: "arrow.triangle.branch")
                     .font(.headline)
                 Spacer()
-                Text("dziś: \(model.callsToday)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text("dziś: \(model.callsToday)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if model.costToday > 0 {
+                        Text(String(format: "$%.4f", model.costToday))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
 
             if model.config.providers.isEmpty {
@@ -24,19 +31,41 @@ struct MenuBarView: View {
                 GlassEffectContainer(spacing: 8) {
                     VStack(spacing: 8) {
                         ForEach($model.config.providers) { $provider in
-                            ProviderRow(provider: $provider, status: model.status(of: provider))
+                            ProviderRow(
+                                provider: $provider,
+                                status: model.status(of: provider),
+                                isTesting: model.testing.contains(provider.id),
+                                testResult: model.testResults[provider.id]
+                            )
                         }
                     }
                 }
             }
 
             HStack {
+                Button {
+                    model.testAll()
+                } label: {
+                    if model.isTestingAny {
+                        HStack(spacing: 4) {
+                            ProgressView().controlSize(.small)
+                            Text("Testowanie…")
+                        }
+                    } else {
+                        Label("Testuj połączenia", systemImage: "bolt.badge.checkmark")
+                    }
+                }
+                .buttonStyle(.glass)
+                .disabled(model.isTestingAny || model.config.providers.isEmpty)
+
+                Spacer()
+
                 Button("Ustawienia…", systemImage: "gearshape") {
                     openWindow(id: SettingsWindow.id)
                     NSApp.activate()
                 }
                 .buttonStyle(.glass)
-                Spacer()
+
                 Button("Zakończ") { NSApp.terminate(nil) }
                     .buttonStyle(.glass)
             }
@@ -54,12 +83,33 @@ struct MenuBarView: View {
 private struct ProviderRow: View {
     @Binding var provider: ProviderConfig
     let status: ProviderStatus
+    let isTesting: Bool
+    let testResult: Result<String, DelegateError>?
 
     var body: some View {
         HStack(spacing: 10) {
-            StatusDot(status: status)
+            if isTesting {
+                ProgressView().controlSize(.small)
+                    .frame(width: 9, height: 9)
+            } else {
+                StatusDot(status: status)
+            }
             VStack(alignment: .leading, spacing: 1) {
-                Text(provider.id).font(.body)
+                HStack(spacing: 4) {
+                    Text(provider.id).font(.body)
+                    if let result = testResult {
+                        switch result {
+                        case .success:
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.green)
+                        case .failure:
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                }
                 Text(status.label)
                     .font(.caption)
                     .foregroundStyle(.secondary)

@@ -61,6 +61,7 @@ struct GeneralView: View {
             Section("Aplikacja") {
                 Toggle("Uruchamiaj przy logowaniu", isOn: Binding(
                     get: { model.launchAtLogin }, set: { model.launchAtLogin = $0 }))
+                Toggle("Pokazuj dzisiejszy koszt w pasku menu", isOn: $model.showCostInMenuBar)
             }
 
             Section {

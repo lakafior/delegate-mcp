@@ -8,7 +8,12 @@ struct DelegateApp: App {
         MenuBarExtra {
             MenuBarView(model: model)
         } label: {
-            Image(systemName: "arrow.triangle.branch")
+            HStack(spacing: 4) {
+                Image(systemName: model.hasProviderIssues ? "exclamationmark.triangle" : "arrow.triangle.branch")
+                if model.showCostInMenuBar && model.costToday > 0 {
+                    Text(String(format: "$%.2f", model.costToday))
+                }
+            }
         }
         .menuBarExtraStyle(.window)
 

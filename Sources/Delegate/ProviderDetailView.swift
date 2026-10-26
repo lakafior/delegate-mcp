@@ -4,7 +4,11 @@ import SwiftUI
 struct ProviderDetailView: View {
     @Bindable var model: AppModel
     @Binding var provider: ProviderConfig
+    var onRename: ((String) -> Void)? = nil
+
     @State private var keyDraft = ""
+    @State private var showingRename = false
+    @State private var renameDraft = ""
     @State private var showRemote = false
     @State private var showBulkCost = false
     @State private var bulkCost = CostSetting(category: "cheap")
@@ -16,8 +20,19 @@ struct ProviderDetailView: View {
             Section {
                 HStack(spacing: 10) {
                     Image(systemName: provider.kind.symbol).font(.title2)
-                    VStack(alignment: .leading) {
-                        Text(provider.id).font(.title3.bold())
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text(provider.id).font(.title3.bold())
+                            Button {
+                                renameDraft = provider.id
+                                showingRename = true
+                            } label: {
+                                Image(systemName: "pencil")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Zmień nazwę dostawcy")
+                        }
                         Text(provider.kind.title).font(.callout).foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -45,6 +60,20 @@ struct ProviderDetailView: View {
                     provider.models.append(Self.newModel(from: info))
                 }
             }
+        }
+        .alert("Zmień nazwę dostawcy", isPresented: $showingRename) {
+            TextField("Nowy identyfikator", text: $renameDraft)
+            Button("Anuluj", role: .cancel) { showingRename = false }
+            Button("Zmień") {
+                let target = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                let oldId = provider.id
+                if model.renameProvider(from: oldId, to: target) {
+                    onRename?(target)
+                    showingRename = false
+                }
+            }
+        } message: {
+            Text("Wprowadź nowy unikalny identyfikator dostawcy.")
         }
     }
 

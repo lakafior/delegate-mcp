@@ -3,6 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "delegate",
+    defaultLocalization: "en",
     platforms: [.macOS(.v26)],
     products: [
         .library(name: "DelegateCore", targets: ["DelegateCore"]),
@@ -25,7 +26,11 @@ let package = Package(
                 .product(name: "MCP", package: "swift-sdk"),
             ]
         ),
-        .executableTarget(name: "Delegate", dependencies: ["DelegateCore"]),
+        .executableTarget(
+            name: "Delegate",
+            dependencies: ["DelegateCore"],
+            resources: [.process("Resources")]
+        ),
         .testTarget(name: "DelegateCoreTests", dependencies: ["DelegateCore"]),
     ]
 )

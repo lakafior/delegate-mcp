@@ -24,6 +24,19 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
 cp "$BIN/Delegate" "$APP/Contents/MacOS/Delegate"
 cp "$BIN/delegate-mcp" "$APP/Contents/Helpers/delegate-mcp"
 
+# Zasoby i lokalizacja: bundle SwiftPM z .lproj i zasobami
+shopt -s nullglob
+bundles=("$BIN"/*Delegate*.bundle)
+if [[ ${#bundles[@]} -gt 0 ]]; then
+  for b in "${bundles[@]}"; do
+    cp -R "$b" "$APP/Contents/Resources/"
+    if [[ -d "$b/Contents/Resources" ]]; then
+      cp -R "$b/Contents/Resources/"*.lproj "$APP/Contents/Resources/" 2>/dev/null || true
+    fi
+  done
+fi
+shopt -u nullglob
+
 # Ikona: Assets/AppIcon.icon (Icon Composer) -> Assets.car + AppIcon.icns
 ICON_TMP="$(mktemp -d)"
 xcrun actool Assets/AppIcon.icon --compile "$APP/Contents/Resources" \
@@ -42,6 +55,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>Delegate</string>
   <key>CFBundleDisplayName</key><string>Delegate</string>
   <key>CFBundleExecutable</key><string>Delegate</string>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleIconName</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
@@ -56,6 +70,15 @@ PLIST
 
 # Znacznik czasu jest wymagany do notaryzacji (tylko przy prawdziwej tożsamości).
 TS=(); [[ "$SIGN_ID" != "-" ]] && TS=(--timestamp)
+
+# Podpisz zagnieżdżone bundle zasobów
+shopt -s nullglob
+nested_bundles=("$APP/Contents/Resources/"*.bundle)
+for nb in "${nested_bundles[@]}"; do
+  codesign --force --sign "$SIGN_ID" ${TS[@]+"${TS[@]}"} "$nb"
+done
+shopt -u nullglob
+
 codesign --force --sign "$SIGN_ID" --identifier com.mar.delegate.mcp --options runtime ${TS[@]+"${TS[@]}"} "$APP/Contents/Helpers/delegate-mcp"
 codesign --force --sign "$SIGN_ID" --options runtime ${TS[@]+"${TS[@]}"} "$APP"
 codesign --verify --deep --strict "$APP"

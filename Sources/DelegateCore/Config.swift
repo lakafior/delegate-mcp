@@ -165,6 +165,23 @@ public struct Config: Codable, Sendable, Equatable {
     public func serialized() throws -> String {
         try TOMLEncoder().encode(self)
     }
+
+    /// Zmienia identyfikator dostawcy. Zwraca `false`, jeśli nazwa jest pusta lub koliduje z innym dostawcą.
+    @discardableResult
+    public mutating func renameProvider(from oldId: String, to rawNewId: String) -> Bool {
+        let trimmed = rawNewId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        if trimmed == oldId { return true }
+        guard !providers.contains(where: { $0.id == trimmed }) else { return false }
+        guard let idx = providers.firstIndex(where: { $0.id == oldId }) else { return false }
+
+        let oldDefaultEnv = "\(oldId.uppercased().replacingOccurrences(of: "-", with: "_"))_API_KEY"
+        providers[idx].id = trimmed
+        if providers[idx].apiKeyEnv == oldDefaultEnv {
+            providers[idx].apiKeyEnv = "\(trimmed.uppercased().replacingOccurrences(of: "-", with: "_"))_API_KEY"
+        }
+        return true
+    }
 }
 
 /// Katalog z konfiguracją, kluczami awaryjnymi (`.env`) i logiem użycia.

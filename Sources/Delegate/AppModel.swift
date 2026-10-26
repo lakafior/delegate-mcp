@@ -186,6 +186,14 @@ final class AppModel {
         }
     }
 
+    var isTestingAny: Bool { !testing.isEmpty }
+
+    func testAll() {
+        for p in config.providers where p.enabled {
+            test(p)
+        }
+    }
+
     func modelInfos(for p: ProviderConfig) async throws -> [ModelInfo] {
         try await DelegateService(home: home).modelInfos(for: p)
     }
@@ -202,6 +210,18 @@ final class AppModel {
         return id
     }
 
+    @discardableResult
+    func renameProvider(from oldId: String, to rawNewId: String) -> Bool {
+        let trimmed = rawNewId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard config.renameProvider(from: oldId, to: rawNewId) else { return false }
+        if let res = testResults.removeValue(forKey: oldId) {
+            testResults[trimmed] = res
+        }
+        testing.remove(oldId)
+        configChanged()
+        return true
+    }
+
     func removeProvider(id: String) {
         config.providers.removeAll { $0.id == id }
     }
@@ -216,6 +236,33 @@ final class AppModel {
     var callsToday: Int {
         let start = Calendar.current.startOfDay(for: Date())
         return UsageLog(url: home.usageURL).entries(since: start).count
+    }
+
+    var costToday: Double {
+        let start = Calendar.current.startOfDay(for: Date())
+        return UsageLog(url: home.usageURL).entries(since: start).compactMap(\.costUSD).reduce(0, +)
+    }
+
+    private static let showCostInMenuBarKey = "showCostInMenuBar"
+    var showCostInMenuBar: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.showCostInMenuBarKey) }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Self.showCostInMenuBarKey)
+            refresh()
+        }
+    }
+
+    var hasProviderIssues: Bool {
+        for p in config.providers where p.enabled {
+            if case .failure = testResults[p.id] { return true }
+            switch status(of: p) {
+            case .missingKey, .unavailable:
+                return true
+            default:
+                break
+            }
+        }
+        return false
     }
 
     // MARK: start przy logowaniu
