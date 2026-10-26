@@ -69,7 +69,8 @@ Katalog: `~/Library/Application Support/Delegate/` (nadpisywany przez `$DELEGATE
   Wczytywany przy każdym wywołaniu, więc restart nie jest potrzebny.
 - `.env` — awaryjne klucze (`MISTRAL_API_KEY=...`), `chmod 600`.
 - `delegate_usage.jsonl` — log użycia (tylko metadane, bez treści promptów).
-- `price_catalog.json` — kopia cennika LiteLLM (odświeżana co tydzień). `modelInfos` uzupełnia z niego ceny,
+- `price_catalog.json` — kopia cennika LiteLLM: odświeżana co tydzień, wcześniej (najwyżej raz na dobę), gdy brakuje
+  ceny modelu czatowego, oraz ręcznie (Ogólne → Cennik LiteLLM, „Uzupełnij z API” przy dostawcy). `modelInfos` uzupełnia z niego ceny,
   których API dostawcy nie podaje (Mistral, Gemini, DeepSeek, Anthropic, OpenAI…); dopasowanie po hoście `base_url`.
 
 Klucze: zmienna środowiska → `.env` → Keychain (service `com.mar.delegate`, account =

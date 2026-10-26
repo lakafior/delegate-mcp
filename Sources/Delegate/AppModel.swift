@@ -229,6 +229,25 @@ final class AppModel {
         try await DelegateService(home: home).modelInfos(for: p)
     }
 
+    // MARK: cennik LiteLLM
+
+    private(set) var priceCatalogDate: Date?
+    private(set) var refreshingPrices = false
+
+    func loadPriceCatalogDate() {
+        priceCatalogDate = DelegateService(home: home).priceCatalogDate
+    }
+
+    /// Pobiera cennik od nowa. Zwraca `false` przy braku sieci.
+    @discardableResult
+    func refreshPriceCatalog() async -> Bool {
+        refreshingPrices = true
+        defer { refreshingPrices = false }
+        let date = await DelegateService(home: home).refreshPriceCatalog()
+        if let date { priceCatalogDate = date }
+        return date != nil
+    }
+
     // MARK: edycja listy dostawców
 
     func addProvider(from preset: ProviderPreset) -> String {

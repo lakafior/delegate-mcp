@@ -61,22 +61,32 @@ public struct PriceCatalog: Sendable {
     }
 }
 
-/// Lokalna kopia cennika w katalogu domowym, odświeżana co tydzień. Przy braku sieci używa starej kopii.
+/// Lokalna kopia cennika w katalogu domowym. Odświeżana co tydzień, a wcześniej (najwyżej raz na
+/// `missRefreshInterval`), gdy w kopii brakuje ceny modelu: nowe modele trafiają do LiteLLM po kilku dniach.
+/// Przy braku sieci używa starej kopii.
 public struct PriceCatalogStore: Sendable {
     let cacheURL: URL
     let transport: any HTTPTransport
     let maxAge: TimeInterval
+    let missRefreshInterval: TimeInterval
 
-    public init(cacheURL: URL, transport: any HTTPTransport = URLSessionTransport(), maxAge: TimeInterval = 7 * 24 * 3600) {
+    public init(cacheURL: URL, transport: any HTTPTransport = URLSessionTransport(),
+                maxAge: TimeInterval = 7 * 24 * 3600, missRefreshInterval: TimeInterval = 24 * 3600) {
         self.cacheURL = cacheURL
         self.transport = transport
         self.maxAge = maxAge
+        self.missRefreshInterval = missRefreshInterval
     }
 
-    private var cacheAge: TimeInterval? {
-        guard let date = (try? FileManager.default.attributesOfItem(atPath: cacheURL.path))?[.modificationDate] as? Date else { return nil }
-        return Date().timeIntervalSince(date)
+    /// Kiedy pobrano obecną kopię (`nil`: jeszcze nigdy).
+    public var cacheDate: Date? {
+        (try? FileManager.default.attributesOfItem(atPath: cacheURL.path))?[.modificationDate] as? Date
     }
+
+    private var cacheAge: TimeInterval? { cacheDate.map { Date().timeIntervalSince($0) } }
+
+    /// Czy przy brakującej cenie warto pobrać cennik od nowa (kopia starsza niż `missRefreshInterval`).
+    public var canRefreshOnMiss: Bool { (cacheAge ?? .infinity) >= missRefreshInterval }
 
     /// `nil`, gdy nie ma ani świeżego pobrania, ani kopii (wtedy po prostu nie uzupełniamy cen).
     public func load(forceRefresh: Bool = false) async -> PriceCatalog? {

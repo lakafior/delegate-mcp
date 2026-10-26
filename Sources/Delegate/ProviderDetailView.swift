@@ -204,6 +204,7 @@ struct ProviderDetailView: View {
                     }
                     Section("Ceny") {
                         Button("Pobierz ceny dla wszystkich modeli") { fetchPrices() }
+                        Button("Odśwież cennik LiteLLM i pobierz ceny") { fetchPrices(refreshCatalog: true) }
                     }
                 }
                 .disabled(provider.models.isEmpty || autofilling)
@@ -242,12 +243,15 @@ struct ProviderDetailView: View {
     /// Ceny z API dla istniejących modeli: nadpisuje kategorię kwotami (albo „darmowy”, gdy API podaje 0).
     /// Modeli oznaczonych jako darmowe nie ruszamy, jeśli API podaje cenę: to zwykle świadomy wybór
     /// (darmowy plan, np. Mistral Experiment), a cena katalogowa by go zepsuła.
-    private func fetchPrices() {
+    private func fetchPrices(refreshCatalog: Bool = false) {
         autofilling = true
         autofillMessage = nil
         let snapshot = provider
         Task {
             defer { autofilling = false }
+            if refreshCatalog, !(await model.refreshPriceCatalog()) {
+                autofillMessage = "Nie udało się pobrać cennika LiteLLM (brak sieci?). Używam ostatniej kopii."
+            }
             guard let list = try? await model.modelInfos(for: snapshot) else {
                 autofillMessage = "Nie udało się pobrać listy modeli z API (sprawdź klucz i test połączenia)."
                 return
@@ -279,7 +283,11 @@ struct ProviderDetailView: View {
             if list.allSatisfy({ $0.priceIn == nil && $0.priceOut == nil }) {
                 parts = ["Cen tego dostawcy nie podaje ani jego API, ani cennik LiteLLM. Ustaw je ręcznie przyciskiem kosztu przy modelu."]
             }
-            autofillMessage = parts.joined(separator: " ")
+            model.loadPriceCatalogDate()
+            if let date = model.priceCatalogDate {
+                parts.append("Cennik LiteLLM z \(date.formatted(date: .abbreviated, time: .shortened)).")
+            }
+            autofillMessage = [autofillMessage, parts.joined(separator: " ")].compactMap { $0 }.joined(separator: " ")
         }
     }
 

@@ -175,6 +175,37 @@ import Testing
     }
 }
 
+extension PriceCatalogTests {
+    @Test func missingModelTriggersRefreshAtMostOncePerInterval() async throws {
+        let cache = FileManager.default.temporaryDirectory.appendingPathComponent("catalog-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: cache) }
+        // Kopia sprzed wejścia modelu „nowy”.
+        try Self.catalogJSON.write(to: cache, atomically: true, encoding: .utf8)
+        let newer = #"{"mistral/nowy":{"input_cost_per_token":1e-06,"output_cost_per_token":3e-06,"litellm_provider":"mistral"}}"#
+        let t = MockTransport([
+            "api.mistral.ai": .init(status: 200, body: #"{"data":[{"id":"nowy"}]}"#),
+            "raw.githubusercontent.com": .init(status: 200, body: newer),
+        ])
+        let p = ProviderConfig(id: "mistral", kind: .openai, baseURL: "https://api.mistral.ai/v1", apiKeyEnv: "K")
+        func service(missInterval: TimeInterval) -> DelegateService {
+            DelegateService(loadConfig: { Config() }, secrets: FixedSecrets(values: ["K": "k"]), transport: t,
+                            onDevice: FakeOnDevice(),
+                            usage: UsageLog(url: FileManager.default.temporaryDirectory.appendingPathComponent("u-\(UUID()).jsonl")),
+                            priceCatalog: PriceCatalogStore(cacheURL: cache, transport: t, missRefreshInterval: missInterval))
+        }
+        let catalogCalls = { t.calls.filter { $0.url?.host == "raw.githubusercontent.com" }.count }
+
+        // Kopia świeższa niż interwał: bez pobierania, ceny brak.
+        #expect(try await service(missInterval: 3600).modelInfos(for: p).first?.priceIn == nil)
+        #expect(catalogCalls() == 0)
+
+        // Kopia starsza niż interwał: jedno pobranie i cena z nowego cennika.
+        let info = try #require(try await service(missInterval: 0).modelInfos(for: p).first)
+        #expect(info.priceOut == 3 && info.priceSource == "LiteLLM")
+        #expect(catalogCalls() == 1)
+    }
+}
+
 @Suite struct HelperProbeTests {
     private func script(_ body: String) throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("fake-mcp-\(UUID().uuidString)")

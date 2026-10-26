@@ -66,6 +66,15 @@ struct GeneralView: View {
                         isEditingRawToml = true
                     }
                 }
+                LabeledContent("Cennik LiteLLM") {
+                    HStack {
+                        Text(model.priceCatalogDate.map { "z \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "jeszcze nie pobrany")
+                            .foregroundStyle(.secondary)
+                        if model.refreshingPrices { ProgressView().controlSize(.small) }
+                        Button("Odśwież") { Task { await model.refreshPriceCatalog() } }
+                            .disabled(model.refreshingPrices)
+                    }
+                }
                 LabeledContent("Binarka serwera") {
                     Text(model.helperURL.path(percentEncoded: false)).textSelection(.enabled).foregroundStyle(.secondary)
                 }
@@ -77,6 +86,7 @@ struct GeneralView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("Ogólne")
+        .onAppear { model.loadPriceCatalogDate() }
         .sheet(isPresented: $isEditingRawToml) {
             RawTomlEditorSheet(model: model, isPresented: $isEditingRawToml)
         }

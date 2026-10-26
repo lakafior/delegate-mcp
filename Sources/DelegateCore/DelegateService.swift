@@ -309,17 +309,35 @@ public struct DelegateService: Sendable {
         if p.needsKey && key.isEmpty { throw ProviderError.missingKey(p.apiKeyEnv) }
         let timeout = p.timeoutSeconds ?? 30
         var infos = try await ProviderClient(transport: transport, timeout: timeout).listModelInfo(provider: p, apiKey: key)
-        let unpriced = infos.indices.filter { infos[$0].priceIn == nil && infos[$0].priceOut == nil }
-        guard !unpriced.isEmpty, PriceCatalog.catalogProvider(forBaseURL: p.baseURL) != nil,
-              let catalog = await priceCatalog?.load() else { return infos }
-        for i in unpriced {
-            guard let price = catalog.price(for: infos[i].id, provider: p) else { continue }
-            infos[i].priceIn = price.input
-            infos[i].priceOut = price.output
-            infos[i].priceSource = PriceCatalog.sourceName
+        guard PriceCatalog.catalogProvider(forBaseURL: p.baseURL) != nil, let store = priceCatalog else { return infos }
+        func unpriced() -> [Int] { infos.indices.filter { infos[$0].priceIn == nil && infos[$0].priceOut == nil } }
+        func fill(from catalog: PriceCatalog) {
+            for i in unpriced() {
+                guard let price = catalog.price(for: infos[i].id, provider: p) else { continue }
+                infos[i].priceIn = price.input
+                infos[i].priceOut = price.output
+                infos[i].priceSource = PriceCatalog.sourceName
+            }
+        }
+        guard !unpriced().isEmpty, let catalog = await store.load() else { return infos }
+        fill(from: catalog)
+        // Nowy model, którego nie ma w kopii: spróbuj świeżego cennika (najwyżej raz na dobę).
+        let chatMissing = unpriced().contains { infos[$0].isChat }
+        if chatMissing, store.canRefreshOnMiss, let fresh = await store.load(forceRefresh: true) {
+            fill(from: fresh)
         }
         return infos
     }
+
+    /// Pobiera cennik od nowa (przycisk w GUI). Zwraca datę kopii, `nil` przy braku sieci i kopii.
+    @discardableResult
+    public func refreshPriceCatalog() async -> Date? {
+        guard let store = priceCatalog, await store.load(forceRefresh: true) != nil else { return nil }
+        return store.cacheDate
+    }
+
+    /// Data lokalnej kopii cennika LiteLLM.
+    public var priceCatalogDate: Date? { priceCatalog?.cacheDate }
 
     public func listRemoteModels(providerID: String?) async throws -> String {
         let config = try loadConfig()
