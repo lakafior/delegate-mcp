@@ -61,7 +61,7 @@ final class AppModel {
         refresh()
         migrateKeychainAccessIfNeeded()
         // Log zawiera tylko metadane, ale rośnie bez końca; rok wystarczy do statystyk.
-        try? UsageLog(url: home.usageURL).prune(olderThan: 365)
+        _ = try? UsageLog(url: home.usageURL).prune(olderThan: 365)
         refreshUsage()
         // Serwer dopisuje do logu w innym procesie; sprawdzamy datę pliku, a czytamy tylko po zmianie.
         usageTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
@@ -246,6 +246,11 @@ final class AppModel {
         for p in config.providers where p.enabled {
             test(p)
         }
+    }
+
+    /// Co serwer zrobiłby z zadaniem przy obecnym configu (podgląd w Routingu, nic nie wysyła).
+    func routingPlan(for request: DelegateRequest) -> RoutingPlan {
+        DelegateService(home: home).routingPlan(for: request, config: config)
     }
 
     func modelInfos(for p: ProviderConfig) async throws -> [ModelInfo] {

@@ -23,6 +23,46 @@ struct StatusDot: View {
     }
 }
 
+extension PrivacyRegion {
+    var title: String {
+        switch self {
+        case .local: "lokalnie (ten Mac)"
+        case .eu: "UE"
+        case .us: "USA"
+        case .cn: "Chiny"
+        case .other: "nieznany"
+        }
+    }
+}
+
+extension Sensitivity {
+    var title: String {
+        switch self {
+        case .public: "publiczne"
+        case .personal: "osobiste / praca"
+        case .private: "prywatne (tylko Mac)"
+        }
+    }
+}
+
+extension DelegationMode {
+    var title: String {
+        switch self {
+        case .conservative: "Ostrożnie"
+        case .balanced: "Zrównoważenie"
+        case .aggressive: "Agresywnie"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .conservative: "Claude deleguje tylko wyraźnie długie zadania tekstowe (próg ok. 400 słów)."
+        case .balanced: "Claude deleguje aktywnie, gdy zadanie pasuje (próg ok. 150 słów)."
+        case .aggressive: "Claude deleguje domyślnie, nawet krótkie drafty i przeróbki (próg ok. 50 słów)."
+        }
+    }
+}
+
 extension ProviderKind {
     var title: String {
         switch self {

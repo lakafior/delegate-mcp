@@ -23,7 +23,7 @@ urządzeniu (Apple Foundation Models, `type = "foundation"`): bez klucza, offlin
 | Narzędzie | Do czego |
 |---|---|
 | `list_models` | Lista dostawców i modeli wg priorytetu, z tagami, kosztami, statusem klucza i zasadami routingu |
-| `delegate` | Wysyła zadanie: `model` (`provider/model`), `task` (tag) albo automatycznie wg priorytetu; opcjonalnie `system`, `temperature`, `max_tokens`, `fallback=false` |
+| `delegate` | Wysyła zadanie: `model` (`provider/model`), `task` (tag) albo automatycznie wg priorytetu; opcjonalnie `system`, `temperature`, `max_tokens`, `fallback=false`, `sensitivity` (`public`/`personal`/`private`) |
 | `list_remote_models` | Pyta API dostawcy o aktualne ID modeli, z sugerowanymi tagami, kontekstem i cenami (jeśli API je podaje) |
 | `update_models` | Zapisuje tagi i koszt modeli w `delegate.toml` (upsert, bez kluczy). Koszt: kategoria (`free`/`cheap`/`paid`/`varies`) albo `price_in`/`price_out` w USD za 1M tokenów |
 | `usage_summary` | Podsumowanie wywołań i tokenów z lokalnego logu |
@@ -120,6 +120,17 @@ i `routing_guidance`. Opis narzędzia `delegate` (lista tagów i modeli) budowan
 Aplikacja (Ogólne → Claude) może dodatkowo dopisać do `~/.claude/CLAUDE.md` krótki blok
 (`ClaudeIntegration.instructions`), który tylko wzmacnia nawyk; starszy blok podmienia przyciskiem „Zaktualizuj”.
 Subagenta `grunt` aplikacja już nie instaluje (nie korzystał z `delegate`); istniejący plik zostaje nietknięty.
+
+## Routing: prywatność, budżet, tryb
+
+`DelegateService.routingPlan` buduje kolejność prób i listę pominiętych z powodami (używa go `delegate`
+i podgląd w zakładce Routing):
+- **Region danych** dostawcy (`privacy` w `[[provider]]`: `local`/`eu`/`us`/`cn`/`other`, domyślnie wnioskowany
+  z hosta, `PrivacyRegion.inferred`). Zadanie `sensitivity = personal` trafia tylko do `personal_regions`
+  (domyślnie local, eu, us), `private` tylko do lokalnych. Nieznana wartość `sensitivity` = `personal`.
+- **Dzienny budżet** (`daily_budget_usd`): po wydaniu limitu (suma `cost_usd` z dzisiejszego logu) płatne modele
+  odpadają; nieznana cena liczy się jako płatna, lokalne i `free` zawsze przechodzą.
+- **Tryb** (`delegation_mode`: `conservative`/`balanced`/`aggressive`) zmienia ton i próg słów w instrukcjach serwera.
 
 ## Ważne
 

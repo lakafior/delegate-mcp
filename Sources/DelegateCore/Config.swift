@@ -89,14 +89,16 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
     /// Wskazówki dla Claude'a: do czego ten dostawca jest dobry, czego tu nie wysyłać.
     /// Trafiają do instrukcji serwera MCP obok mapy modeli.
     public var guidance: String?
+    /// Region danych ustawiony ręcznie; `nil` = wywnioskowany z adresu (`effectivePrivacy`).
+    public var privacy: PrivacyRegion?
     /// Opcjonalny dedykowany timeout bazowy (w sekundach) dla tego dostawcy.
     public var timeoutSeconds: Double?
     public var models: [ModelConfig]
 
     public init(
         id: String, kind: ProviderKind, baseURL: String = "", apiKeyEnv: String = "",
-        enabled: Bool = true, note: String? = nil, guidance: String? = nil, timeoutSeconds: Double? = nil,
-        models: [ModelConfig] = []
+        enabled: Bool = true, note: String? = nil, guidance: String? = nil, privacy: PrivacyRegion? = nil,
+        timeoutSeconds: Double? = nil, models: [ModelConfig] = []
     ) {
         self.id = id
         self.kind = kind
@@ -105,6 +107,7 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         self.enabled = enabled
         self.note = note
         self.guidance = guidance
+        self.privacy = privacy
         self.timeoutSeconds = timeoutSeconds
         self.models = models
     }
@@ -120,7 +123,7 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         case kind = "type"
         case baseURL = "base_url"
         case apiKeyEnv = "api_key_env"
-        case enabled, note, guidance
+        case enabled, note, guidance, privacy
         case timeoutSeconds = "timeout_seconds"
         case models = "model"
     }
@@ -134,6 +137,8 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
         note = try c.decodeIfPresent(String.self, forKey: .note)
         guidance = try c.decodeIfPresent(String.self, forKey: .guidance)
+        // Nieznana wartość nie może zablokować wczytania configu: wtedy wnioskujemy z adresu.
+        privacy = try c.decodeIfPresent(String.self, forKey: .privacy).flatMap(PrivacyRegion.init(rawValue:))
         timeoutSeconds = try c.decodeNumberIfPresent(forKey: .timeoutSeconds)
         models = try c.decodeIfPresent([ModelConfig].self, forKey: .models) ?? []
     }
@@ -141,19 +146,35 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
 
 /// Zawartość `delegate.toml`. Kolejność `providers` to priorytet fallbacku.
 public struct Config: Codable, Sendable, Equatable {
+    public static let defaultPersonalRegions: [PrivacyRegion] = [.local, .eu, .us]
+
     public var routingGuidance: String
     public var timeoutSeconds: Double
+    /// Jak chętnie Claude ma delegować (ton instrukcji serwera).
+    public var delegationMode: DelegationMode
+    /// Regiony, do których mogą trafić zadania z `sensitivity = personal`.
+    public var personalRegions: [PrivacyRegion]
+    /// Dzienny limit wydatków na płatne modele w USD; po jego przekroczeniu serwer ich nie używa.
+    public var dailyBudgetUSD: Double?
     public var providers: [ProviderConfig]
 
-    public init(routingGuidance: String = "", timeoutSeconds: Double = 120, providers: [ProviderConfig] = []) {
+    public init(routingGuidance: String = "", timeoutSeconds: Double = 120, delegationMode: DelegationMode = .balanced,
+                personalRegions: [PrivacyRegion] = Config.defaultPersonalRegions, dailyBudgetUSD: Double? = nil,
+                providers: [ProviderConfig] = []) {
         self.routingGuidance = routingGuidance
         self.timeoutSeconds = timeoutSeconds
+        self.delegationMode = delegationMode
+        self.personalRegions = personalRegions
+        self.dailyBudgetUSD = dailyBudgetUSD
         self.providers = providers
     }
 
     enum CodingKeys: String, CodingKey {
         case routingGuidance = "routing_guidance"
         case timeoutSeconds = "timeout_seconds"
+        case delegationMode = "delegation_mode"
+        case personalRegions = "personal_regions"
+        case dailyBudgetUSD = "daily_budget_usd"
         case providers = "provider"
     }
 
@@ -162,6 +183,11 @@ public struct Config: Codable, Sendable, Equatable {
         routingGuidance = try c.decodeIfPresent(String.self, forKey: .routingGuidance) ?? ""
         // TOML rozróżnia liczby całkowite i zmiennoprzecinkowe: `120` nie zdekoduje się jako Double.
         timeoutSeconds = try c.decodeNumberIfPresent(forKey: .timeoutSeconds) ?? 120
+        delegationMode = try c.decodeIfPresent(String.self, forKey: .delegationMode)
+            .flatMap(DelegationMode.init(rawValue:)) ?? .balanced
+        personalRegions = try c.decodeIfPresent([String].self, forKey: .personalRegions)?
+            .compactMap(PrivacyRegion.init(rawValue:)) ?? Config.defaultPersonalRegions
+        dailyBudgetUSD = try c.decodeNumberIfPresent(forKey: .dailyBudgetUSD)
         providers = try c.decodeIfPresent([ProviderConfig].self, forKey: .providers) ?? []
     }
 
@@ -183,6 +209,9 @@ public struct Config: Codable, Sendable, Equatable {
         var out = theirs
         out.routingGuidance = pick(base.routingGuidance, mine.routingGuidance, theirs.routingGuidance)
         out.timeoutSeconds = pick(base.timeoutSeconds, mine.timeoutSeconds, theirs.timeoutSeconds)
+        out.delegationMode = pick(base.delegationMode, mine.delegationMode, theirs.delegationMode)
+        out.personalRegions = pick(base.personalRegions, mine.personalRegions, theirs.personalRegions)
+        out.dailyBudgetUSD = pick(base.dailyBudgetUSD, mine.dailyBudgetUSD, theirs.dailyBudgetUSD)
 
         func byID(_ c: Config) -> [String: ProviderConfig] {
             Dictionary(c.providers.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })

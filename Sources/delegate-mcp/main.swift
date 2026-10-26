@@ -91,6 +91,11 @@ func makeTools(_ guide: DelegationGuide) -> [Tool] { [
             "fallback": prop("boolean", "Default true. false = use only the given model, no fallback."),
             "allow_secrets": prop("boolean", "Default false. The server blocks prompts that look like they contain API keys or tokens; set true only if that content is intentional and safe to send."),
             "json": prop("boolean", "Default false. true = ask the model for a valid JSON reply."),
+            "sensitivity": .object([
+                "type": .string("string"),
+                "enum": .array(Sensitivity.allCases.map { .string($0.rawValue) }),
+                "description": .string("public (default) = nothing personal; personal = personal or work data, sent only to allowed regions; private = stays on this Mac (local models only). Enforced by the server."),
+            ]),
         ], required: ["prompt"])
     ),
     Tool(
@@ -160,7 +165,9 @@ await server.withMethodHandler(CallTool.self) { params in
                 maxTokens: a["max_tokens"]?.intValue,
                 allowFallback: a["fallback"]?.boolValue ?? true,
                 allowSecrets: a["allow_secrets"]?.boolValue ?? false,
-                jsonMode: a["json"]?.boolValue ?? false
+                jsonMode: a["json"]?.boolValue ?? false,
+                // Nieznana wartość: ostrożniej traktujemy ją jak dane osobiste, nie publiczne.
+                sensitivity: Sensitivity(rawValue: a["sensitivity"]?.stringValue ?? "public") ?? .personal
             )
             return .init(content: [reply(try await service.delegate(request))], isError: false)
 

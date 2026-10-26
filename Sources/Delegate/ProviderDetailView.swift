@@ -42,6 +42,10 @@ struct ProviderDetailView: View {
                     Text(model.status(of: provider).label).font(.callout)
                 }
                 Toggle("Włączony", isOn: $provider.enabled)
+                Picker("Gdzie trafiają dane", selection: $provider.privacy) {
+                    Text("Automatycznie (\(PrivacyRegion.inferred(for: provider).title))").tag(PrivacyRegion?.none)
+                    ForEach(PrivacyRegion.allCases, id: \.self) { Text($0.title).tag(PrivacyRegion?.some($0)) }
+                }
             }
 
             if provider.kind != .foundation { connection }

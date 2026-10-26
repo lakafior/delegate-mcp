@@ -14,10 +14,12 @@ public struct DelegateRequest: Sendable {
     public var allowSecrets: Bool
     /// `true`: wymuś format odpowiedzi jako czysty JSON.
     public var jsonMode: Bool
+    /// Jak wrażliwe są dane; serwer odrzuca dostawców spoza dozwolonych regionów.
+    public var sensitivity: Sensitivity
 
     public init(prompt: String, system: String? = nil, model: String? = nil, task: String? = nil,
                 temperature: Double? = nil, maxTokens: Int? = nil, allowFallback: Bool = true,
-                allowSecrets: Bool = false, jsonMode: Bool = false) {
+                allowSecrets: Bool = false, jsonMode: Bool = false, sensitivity: Sensitivity = .public) {
         self.prompt = prompt
         self.system = system
         self.model = model
@@ -27,6 +29,7 @@ public struct DelegateRequest: Sendable {
         self.allowFallback = allowFallback
         self.allowSecrets = allowSecrets
         self.jsonMode = jsonMode
+        self.sensitivity = sensitivity
     }
 }
 
@@ -215,8 +218,45 @@ public struct DelegateService: Sendable {
     // MARK: delegate
 
     public func candidates(for request: DelegateRequest, config: Config) -> [Candidate] {
-        let usable = config.providers.filter { status(of: $0) == .ready }
+        routingPlan(for: request, config: config).candidates
+    }
+
+    /// Kolejność prób i powody pominięcia: status klucza, region danych vs `sensitivity`, dzienny budżet,
+    /// potem tag i wskazany model. Wspólne dla `delegate` i podglądu w GUI.
+    public func routingPlan(for request: DelegateRequest, config: Config, now: Date = Date()) -> RoutingPlan {
+        var excluded: [RoutingExclusion] = []
+        var usable: [ProviderConfig] = []
+        for p in config.providers {
+            let st = status(of: p)
+            guard st == .ready else {
+                excluded.append(RoutingExclusion(ref: p.id, reason: st.label))
+                continue
+            }
+            let region = p.effectivePrivacy
+            switch request.sensitivity {
+            case .private where region != .local:
+                excluded.append(RoutingExclusion(ref: p.id, reason: "zadanie prywatne zostaje na Macu (region: \(region.rawValue))"))
+                continue
+            case .personal where !config.personalRegions.contains(region):
+                excluded.append(RoutingExclusion(ref: p.id, reason: "dane osobiste nie trafiają do regionu \(region.rawValue)"))
+                continue
+            default:
+                usable.append(p)
+            }
+        }
         var all = usable.flatMap { p in p.models.map { Candidate(provider: p, model: $0) } }
+
+        var spent: Double?
+        if let budget = config.dailyBudgetUSD {
+            let today = Calendar.current.startOfDay(for: now)
+            let s = usage.entries(since: today).compactMap(\.costUSD).reduce(0, +)
+            spent = s
+            if s >= budget {
+                let reason = String(format: "dzienny budżet wyczerpany ($%.2f z $%.2f)", s, budget)
+                excluded += all.filter { !$0.model.isFree(at: $0.provider) }.map { RoutingExclusion(ref: $0.ref, reason: reason) }
+                all = all.filter { $0.model.isFree(at: $0.provider) }
+            }
+        }
 
         if let task = request.task?.lowercased(), !task.isEmpty {
             let tagged = all.filter { $0.model.tags.contains { $0.lowercased() == task } }
@@ -226,22 +266,25 @@ public struct DelegateService: Sendable {
             let exact = all.filter { $0.ref == wanted || (!wanted.contains("/") && $0.model.id == wanted) }
             all = request.allowFallback ? exact + all.filter { c in !exact.contains(c) } : exact
         }
-        return all
+        return RoutingPlan(candidates: all, excluded: excluded, spentToday: spent)
     }
 
     public func delegate(_ request: DelegateRequest) async throws -> String {
         let config = try loadConfig()
-        let list = candidates(for: request, config: config)
+        let plan = routingPlan(for: request, config: config)
+        let list = plan.candidates
         guard !list.isEmpty else {
+            let why = plan.excluded.prefix(10).map { "- \($0.ref): \($0.reason)" }.joined(separator: "\n")
+            let detail = why.isEmpty ? "" : "\nPominięte:\n" + why
             if let m = request.model {
-                throw DelegateError(description: "Model „\(m)” niedostępny (brak w configu, wyłączony albo bez klucza). Użyj list_models.")
+                throw DelegateError(description: "Model „\(m)” niedostępny dla tego zadania.\(detail)")
             }
-            throw DelegateError(description: "Brak dostępnych modeli. Sprawdź klucze i config przez list_models.")
+            throw DelegateError(description: "Brak modeli dla tego zadania (sensitivity: \(request.sensitivity.rawValue)).\(detail)")
         }
 
         // Weryfikacja pod kątem wycieku sekretów do dostawców zewnętrznych
         if !request.allowSecrets {
-            let targetsCloud = list.contains { $0.provider.kind != .foundation }
+            let targetsCloud = list.contains { $0.provider.effectivePrivacy != .local }
             if targetsCloud, let leak = SecretLeakDetector.scan(request.prompt) ?? (request.system.flatMap(SecretLeakDetector.scan)) {
                 throw DelegateError(
                     description: "Wykryto potencjalny sekret w prompcie (\(leak.type): \(leak.matched)). Jeśli celowo wysyłasz te dane do zewnętrznego modelu, ustaw allow_secrets = true."

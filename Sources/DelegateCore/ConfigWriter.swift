@@ -14,6 +14,11 @@ enum ConfigWriter {
         var out = header + "\n"
         out += "routing_guidance = \(string(config.routingGuidance, multiline: true))\n"
         out += "timeout_seconds = \(number(config.timeoutSeconds))\n"
+        if config.delegationMode != .balanced { out += "delegation_mode = \(string(config.delegationMode.rawValue))\n" }
+        if config.personalRegions != Config.defaultPersonalRegions {
+            out += "personal_regions = [\(config.personalRegions.map { string($0.rawValue) }.joined(separator: ", "))]\n"
+        }
+        if let b = config.dailyBudgetUSD { out += "daily_budget_usd = \(number(b))\n" }
         for p in config.providers {
             out += "\n[[provider]]\n"
             out += "id = \(string(p.id))\n"
@@ -21,6 +26,7 @@ enum ConfigWriter {
             if !p.baseURL.isEmpty { out += "base_url = \(string(p.baseURL))\n" }
             if !p.apiKeyEnv.isEmpty { out += "api_key_env = \(string(p.apiKeyEnv))\n" }
             if !p.enabled { out += "enabled = false\n" }
+            if let r = p.privacy { out += "privacy = \(string(r.rawValue))\n" }
             if let t = p.timeoutSeconds { out += "timeout_seconds = \(number(t))\n" }
             if let n = p.note, !n.isEmpty { out += "note = \(string(n, multiline: true))\n" }
             if let g = p.guidance, !g.isEmpty { out += "guidance = \(string(g, multiline: true))\n" }

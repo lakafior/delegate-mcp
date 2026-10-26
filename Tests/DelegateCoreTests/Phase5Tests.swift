@@ -311,3 +311,78 @@ extension PriceCatalogTests {
         #expect(try Config.parse(text) == c)
     }
 }
+
+@Suite struct RoutingPolicyTests {
+    private let keys = ["MISTRAL_API_KEY": "m", "GEMINI_API_KEY": "g", "DEEPSEEK_API_KEY": "d", "OPENROUTER_API_KEY": "o"]
+
+    @Test func regionsAreInferredFromAddress() throws {
+        let c = try Config.parse(sampleConfigToml)
+        let regions = Dictionary(uniqueKeysWithValues: c.providers.map { ($0.id, $0.effectivePrivacy) })
+        #expect(regions == ["mistral": .eu, "gemini": .us, "deepseek": .cn, "openrouter": .us, "apple": .local])
+        #expect(PrivacyRegion.inferred(for: ProviderConfig(id: "o", kind: .openai, baseURL: "http://localhost:11434/v1")) == .local)
+        #expect(PrivacyRegion.inferred(for: ProviderConfig(id: "x", kind: .openai, baseURL: "https://api.nowy.dev/v1")) == .other)
+    }
+
+    @Test func sensitivityIsEnforced() throws {
+        let (svc, _) = try makeService(MockTransport([:]), keys: keys, onDevice: FakeOnDevice(availability: .available))
+        let cfg = try Config.parse(sampleConfigToml)
+        let personal = svc.routingPlan(for: .init(prompt: "x", sensitivity: .personal), config: cfg)
+        #expect(!personal.candidates.contains { $0.provider.id == "deepseek" })
+        #expect(personal.excluded.contains { $0.ref == "deepseek" && $0.reason.contains("cn") })
+        let priv = svc.routingPlan(for: .init(prompt: "x", sensitivity: .private), config: cfg)
+        #expect(Set(priv.candidates.map(\.provider.id)) == ["apple"])
+        let pub = svc.routingPlan(for: .init(prompt: "x"), config: cfg)
+        #expect(pub.candidates.contains { $0.provider.id == "deepseek" })
+    }
+
+    @Test func privateTaskWithoutLocalModelFailsWithReasons() async throws {
+        let (svc, _) = try makeService(MockTransport([:]), keys: keys)   // model Apple niedostępny
+        let error = await #expect(throws: DelegateError.self) {
+            try await svc.delegate(.init(prompt: "x", sensitivity: .private))
+        }
+        #expect(error?.description.contains("Pominięte") == true)
+    }
+
+    @Test func spentBudgetSkipsPaidModels() throws {
+        let log = FileManager.default.temporaryDirectory.appendingPathComponent("usage-\(UUID()).jsonl")
+        UsageLog(url: log).append(UsageEntry(provider: "deepseek", model: "deepseek-chat", costUSD: 0.6, ok: true, ms: 1))
+        var cfg = try Config.parse(sampleConfigToml)
+        cfg.dailyBudgetUSD = 0.5
+        let svc = DelegateService(loadConfig: { Config() }, secrets: FixedSecrets(values: keys), transport: MockTransport([:]),
+                                  onDevice: FakeOnDevice(), usage: UsageLog(url: log))
+        let plan = svc.routingPlan(for: .init(prompt: "x"), config: cfg)
+        #expect(plan.spentToday == 0.6)
+        // deepseek („cheap”), gemini-pro („paid”) i openrouter („varies”) odpadają; darmowe zostają.
+        #expect(plan.candidates.allSatisfy { $0.model.cost == "free" })
+        #expect(plan.excluded.contains { $0.ref == "deepseek/deepseek-chat" && $0.reason.contains("budżet") })
+        cfg.dailyBudgetUSD = 5
+        #expect(svc.routingPlan(for: .init(prompt: "x"), config: cfg).candidates.contains { $0.provider.id == "deepseek" })
+    }
+
+    @Test func newFieldsRoundTripAndTolerateUnknownValues() throws {
+        var c = try Config.parse(sampleConfigToml)
+        c.delegationMode = .aggressive
+        c.personalRegions = [.local, .eu]
+        c.dailyBudgetUSD = 2.5
+        c.providers[3].privacy = .eu
+        #expect(try Config.parse(try c.serialized()) == c)
+        let odd = try Config.parse("delegation_mode = 'wild'\n[[provider]]\nid='x'\ntype='openai'\nprivacy='mars'")
+        #expect(odd.delegationMode == .balanced && odd.providers[0].privacy == nil)
+        #expect(odd.personalRegions == Config.defaultPersonalRegions)
+    }
+
+    @Test func instructionsFollowModeAndSensitivity() throws {
+        var c = try Config.parse(sampleConfigToml)
+        c.delegationMode = .aggressive
+        c.dailyBudgetUSD = 1
+        let g = DelegationGuide(config: c) { ["mistral", "apple"].contains($0.id) }
+        let text = g.serverInstructions
+        #expect(text.contains("Delegate by default"))
+        #expect(text.contains("~50"))
+        #expect(text.contains("only providers in these regions: local, eu, us"))
+        #expect(text.contains("only local models (apple)"))
+        #expect(text.contains("daily budget of $1.00"))
+        let noLocal = DelegationGuide(config: c) { $0.id == "mistral" }.serverInstructions
+        #expect(noLocal.contains("No local model is ready"))
+    }
+}
