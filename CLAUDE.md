@@ -45,6 +45,11 @@ podpis ad-hoc; `SIGN_ID="Developer ID Application: …"` do dystrybucji). Flagi 
 sprawdzania widoków: `--settings` otwiera okno przy starcie, `--select=routing|usage|general|<id dostawcy>`
 wybiera panel. `DELEGATE_HOME=/tmp/x` odcina od prawdziwego configu.
 
+Binarki z `swift build` mają podpis ad-hoc, którego ACL wpisów w Keychain nie zna, więc odczyt klucza
+pyta o hasło (przy każdym przebudowaniu od nowa). `./scripts/dev-sign.sh` buduje i podpisuje je tą samą
+tożsamością i identyfikatorami co `Delegate.app` (uruchom ponownie po każdym `swift build`). Statusy kluczy
+sprawdzamy przez `hasSecret` (same atrybuty), który nigdy nie pyta o hasło.
+
 ## Instalacja i dystrybucja
 
 Ikona: `Assets/AppIcon.icon` (Icon Composer), kompilowana przez `actool` w `build-app.sh`.
@@ -59,13 +64,15 @@ Ikona: `Assets/AppIcon.icon` (Icon Composer), kompilowana przez `actool` w `buil
 
 Katalog: `~/Library/Application Support/Delegate/` (nadpisywany przez `$DELEGATE_HOME`).
 
-- `delegate.toml` — config. Tworzony z domyślnego, jeśli go brak (`delegate-mcp --init`).
+- `delegate.toml` — config. Tworzony z domyślnego, jeśli go brak (`delegate-mcp --init`). Domyślny ma tylko
+  model na urządzeniu; chmurowych dostawców dodaje się z presetów (`ProviderPreset`, menu + w aplikacji).
   Wczytywany przy każdym wywołaniu, więc restart nie jest potrzebny.
 - `.env` — awaryjne klucze (`MISTRAL_API_KEY=...`), `chmod 600`.
 - `delegate_usage.jsonl` — log użycia (tylko metadane, bez treści promptów).
 
 Klucze: zmienna środowiska → `.env` → Keychain (service `com.mar.delegate`, account =
-`api_key_env` z configu). Dostawca bez klucza jest pomijany, nic się nie psuje.
+`api_key_env` z configu). Dostawca bez klucza jest pomijany, nic się nie psuje. Zmiana nazwy dostawcy
+lub `api_key_env` w aplikacji przenosi wpis w Keychain; usunięcie dostawcy usuwa jego klucz.
 
 ## Podpięcie w Claude
 
@@ -98,18 +105,15 @@ dostawcy i zaktualizuj delegate.toml”*.
 
 ## Żeby Claude faktycznie delegował
 
-Zasady routingu są w `routing_guidance` w `delegate.toml`, a Claude czyta je przez `list_models`.
-Aplikacja (Ogólne → Claude) dopisuje do `~/.claude/CLAUDE.md` blok „Delegowanie i tańsze modele”
-(treść: `ClaudeIntegration.instructions`) i może zainstalować subagenta `grunt` (`~/.claude/agents/grunt.md`,
-`model: haiku`). Reguła w bloku:
+Główny mechanizm to **instrukcje serwera MCP** (`DelegationGuide.serverInstructions`): serwer podaje je
+przy `initialize`, a Claude Code i Claude Desktop wstrzykują je do każdej sesji. Są generowane z configu
+przy starcie serwera: kiedy delegować, czego nie, oraz mapa tag → gotowe modele (włączone, z kluczem)
+i `routing_guidance`. Opis narzędzia `delegate` (lista tagów i modeli) budowany jest przy każdym
+`tools/list`, więc Claude nie musi wołać `list_models`. Teksty dla Claude'a są po angielsku.
 
-1. mechaniczna praca na repo → subagent `grunt` (Haiku),
-2. zadanie samowystarczalne w tekście → `delegate` (modele zewnętrzne widzą tylko prompt),
-3. decyzje projektowe, debugowanie, wiele plików → główny model.
-
-Subagenci (`.claude/agents`) działają tylko w Claude Code (także w zakładce Code aplikacji Claude);
-zwykły czat w Claude Desktop ma tylko narzędzia MCP, czyli `delegate`.
-Starszy blok w `CLAUDE.md` aplikacja podmienia w miejscu przyciskiem „Zaktualizuj”.
+Aplikacja (Ogólne → Claude) może dodatkowo dopisać do `~/.claude/CLAUDE.md` krótki blok
+(`ClaudeIntegration.instructions`), który tylko wzmacnia nawyk; starszy blok podmienia przyciskiem „Zaktualizuj”.
+Subagenta `grunt` aplikacja już nie instaluje (nie korzystał z `delegate`); istniejący plik zostaje nietknięty.
 
 ## Ważne
 

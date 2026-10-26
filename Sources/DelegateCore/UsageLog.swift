@@ -51,9 +51,9 @@ public struct UsageEntry: Codable, Sendable, Equatable {
     }
 }
 
-/// Narzędzia do szacowania kosztów i zaoszczędzonych środków względem modelu referencyjnego (Claude 3.5 Sonnet).
+/// Narzędzia do szacowania kosztów i zaoszczędzonych środków względem modelu referencyjnego (Claude Sonnet).
 public enum CostCalculator {
-    /// Benchmark Claude 3.5 Sonnet: $3.00 wejście / $15.00 wyjście za 1M tokenów.
+    /// Benchmark Claude Sonnet: $3.00 wejście / $15.00 wyjście za 1M tokenów.
     public static let sonnetPriceIn: Double = 3.0
     public static let sonnetPriceOut: Double = 15.0
 
@@ -71,10 +71,18 @@ public enum CostCalculator {
         return inCost + outCost
     }
 
+    /// Bez znanego kosztu (np. kategoria `cheap` bez kwot) nie zgadujemy oszczędności: zwraca 0.
     public static func savingsVsSonnet(cost: Double?, inputTokens: Int?, outputTokens: Int?) -> Double {
+        guard let cost else { return 0 }
         let sonnet = benchmarkSonnetCost(inputTokens: inputTokens, outputTokens: outputTokens)
-        let actual = cost ?? 0.0
-        return max(0, sonnet - actual)
+        return max(0, sonnet - cost)
+    }
+
+    /// Suma oszczędności liczona per wywołanie, tylko dla udanych wywołań ze znanym kosztem.
+    public static func savingsVsSonnet(_ entries: [UsageEntry]) -> Double {
+        entries.filter(\.ok).reduce(0) {
+            $0 + savingsVsSonnet(cost: $1.costUSD, inputTokens: $1.inputTokens, outputTokens: $1.outputTokens)
+        }
     }
 }
 

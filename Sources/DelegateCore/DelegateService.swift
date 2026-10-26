@@ -156,9 +156,12 @@ public struct DelegateService: Sendable {
         return min(max(base, total), 600)
     }
 
+    /// Aktualny config (czytany z dysku przy każdym wywołaniu).
+    public func currentConfig() throws -> Config { try loadConfig() }
+
     /// Czy dostawca jest dziś używalny i dlaczego nie (do GUI i `list_models`).
     public func status(of p: ProviderConfig) -> ProviderStatus {
-        ProviderStatus.evaluate(p, hasKey: p.needsKey && secrets.secret(for: p.apiKeyEnv) != nil, onDevice: onDevice.availability)
+        ProviderStatus.evaluate(p, hasKey: p.needsKey && secrets.hasSecret(for: p.apiKeyEnv), onDevice: onDevice.availability)
     }
 
     /// Lekki test połączenia: lista modeli (chmura) albo dostępność (lokalnie).
@@ -392,11 +395,12 @@ public struct DelegateService: Sendable {
         let totalCost = entries.compactMap(\.costUSD).reduce(0, +)
         let totalInput = entries.compactMap(\.inputTokens).reduce(0, +)
         let totalOutput = entries.compactMap(\.outputTokens).reduce(0, +)
-        let sonnetCost = CostCalculator.benchmarkSonnetCost(inputTokens: totalInput, outputTokens: totalOutput)
-        let saved = max(0, sonnetCost - totalCost)
+        let saved = CostCalculator.savingsVsSonnet(entries)
+        let unpriced = entries.filter { $0.ok && $0.costUSD == nil }.count
 
         out += "\nRazem: \(entries.count) wywołań, \(totalInput) in / \(totalOutput) out"
         out += String(format: "\nKoszt całkowity: $%.4f · Zaoszczędzono vs Sonnet: $%.4f", totalCost, saved)
+        if unpriced > 0 { out += "\n(\(unpriced) wywołań bez znanej ceny modelu, pominięte w kosztach)" }
         return out
     }
 }

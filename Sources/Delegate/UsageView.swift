@@ -43,6 +43,8 @@ struct UsageView: View {
         var input = 0
         var output = 0
         var cost: Double = 0.0
+        /// Czy którekolwiek wywołanie miało znany koszt.
+        var priced = false
     }
 
     private var byModel: [ModelRowData] {
@@ -55,6 +57,7 @@ struct UsageView: View {
             row.input += e.inputTokens ?? 0
             row.output += e.outputTokens ?? 0
             row.cost += e.costUSD ?? 0.0
+            if e.costUSD != nil { row.priced = true }
             rows[ref] = row
         }
         return rows.values.sorted { $0.calls > $1.calls }
@@ -68,12 +71,10 @@ struct UsageView: View {
         entries.compactMap(\.costUSD).reduce(0, +)
     }
 
-    private var totalSavings: Double {
-        let totalIn = entries.compactMap(\.inputTokens).reduce(0, +)
-        let totalOut = entries.compactMap(\.outputTokens).reduce(0, +)
-        let sonnet = CostCalculator.benchmarkSonnetCost(inputTokens: totalIn, outputTokens: totalOut)
-        return max(0, sonnet - totalCost)
-    }
+    private var totalSavings: Double { CostCalculator.savingsVsSonnet(entries) }
+
+    /// Udane wywołania modeli bez ceny (np. kategoria „tani” bez kwot): nie wchodzą do kosztu ani oszczędności.
+    private var unpricedCount: Int { entries.filter { $0.ok && $0.costUSD == nil }.count }
 
     var body: some View {
         ScrollView {
@@ -108,6 +109,11 @@ struct UsageView: View {
                         StatTile(title: "Zaoszczędzono vs Sonnet", value: String(format: "~$%.2f", totalSavings))
                     }
                 }
+                if unpricedCount > 0 {
+                    Label("\(unpricedCount) wywołań modeli bez podanej ceny nie wlicza się do kosztu ani oszczędności. Ustaw kwoty w ustawieniach dostawcy.", systemImage: "info.circle")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
 
                 if entries.isEmpty {
                     ContentUnavailableView("Brak danych", systemImage: "chart.bar", description: Text("Użycie pojawi się po pierwszych delegowanych zadaniach."))
@@ -122,7 +128,7 @@ struct UsageView: View {
                         HStack {
                             Text(row.ref).font(.body.monospaced())
                             Spacer()
-                            let costStr = row.cost > 0 ? String(format: " · $%.4f", row.cost) : (row.cost == 0 && row.calls > 0 ? " · $0.00" : "")
+                            let costStr = row.priced ? String(format: " · $%.4f", row.cost) : ""
                             Text("\(row.calls) wywołań · błędy \(row.failed) · \(row.input) in / \(row.output) out\(costStr)")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)

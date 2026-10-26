@@ -69,3 +69,49 @@ import Testing
         #expect(abs(totalCostToday - 0.0057) < 0.00001)
     }
 }
+
+@Suite struct PresetTests {
+    @Test func addingPresetFillsProviderAndAvoidsCollisions() throws {
+        var config = try Config.parse(DefaultConfig.toml)
+        let mistral = try #require(ProviderPreset.all.first { $0.id == "mistral" })
+        #expect(config.addProvider(from: mistral) == "mistral")
+        #expect(config.providers.last?.apiKeyEnv == "MISTRAL_API_KEY")
+        #expect(config.providers.last?.models.isEmpty == false)
+
+        // Drugi raz: nowe ID i własna nazwa klucza, żeby nie dzielić wpisu w Keychain.
+        #expect(config.addProvider(from: mistral) == "mistral-2")
+        #expect(config.providers.last?.apiKeyEnv == "MISTRAL_2_API_KEY")
+
+        let ollama = try #require(ProviderPreset.all.first { $0.id == "ollama" })
+        config.addProvider(from: ollama)
+        #expect(config.providers.last?.needsKey == false)
+    }
+
+    @Test func presetIdsAreUnique() {
+        let ids = ProviderPreset.all.map(\.id)
+        #expect(Set(ids).count == ids.count)
+    }
+}
+
+@Suite struct GuideTests {
+    private func guide(_ config: Config, ready: Set<String>) -> DelegationGuide {
+        DelegationGuide(config: config) { ready.contains($0.id) }
+    }
+
+    @Test func instructionsListReadyModelsByTagAndRoutingRules() throws {
+        let config = try Config.parse(sampleConfigToml)
+        let g = guide(config, ready: ["mistral", "gemini"])
+        let text = g.serverInstructions
+        #expect(text.contains("- translate: mistral/mistral-small-latest (free), gemini/gemini-flash-latest (free)"))
+        #expect(text.contains("Deleguj"))
+        #expect(!text.contains("deepseek"))
+        #expect(g.tags.first == "general")
+        #expect(g.modelParameterDescription.contains("gemini/gemini-pro-latest"))
+    }
+
+    @Test func noReadyModelsTellsClaudeNotToDelegate() throws {
+        let g = guide(try Config.parse(sampleConfigToml), ready: [])
+        #expect(g.serverInstructions.contains("Do not call `delegate`"))
+        #expect(g.tags.isEmpty)
+    }
+}

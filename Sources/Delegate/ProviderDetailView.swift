@@ -7,6 +7,8 @@ struct ProviderDetailView: View {
     var onRename: ((String) -> Void)? = nil
 
     @State private var keyDraft = ""
+    @State private var keyEnvDraft = ""
+    @FocusState private var keyEnvFocused: Bool
     @State private var showingRename = false
     @State private var renameDraft = ""
     @State private var showRemote = false
@@ -105,7 +107,15 @@ struct ProviderDetailView: View {
             }
             TextField("Adres bazowy", text: $provider.baseURL)
                 .textContentType(.URL)
-            TextField("Nazwa klucza", text: $provider.apiKeyEnv, prompt: Text("Opcjonalna (zostaw puste dla modeli lokalnych, np. Ollama)"))
+            // Nazwa klucza to też konto w Keychain: zatwierdzamy ją w całości (Enter / wyjście z pola),
+            // a AppModel przenosi zapisany klucz pod nową nazwę.
+            TextField("Nazwa klucza", text: $keyEnvDraft, prompt: Text("Opcjonalna (zostaw puste dla modeli lokalnych, np. Ollama)"))
+                .focused($keyEnvFocused)
+                .onAppear { keyEnvDraft = provider.apiKeyEnv }
+                .onChange(of: provider.apiKeyEnv) { if !keyEnvFocused { keyEnvDraft = provider.apiKeyEnv } }
+                .onChange(of: keyEnvFocused) { if !keyEnvFocused { commitKeyEnv() } }
+                .onSubmit { commitKeyEnv() }
+                .onDisappear { commitKeyEnv() }
 
             HStack {
                 SecureField("Klucz API", text: $keyDraft, prompt: Text(model.keySource(for: provider) == .none ? "Wklej klucz" : "Wklej, żeby zastąpić"))
@@ -124,6 +134,10 @@ struct ProviderDetailView: View {
                     }
                 }
             }
+            if model.keySource(for: provider) == .none,
+               let url = ProviderPreset.all.first(where: { $0.baseURL == provider.baseURL })?.keyURL.flatMap(URL.init(string:)) {
+                Link("Gdzie zdobyć klucz API", destination: url)
+            }
 
             Stepper(value: Binding(
                 get: { provider.timeoutSeconds ?? 0 },
@@ -134,6 +148,10 @@ struct ProviderDetailView: View {
 
             testRow
         }
+    }
+
+    private func commitKeyEnv() {
+        model.setKeyEnv(keyEnvDraft, forProvider: provider.id)
     }
 
     private var testRow: some View {

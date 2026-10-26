@@ -225,8 +225,6 @@ struct DiagnosticsView: View {
             model.installDesktop(true)
         } else if check.name.contains("CLAUDE.md") {
             model.installInstructions(true)
-        } else if check.name.contains("grunt") {
-            model.installGrunt(true)
         }
         runDiagnostics()
     }

@@ -39,15 +39,21 @@ struct FakeOnDevice: OnDeviceModel {
 
 func makeService(_ transport: MockTransport, keys: [String: String], config: Config? = nil,
                  onDevice: FakeOnDevice = FakeOnDevice()) throws -> (DelegateService, URL) {
-    let cfg = try config ?? Config.parse(DefaultConfig.toml)
+    let cfg = try config ?? Config.parse(sampleConfigToml)
     let log = FileManager.default.temporaryDirectory.appendingPathComponent("usage-\(UUID().uuidString).jsonl")
     return (DelegateService(loadConfig: { cfg }, secrets: FixedSecrets(values: keys), transport: transport,
                             onDevice: onDevice, usage: UsageLog(url: log)), log)
 }
 
 @Suite struct ConfigTests {
-    @Test func defaultConfigParses() throws {
+    @Test func defaultConfigStartsWithOnDeviceOnly() throws {
         let c = try Config.parse(DefaultConfig.toml)
+        #expect(c.providers.map(\.id) == ["apple"])
+        #expect(c.providers[0].kind == .foundation)
+    }
+
+    @Test func sampleConfigParses() throws {
+        let c = try Config.parse(sampleConfigToml)
         #expect(c.providers.map(\.id) == ["mistral", "gemini", "deepseek", "openrouter", "apple"])
         #expect(c.providers[1].kind == .gemini)
         #expect(c.providers[0].models.first?.tags.contains("translate") == true)
@@ -55,7 +61,7 @@ func makeService(_ transport: MockTransport, keys: [String: String], config: Con
     }
 
     @Test func roundTrip() throws {
-        let c = try Config.parse(DefaultConfig.toml)
+        let c = try Config.parse(sampleConfigToml)
         #expect(try Config.parse(try c.serialized()) == c)
     }
 
@@ -100,7 +106,7 @@ func makeService(_ transport: MockTransport, keys: [String: String], config: Con
     @Test func taskTagReordersCandidates() throws {
         let t = MockTransport([:])
         let (svc, _) = try makeService(t, keys: ["MISTRAL_API_KEY": "m", "DEEPSEEK_API_KEY": "d"])
-        let cfg = try Config.parse(DefaultConfig.toml)
+        let cfg = try Config.parse(sampleConfigToml)
         let list = svc.candidates(for: .init(prompt: "x", task: "reasoning"), config: cfg)
         #expect(list.first?.ref == "deepseek/deepseek-reasoner")
     }
@@ -108,7 +114,7 @@ func makeService(_ transport: MockTransport, keys: [String: String], config: Con
     @Test func explicitModelFirstAndNoFallbackWhenDisabled() throws {
         let t = MockTransport([:])
         let (svc, _) = try makeService(t, keys: ["MISTRAL_API_KEY": "m", "DEEPSEEK_API_KEY": "d"])
-        let cfg = try Config.parse(DefaultConfig.toml)
+        let cfg = try Config.parse(sampleConfigToml)
         let with = svc.candidates(for: .init(prompt: "x", model: "deepseek/deepseek-chat"), config: cfg)
         #expect(with.first?.ref == "deepseek/deepseek-chat")
         #expect(with.count == 4)  // apple niedostępny w teście
@@ -207,13 +213,6 @@ func makeService(_ transport: MockTransport, keys: [String: String], config: Con
         #expect(updated.components(separatedBy: ClaudeIntegration.marker).count == 3)
     }
 
-    @Test func gruntAgentHasHaikuFrontmatter() {
-        let a = ClaudeIntegration.gruntAgent
-        #expect(a.hasPrefix("---\nname: grunt\n"))
-        #expect(a.contains("model: haiku"))
-        #expect(ClaudeIntegration.gruntInstalled(a))
-        #expect(!ClaudeIntegration.gruntInstalled("---\nname: grunt\n---\ninny plik"))
-    }
 
     @Test func statusRule() {
         let p = ProviderConfig(id: "x", kind: .openai, baseURL: "u", apiKeyEnv: "K")
@@ -242,7 +241,7 @@ func makeService(_ transport: MockTransport, keys: [String: String], config: Con
         let body = #"{"data":[{"id":"a/b","context_length":128000,"pricing":{"prompt":"0.00000015","completion":"0.0000006"},"architecture":{"input_modalities":["text","image"]},"supported_parameters":["tools","reasoning"]},{"id":"c/free:free","pricing":{"prompt":"0","completion":"0"}}]}"#
         let t = MockTransport(["openrouter.ai": .init(status: 200, body: body)])
         let (svc, _) = try makeService(t, keys: ["OPENROUTER_API_KEY": "k"])
-        let p = try Config.parse(DefaultConfig.toml).providers.first { $0.id == "openrouter" }!
+        let p = try Config.parse(sampleConfigToml).providers.first { $0.id == "openrouter" }!
         let infos = try await svc.modelInfos(for: p)
         let a = try #require(infos.first { $0.id == "a/b" })
         #expect(abs((a.priceIn ?? 0) - 0.15) < 1e-9)
@@ -256,14 +255,14 @@ func makeService(_ transport: MockTransport, keys: [String: String], config: Con
         let body = #"{"data":[{"id":"mistral-embed","capabilities":{"completion_chat":false},"max_context_length":8000},{"id":"pixtral-x","capabilities":{"completion_chat":true,"vision":true}}]}"#
         let t = MockTransport(["api.mistral.ai": .init(status: 200, body: body)])
         let (svc, _) = try makeService(t, keys: ["MISTRAL_API_KEY": "k"])
-        let p = try Config.parse(DefaultConfig.toml).providers[0]
+        let p = try Config.parse(sampleConfigToml).providers[0]
         let infos = try await svc.modelInfos(for: p)
         #expect(infos.first { $0.id == "mistral-embed" }?.isChat == false)
         #expect(infos.first { $0.id == "pixtral-x" }?.suggestedTags.contains("vision") == true)
     }
 
     @Test func costLabelAndTomlRoundTripWithPrices() throws {
-        var c = try Config.parse(DefaultConfig.toml)
+        var c = try Config.parse(sampleConfigToml)
         c.providers[0].models[0].cost = nil
         c.providers[0].models[0].priceIn = 0.1
         c.providers[0].models[0].priceOut = 3
@@ -274,7 +273,7 @@ func makeService(_ transport: MockTransport, keys: [String: String], config: Con
     }
 
     @Test func updateModelsUpsertsAndKeepsCostModesExclusive() throws {
-        let box = ConfigBox(try Config.parse(DefaultConfig.toml))
+        let box = ConfigBox(try Config.parse(sampleConfigToml))
         let svc = DelegateService(loadConfig: { box.value }, secrets: FixedSecrets(values: [:]),
                                   transport: MockTransport([:]), onDevice: FakeOnDevice(),
                                   saveConfig: { box.value = $0 },
@@ -311,6 +310,9 @@ final class ConfigBox: @unchecked Sendable {
         #expect(store.secret(for: "K") == "one")
         try store.set("two", for: "K", trusting: [])
         #expect(store.secret(for: "K") == "two")
+        #expect(store.hasSecret(for: "K"))
+        #expect(!store.hasSecret(for: "missing"))
+        #expect(!store.hasSecret(for: ""))
     }
 }
 
@@ -468,6 +470,17 @@ final class ConfigBox: @unchecked Sendable {
 
         let savings = CostCalculator.savingsVsSonnet(cost: cost, inputTokens: 1_000_000, outputTokens: 1_000_000)
         #expect(abs(savings - 17.58) < 0.0001)
+
+        // Model „cheap” bez kwot: koszt nieznany, więc bez wymyślonych oszczędności.
+        let cheap = ModelConfig(id: "x", cost: "cheap")
+        #expect(CostCalculator.computeCost(model: cheap, inputTokens: 1_000_000, outputTokens: 0) == nil)
+        #expect(CostCalculator.savingsVsSonnet(cost: nil, inputTokens: 1_000_000, outputTokens: 1_000_000) == 0)
+        let entries = [
+            UsageEntry(provider: "p", model: "a", inputTokens: 1_000_000, outputTokens: 0, costUSD: 1, ok: true, ms: 1),
+            UsageEntry(provider: "p", model: "b", inputTokens: 1_000_000, outputTokens: 0, costUSD: nil, ok: true, ms: 1),
+            UsageEntry(provider: "p", model: "c", inputTokens: 1_000_000, outputTokens: 0, costUSD: 0, ok: false, ms: 1),
+        ]
+        #expect(abs(CostCalculator.savingsVsSonnet(entries) - 2.0) < 0.0001)
     }
 
     @Test func delegateLogsCostAndFormatsHeader() async throws {
@@ -527,7 +540,7 @@ final class ConfigBox: @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let home = DelegateHome(directory: dir)
-        try DefaultConfig.toml.write(to: home.configURL, atomically: true, encoding: .utf8)
+        try sampleConfigToml.write(to: home.configURL, atomically: true, encoding: .utf8)
 
         let t = MockTransport(["api.mistral.ai": .init(status: 200, body: #"{"data":[{"id":"a"}]}"#)])
         let (svc, _) = try makeService(t, keys: ["MISTRAL_API_KEY": "m"])
@@ -570,7 +583,7 @@ final class ConfigBox: @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let home = DelegateHome(directory: dir)
-        try DefaultConfig.toml.write(to: home.configURL, atomically: true, encoding: .utf8)
+        try sampleConfigToml.write(to: home.configURL, atomically: true, encoding: .utf8)
 
         // Puste klucze -> dostawcy chmurowi mają brak klucza
         let (svc, _) = try makeService(MockTransport([:]), keys: [:])

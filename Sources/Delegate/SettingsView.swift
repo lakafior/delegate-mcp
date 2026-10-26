@@ -34,6 +34,11 @@ struct SettingsView: View {
         NavigationSplitView {
             List(selection: $selection) {
                 Section("Dostawcy (kolejność = priorytet)") {
+                    if model.config.providers.isEmpty {
+                        Text("Brak dostawców. Dodaj pierwszego przyciskiem +.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
                     ForEach(model.config.providers) { p in
                         Label {
                             Text(p.id)
@@ -61,8 +66,14 @@ struct SettingsView: View {
             .navigationSplitViewColumnWidth(min: 210, ideal: 240)
             .toolbar {
                 ToolbarItem {
-                    Button("Dodaj dostawcę", systemImage: "plus") {
-                        selection = .provider(model.addProvider())
+                    Menu("Dodaj dostawcę", systemImage: "plus") {
+                        ForEach(ProviderPreset.all) { preset in
+                            Button {
+                                selection = .provider(model.addProvider(from: preset))
+                            } label: {
+                                Label(preset.title, systemImage: preset.kind.symbol)
+                            }
+                        }
                     }
                 }
             }
@@ -82,7 +93,7 @@ struct SettingsView: View {
                 pendingDelete = nil
             }
         } message: {
-            Text("Klucz w Keychain zostaje; usuniesz go w ustawieniach dostawcy przed skasowaniem.")
+            Text("Klucz API tego dostawcy zostanie usunięty z Keychain.")
         }
         .alert(
             "Zmień nazwę dostawcy",
@@ -124,6 +135,7 @@ struct SettingsView: View {
             } else {
                 ContentUnavailableView("Brak dostawcy", systemImage: "questionmark.circle")
             }
+
         case .routing: RoutingView(model: model)
         case .usage: UsageView(model: model)
         case .diagnostics: DiagnosticsView(model: model)

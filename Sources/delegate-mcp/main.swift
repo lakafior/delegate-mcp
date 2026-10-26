@@ -48,20 +48,28 @@ func prop(_ type: String, _ description: String) -> Value {
     .object(["type": .string(type), "description": .string(description)])
 }
 
-let tools: [Tool] = [
+/// Config czytany przy każdym wywołaniu; przy błędzie pusty, żeby serwer i tak wystartował.
+func currentGuide() -> DelegationGuide {
+    service.guide(config: (try? service.currentConfig()) ?? Config())
+}
+
+/// Lista narzędzi budowana na żądanie: opis `delegate` zawiera aktualne modele i tagi.
+func makeTools(_ guide: DelegationGuide) -> [Tool] { [
     Tool(
         name: "list_models",
-        description: "Lista dostawców i modeli wg priorytetu, z tagami, kosztami, statusem klucza i zasadami routingu. Wywołaj przed delegate.",
+        description: "Full catalog of providers and models by priority, with tags, costs, key status, and routing rules. Optional: `delegate` already knows the available models and tags.",
         inputSchema: schema([:]),
         annotations: .init(readOnlyHint: true)
     ),
     Tool(
         name: "delegate",
-        description: "Oddaje samodzielne zadanie innemu modelowi (model widzi tylko prompt, bez plików i narzędzi). Wskaż model (provider/model), tag (task) albo zostaw puste: wtedy wg priorytetu. Przy błędzie próbuje następnych. Nie wysyłaj sekretów ani danych osobowych.",
+        description: guide.toolDescription,
         inputSchema: schema([
-            "prompt": prop("string", "Pełna treść zadania, z całym potrzebnym kontekstem."),
-            "model": prop("string", "Konkretny model, np. mistral/mistral-small-latest."),
-            "task": prop("string", "Tag zadania, np. code, translate, summarize, reasoning."),
+            "prompt": prop("string", "The complete task with all needed context; the model sees nothing else."),
+            "model": prop("string", guide.modelParameterDescription),
+            "task": prop("string", guide.tags.isEmpty
+                ? "Task tag, e.g. translate, summarize, code."
+                : "Task tag that picks the model. Available: \(guide.tags.joined(separator: ", "))."),
             "system": prop("string", "Opcjonalna instrukcja systemowa."),
             "temperature": prop("number", "Opcjonalna temperatura."),
             "max_tokens": prop("integer", "Opcjonalny limit tokenów odpowiedzi."),
@@ -106,15 +114,16 @@ let tools: [Tool] = [
         inputSchema: schema(["days": prop("integer", "Z ilu ostatnich dni (domyślnie 7).")]),
         annotations: .init(readOnlyHint: true)
     ),
-]
+] }
 
 let server = Server(
     name: "delegate",
     version: version,
+    instructions: currentGuide().serverInstructions,
     capabilities: .init(tools: .init(listChanged: false))
 )
 
-await server.withMethodHandler(ListTools.self) { _ in .init(tools: tools) }
+await server.withMethodHandler(ListTools.self) { _ in .init(tools: makeTools(currentGuide())) }
 
 await server.withMethodHandler(CallTool.self) { params in
     let a = params.arguments ?? [:]

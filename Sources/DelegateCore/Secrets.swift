@@ -3,6 +3,12 @@ import Security
 
 public protocol SecretStore: Sendable {
     func secret(for name: String) -> String?
+    /// Czy klucz istnieje, bez odczytu wartości. Do statusów: Keychain nie pyta wtedy o hasło.
+    func hasSecret(for name: String) -> Bool
+}
+
+extension SecretStore {
+    public func hasSecret(for name: String) -> Bool { secret(for: name) != nil }
 }
 
 /// Zmienne środowiska, potem plik `.env` (awaryjnie, jak w oryginalnym planie).
@@ -55,6 +61,16 @@ public struct KeychainSecretStore: SecretStore {
               let data = out as? Data, let s = String(data: data, encoding: .utf8), !s.isEmpty
         else { return nil }
         return s
+    }
+
+    /// Same atrybuty wpisu (bez danych), więc ACL nie wymaga zgody i nie ma okna z hasłem,
+    /// nawet dla programu spoza listy zaufanych (np. świeżo zbudowanej binarki).
+    public func hasSecret(for name: String) -> Bool {
+        guard !name.isEmpty else { return false }
+        var q = query(name)
+        q[kSecReturnAttributes as String] = true
+        q[kSecMatchLimit as String] = kSecMatchLimitOne
+        return SecItemCopyMatching(q as CFDictionary, nil) == errSecSuccess
     }
 
     /// Tworzy obiekt SecAccess z listą zaufanych binariów w modelu macOS ACL (dynamiczne powiązanie symboli unika ostrzeżeń kompilatora).
@@ -146,4 +162,5 @@ public struct CompositeSecretStore: SecretStore {
         for s in stores { if let v = s.secret(for: name) { return v } }
         return nil
     }
+    public func hasSecret(for name: String) -> Bool { stores.contains { $0.hasSecret(for: name) } }
 }

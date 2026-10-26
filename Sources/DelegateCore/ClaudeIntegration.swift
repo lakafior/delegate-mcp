@@ -42,18 +42,16 @@ public enum ClaudeIntegration {
         return try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
     }
 
+    /// Krótki blok do `~/.claude/CLAUDE.md`. Szczegóły (kiedy delegować, dostępne modele) serwer
+    /// podaje sam w instrukcjach MCP, więc blok tylko wzmacnia nawyk i nie dubluje configu.
     public static let instructions = """
     \(marker)
-    ## Delegowanie i tańsze modele
-    Przy prostych zadaniach nie używaj głównego modelu, jeśli tańszy wystarczy:
-    1. Mechaniczna praca na repo lub plikach (szukanie w kodzie, przemianowania, testy wg istniejącego
-       wzorca, streszczanie logów): oddaj subagentowi `grunt` (Haiku).
-    2. Zadanie samowystarczalne w samym tekście (tłumaczenie, pierwszy draft, streszczenie wklejonego
-       tekstu, druga opinia o fragmencie kodu, masowe generowanie): najpierw `list_models`, potem
-       `delegate` zgodnie z routing_guidance. Modele z `delegate` widzą tylko prompt, więc wklej cały kontekst.
-    3. Decyzje projektowe, debugowanie, zmiany obejmujące wiele plików, bezpieczeństwo: rób sam.
-    Wynik zawsze zweryfikuj. Do `delegate` nie wysyłaj danych z pracy, sekretów ani danych osobowych
-    (to zewnętrzni dostawcy); `grunt` działa w ramach Claude, więc takich ograniczeń nie ma.
+    ## Delegating to cheaper models
+    You have the `delegate` MCP tool. Use it proactively for self-contained text tasks (translation, summaries \
+    of pasted text, first drafts, rewriting, bulk generation, a second opinion on a code snippet): it saves my \
+    Claude usage limits. Follow the `delegate` server instructions for when and how. The delegated model sees \
+    only your prompt, so include all context, and check its output. Never send secrets, personal data, or work \
+    material through it.
     \(marker)
     """
 
@@ -71,26 +69,6 @@ public enum ClaudeIntegration {
         let sep = text.isEmpty ? "" : (text.hasSuffix("\n") ? "\n" : "\n\n")
         return text + sep + instructions + "\n"
     }
-
-    // MARK: subagent `grunt`
-
-    public static var gruntAgentURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/agents/grunt.md")
-    }
-
-    public static let gruntAgent = """
-    ---
-    name: grunt
-    description: Mechaniczna praca na repo: szukanie w kodzie, przemianowania, testy wg istniejącego wzorca, streszczanie logów. Użyj, gdy nie trzeba decyzji projektowych.
-    model: haiku
-    ---
-    \(marker)
-    Wykonaj dokładnie to zadanie, które dostałeś. Jeśli okaże się, że wymaga decyzji projektowej
-    albo wykracza poza zakres, zatrzymaj się i opisz, co znalazłeś, zamiast zgadywać.
-    Na końcu podaj krótkie podsumowanie: co zrobiłeś, które pliki zmieniłeś, co zostało niepewne.
-    """
-
-    public static func gruntInstalled(_ text: String?) -> Bool { text?.contains(marker) == true }
 
     public static func removingInstructions(from text: String) -> String {
         let parts = text.components(separatedBy: marker)

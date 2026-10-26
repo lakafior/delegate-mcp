@@ -46,7 +46,6 @@ final class AppModel {
     private(set) var codeState: IntegrationState = .notInstalled
     private(set) var instructionsInstalled = false
     private(set) var instructionsOutdated = false
-    private(set) var gruntInstalled = false
     var integrationMessage: String?
 
     private var saved = Config()
@@ -113,8 +112,9 @@ final class AppModel {
         let env = EnvSecretStore(dotEnv: home.envURL)
         var sources: [String: KeySource] = [:]
         for p in config.providers where p.needsKey {
-            if keychain.secret(for: p.apiKeyEnv) != nil { sources[p.apiKeyEnv] = .keychain }
-            else if env.secret(for: p.apiKeyEnv) != nil { sources[p.apiKeyEnv] = .environment }
+            // Tylko sprawdzenie istnienia: odświeżanie widoku nie może wywoływać okna z hasłem.
+            if keychain.hasSecret(for: p.apiKeyEnv) { sources[p.apiKeyEnv] = .keychain }
+            else if env.hasSecret(for: p.apiKeyEnv) { sources[p.apiKeyEnv] = .environment }
         }
         keySources = sources
         onDevice = device.availability
@@ -175,6 +175,37 @@ final class AppModel {
         refresh()
     }
 
+    /// Klucz w Keychain jest zapisany pod nazwą `api_key_env`; przy jej zmianie przenosimy wpis,
+    /// żeby nie „zgubić” klucza. Istniejącego wpisu pod nową nazwą nie nadpisujemy, a starego
+    /// nie kasujemy, jeśli używa go inny dostawca.
+    private func moveKey(from oldName: String, to newName: String) {
+        let old = oldName.trimmingCharacters(in: .whitespaces)
+        let new = newName.trimmingCharacters(in: .whitespaces)
+        guard old != new, !old.isEmpty, let value = keychain.secret(for: old) else { return }
+        do {
+            if !new.isEmpty, !keychain.hasSecret(for: new) {
+                try keychain.set(value, for: new, trusting: trustedHelperPaths)
+            }
+            if !config.providers.contains(where: { $0.apiKeyEnv == old }) {
+                try keychain.remove(old)
+            }
+        } catch {
+            saveError = "Keychain: \(error)"
+        }
+    }
+
+    /// Zmiana nazwy klucza z formularza (zatwierdzana, nie przy każdym znaku).
+    func setKeyEnv(_ rawName: String, forProvider id: String) {
+        guard let idx = config.providers.firstIndex(where: { $0.id == id }) else { return }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let old = config.providers[idx].apiKeyEnv
+        guard name != old else { return }
+        config.providers[idx].apiKeyEnv = name
+        moveKey(from: old, to: name)
+        configChanged()
+        refresh()
+    }
+
     func test(_ p: ProviderConfig) {
         testing.insert(p.id)
         testResults[p.id] = nil
@@ -200,30 +231,38 @@ final class AppModel {
 
     // MARK: edycja listy dostawców
 
-    func addProvider() -> String {
-        var n = 1
-        var id = "custom"
-        while config.providers.contains(where: { $0.id == id }) { n += 1; id = "custom-\(n)" }
-        config.providers.append(ProviderConfig(
-            id: id, kind: .openai, baseURL: "https://api.example.com/v1",
-            apiKeyEnv: "\(id.uppercased().replacingOccurrences(of: "-", with: "_"))_API_KEY"))
+    func addProvider(from preset: ProviderPreset) -> String {
+        let id = config.addProvider(from: preset)
+        refresh()
         return id
     }
 
     @discardableResult
     func renameProvider(from oldId: String, to rawNewId: String) -> Bool {
         let trimmed = rawNewId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let oldEnv = config.providers.first { $0.id == oldId }?.apiKeyEnv
         guard config.renameProvider(from: oldId, to: rawNewId) else { return false }
+        if let oldEnv, let newEnv = config.providers.first(where: { $0.id == trimmed })?.apiKeyEnv {
+            moveKey(from: oldEnv, to: newEnv)
+        }
         if let res = testResults.removeValue(forKey: oldId) {
             testResults[trimmed] = res
         }
         testing.remove(oldId)
         configChanged()
+        refresh()
         return true
     }
 
+    /// Usuwa dostawcę razem z jego kluczem w Keychain (o ile inny dostawca go nie używa).
     func removeProvider(id: String) {
+        guard let p = config.providers.first(where: { $0.id == id }) else { return }
         config.providers.removeAll { $0.id == id }
+        testResults[id] = nil
+        if p.needsKey, !config.providers.contains(where: { $0.apiKeyEnv == p.apiKeyEnv }) {
+            do { try keychain.remove(p.apiKeyEnv) } catch { saveError = "Keychain: \(error)" }
+        }
+        refresh()
     }
 
     // MARK: użycie
@@ -252,17 +291,15 @@ final class AppModel {
         }
     }
 
+    /// Ostrzeżenie w pasku menu: tylko to, co użytkownik może naprawić (brak klucza, nieudany test).
+    /// Niedostępny model na urządzeniu to stan sprzętu, nie błąd konfiguracji.
     var hasProviderIssues: Bool {
-        for p in config.providers where p.enabled {
+        config.providers.contains { p in
+            guard p.enabled else { return false }
             if case .failure = testResults[p.id] { return true }
-            switch status(of: p) {
-            case .missingKey, .unavailable:
-                return true
-            default:
-                break
-            }
+            if case .missingKey = status(of: p) { return true }
+            return false
         }
-        return false
     }
 
     // MARK: start przy logowaniu
@@ -302,28 +339,6 @@ final class AppModel {
         let text = (try? String(contentsOf: ClaudeIntegration.globalInstructionsURL, encoding: .utf8)) ?? ""
         instructionsInstalled = ClaudeIntegration.hasInstructions(text)
         instructionsOutdated = instructionsInstalled && !ClaudeIntegration.instructionsUpToDate(text)
-        gruntInstalled = ClaudeIntegration.gruntInstalled(try? String(contentsOf: ClaudeIntegration.gruntAgentURL, encoding: .utf8))
-    }
-
-    func installGrunt(_ install: Bool) {
-        let url = ClaudeIntegration.gruntAgentURL
-        do {
-            if install {
-                if let existing = try? String(contentsOf: url, encoding: .utf8), !ClaudeIntegration.gruntInstalled(existing) {
-                    integrationMessage = "Istnieje już inny plik \(url.lastPathComponent) (nie nasz). Nie nadpisuję go."
-                    return
-                }
-                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try ClaudeIntegration.gruntAgent.write(to: url, atomically: true, encoding: .utf8)
-                integrationMessage = "Dodano subagenta grunt (Haiku) w ~/.claude/agents. Zrestartuj sesje Claude Code."
-            } else if ClaudeIntegration.gruntInstalled(try? String(contentsOf: url, encoding: .utf8)) {
-                try FileManager.default.removeItem(at: url)
-                integrationMessage = "Usunięto subagenta grunt."
-            }
-        } catch {
-            integrationMessage = "Subagent grunt: \(error)"
-        }
-        refreshIntegrations()
     }
 
     func installDesktop(_ install: Bool) {

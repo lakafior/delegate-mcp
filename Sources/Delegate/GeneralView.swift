@@ -26,16 +26,6 @@ struct GeneralView: View {
                         }
                     }
                 }
-                LabeledContent("Subagent grunt (Haiku)") {
-                    HStack {
-                        Text(model.gruntInstalled ? "zainstalowano" : "brak").foregroundStyle(.secondary)
-                        if model.gruntInstalled {
-                            Button("Usuń") { model.installGrunt(false) }
-                        } else {
-                            Button("Zainstaluj w ~/.claude/agents") { model.installGrunt(true) }
-                        }
-                    }
-                }
                 LabeledContent("Dostęp do Keychain") {
                     Button("Zezwól serwerowi na odczyt kluczy") { model.reauthorizeKeys() }
                         .disabled(!model.helperExists)

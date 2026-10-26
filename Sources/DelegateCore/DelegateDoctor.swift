@@ -169,17 +169,6 @@ public struct DelegateDoctor: Sendable {
             fixable: !hasInstructions
         ))
 
-        // 4. Claude Code Subagent grunt Check
-        let gruntText = try? String(contentsOf: ClaudeIntegration.gruntAgentURL, encoding: .utf8)
-        let hasGrunt = ClaudeIntegration.gruntInstalled(gruntText)
-        checks.append(DiagnosticCheck(
-            name: "Subagent grunt (~/.claude/agents/grunt.md)",
-            severity: hasGrunt ? .ok : .warning,
-            message: hasGrunt ? "Agent grunt zainstalowany" : "Brak pliku agenta ~/.claude/agents/grunt.md",
-            detail: ClaudeIntegration.gruntAgentURL.path,
-            fixable: !hasGrunt
-        ))
-
         // 5. On-Device Foundation Model Check
         switch service.onDevice.availability {
         case .available:
@@ -200,8 +189,7 @@ public struct DelegateDoctor: Sendable {
         if let config = configResult {
             for p in config.providers {
                 let st = service.status(of: p)
-                let key = service.secrets.secret(for: p.apiKeyEnv)
-                let keySource: String? = p.needsKey ? (key != nil ? "znaleziony" : "brak") : "nie wymagany"
+                let keySource: String? = p.needsKey ? (service.secrets.hasSecret(for: p.apiKeyEnv) ? "znaleziony" : "brak") : "nie wymagany"
 
                 if !p.enabled {
                     providers.append(ProviderDiagnostic(

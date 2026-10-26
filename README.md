@@ -143,10 +143,16 @@ cost = "free"
 
 ### Managing Providers in GUI
 
-- **Add Provider**: Click the `+` button in the Settings window sidebar.
-- **Rename Provider**: Click the pencil icon next to the provider title or right-click the provider in the sidebar and choose **Rename…**.
+- **Add Provider**: Click `+` in the Settings window and pick a preset (Mistral, Gemini, DeepSeek, OpenRouter, Anthropic, Ollama, LM Studio, or a custom OpenAI-compatible API). A fresh install starts with only the on-device Apple model.
+- **Rename Provider**: Click the pencil icon next to the provider title or right-click the provider in the sidebar and choose **Rename…**. The stored API key moves with it.
 - **Reorder Priority**: Drag and drop providers in the sidebar list.
 - **API Keys**: Stored securely in macOS Keychain with access control list (ACL) configured so the MCP helper process can read them seamlessly.
+
+---
+
+## 🧭 How Claude Learns When to Delegate
+
+On startup the server sends MCP server instructions generated from your config: when to delegate, what never to send, and which ready models handle each task tag. Claude Code and Claude Desktop add them to every session, so no `CLAUDE.md` edits are needed. Optionally, **General → Claude** adds a short reminder block to `~/.claude/CLAUDE.md`. Restart Claude after changing providers so the instructions refresh.
 
 ---
 
