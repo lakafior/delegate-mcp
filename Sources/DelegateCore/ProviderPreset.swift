@@ -9,18 +9,21 @@ public struct ProviderPreset: Sendable, Identifiable {
     public var baseURL: String
     public var apiKeyEnv: String
     public var note: String?
+    /// Domyślne wskazówki dla Claude'a (`ProviderConfig.guidance`).
+    public var guidance: String?
     /// Gdzie zdobyć klucz (do podpowiedzi w GUI).
     public var keyURL: String?
     public var models: [ModelConfig]
 
     public init(id: String, title: String, kind: ProviderKind, baseURL: String = "", apiKeyEnv: String = "",
-                note: String? = nil, keyURL: String? = nil, models: [ModelConfig] = []) {
+                note: String? = nil, guidance: String? = nil, keyURL: String? = nil, models: [ModelConfig] = []) {
         self.id = id
         self.title = title
         self.kind = kind
         self.baseURL = baseURL
         self.apiKeyEnv = apiKeyEnv
         self.note = note
+        self.guidance = guidance
         self.keyURL = keyURL
         self.models = models
     }
@@ -48,6 +51,7 @@ public struct ProviderPreset: Sendable, Identifiable {
             id: "deepseek", title: "DeepSeek", kind: .openai,
             baseURL: "https://api.deepseek.com/v1", apiKeyEnv: "DEEPSEEK_API_KEY",
             note: "Dane przetwarzane w Chinach. Nie wysyłaj niczego z pracy.",
+            guidance: "Never send anything private or work-related: data is processed in China.",
             keyURL: "https://platform.deepseek.com/api_keys",
             models: [
                 ModelConfig(id: "deepseek-chat", tags: ["general", "code"], cost: "cheap"),
@@ -67,14 +71,17 @@ public struct ProviderPreset: Sendable, Identifiable {
         ProviderPreset(
             id: "ollama", title: "Ollama (lokalnie)", kind: .openai,
             baseURL: "http://localhost:11434/v1",
-            note: "Model lokalny: bez klucza, dane nie opuszczają Maca."),
+            note: "Model lokalny: bez klucza, dane nie opuszczają Maca.",
+            guidance: "Runs locally on this Mac: fine for private content."),
         ProviderPreset(
             id: "lmstudio", title: "LM Studio (lokalnie)", kind: .openai,
             baseURL: "http://localhost:1234/v1",
-            note: "Model lokalny: bez klucza, dane nie opuszczają Maca."),
+            note: "Model lokalny: bez klucza, dane nie opuszczają Maca.",
+            guidance: "Runs locally on this Mac: fine for private content."),
         ProviderPreset(
             id: "apple", title: "Apple na urządzeniu", kind: .foundation,
             note: "Model na urządzeniu (Apple Intelligence): za darmo, prywatnie, offline. Małe okno kontekstu, tylko krótkie zadania.",
+            guidance: "On-device and private, but a small context window: only short tasks.",
             models: [ModelConfig(id: "on-device", tags: ["private", "short", "offline"], cost: "free")]),
         ProviderPreset(
             id: "custom", title: "Inny (API zgodne z OpenAI)", kind: .openai,
@@ -94,7 +101,7 @@ extension Config {
         if id != preset.id, !keyEnv.isEmpty { keyEnv = Self.defaultKeyEnv(for: id) }
         providers.append(ProviderConfig(
             id: id, kind: preset.kind, baseURL: preset.baseURL, apiKeyEnv: keyEnv,
-            note: preset.note, models: preset.models.map { ModelConfig(id: $0.id, tags: $0.tags, cost: $0.cost) }))
+            note: preset.note, guidance: preset.guidance, models: preset.models.map { ModelConfig(id: $0.id, tags: $0.tags, cost: $0.cost) }))
         return id
     }
 

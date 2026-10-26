@@ -74,10 +74,23 @@ final class AppModel {
     }
 
     /// Wczytaj ponownie, jeśli plik zmieniono poza aplikacją (i nie mamy niezapisanych zmian).
+    /// Wczytaj ponownie, jeśli plik zmieniono poza aplikacją; niezapisane zmiany z GUI scalamy.
     func reloadIfChangedOnDisk() {
-        guard config == saved, modificationDate() != configModified else { return }
-        load()
+        guard modificationDate() != configModified else { return }
+        if config == saved {
+            load()
+        } else {
+            mergeWithDisk()
+        }
         refresh()
+    }
+
+    /// Plik zmienił się z zewnątrz (`update_models`, edycja ręczna, inny proces): scal zamiast nadpisywać.
+    private func mergeWithDisk() {
+        guard let disk = try? home.loadConfig() else { return }
+        config = Config.merge(base: saved, mine: config, theirs: disk)
+        saved = disk
+        configModified = modificationDate()
     }
 
     func configChanged() {
@@ -91,6 +104,7 @@ final class AppModel {
     }
 
     func saveNow() {
+        if modificationDate() != configModified { mergeWithDisk() }
         do {
             try home.save(config)
             saved = config

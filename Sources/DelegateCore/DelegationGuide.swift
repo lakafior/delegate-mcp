@@ -8,10 +8,17 @@ public struct DelegationGuide: Sendable {
     /// Gotowe do użycia (włączone, z kluczem) modele wg priorytetu.
     public let candidates: [Candidate]
     public let routingGuidance: String
+    /// Wskazówki użytkownika per dostawca (tylko gotowi), w kolejności priorytetu.
+    public let providerGuidance: [(id: String, text: String)]
 
     public init(config: Config, isReady: (ProviderConfig) -> Bool) {
-        candidates = config.providers.filter(isReady).flatMap { p in p.models.map { Candidate(provider: p, model: $0) } }
+        let ready = config.providers.filter(isReady)
+        candidates = ready.flatMap { p in p.models.map { Candidate(provider: p, model: $0) } }
         routingGuidance = config.routingGuidance.trimmingCharacters(in: .whitespacesAndNewlines)
+        providerGuidance = ready.compactMap { p in
+            let text = (p.guidance ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? nil : (p.id, text.replacingOccurrences(of: "\n", with: " "))
+        }
     }
 
     /// Tagi, których nie pokazujemy Claude'owi: `delegate` wysyła tylko tekst, więc „vision” by mylił.
@@ -75,6 +82,10 @@ public struct DelegationGuide: Sendable {
         wrong or weak, fix it or do the task yourself, and don't present delegated output as verified without checking.
         """
         out += "\n\nAvailable task tags → models (tried in this order, with automatic fallback):\n" + routingTable
+        if !providerGuidance.isEmpty {
+            out += "\n\nUser's notes per provider (pick a provider with `model` when a note fits the task):\n"
+                + providerGuidance.map { "- \($0.id): \($0.text)" }.joined(separator: "\n")
+        }
         if !routingGuidance.isEmpty {
             out += "\n\nUser's routing rules (follow them):\n" + routingGuidance
         }

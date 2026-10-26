@@ -198,6 +198,7 @@ public struct DelegateService: Sendable {
             let status = self.status(of: p).label
             out += "\(i + 1). **\(p.id)** (\(p.kind.rawValue)) — \(status)\n"
             if let n = p.note { out += "   uwaga: \(n)\n" }
+            if let g = p.guidance, !g.isEmpty { out += "   wskazówki dla Claude'a: \(g)\n" }
             for m in p.models {
                 var line = "   - `\(p.id)/\(m.id)`"
                 if !m.tags.isEmpty { line += " tagi: \(m.tags.joined(separator: ", "))" }

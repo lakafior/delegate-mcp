@@ -84,14 +84,19 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
     /// Nazwa zmiennej / wpisu w Keychain z kluczem API.
     public var apiKeyEnv: String
     public var enabled: Bool
+    /// Notatka dla użytkownika (np. warunki planu).
     public var note: String?
+    /// Wskazówki dla Claude'a: do czego ten dostawca jest dobry, czego tu nie wysyłać.
+    /// Trafiają do instrukcji serwera MCP obok mapy modeli.
+    public var guidance: String?
     /// Opcjonalny dedykowany timeout bazowy (w sekundach) dla tego dostawcy.
     public var timeoutSeconds: Double?
     public var models: [ModelConfig]
 
     public init(
         id: String, kind: ProviderKind, baseURL: String = "", apiKeyEnv: String = "",
-        enabled: Bool = true, note: String? = nil, timeoutSeconds: Double? = nil, models: [ModelConfig] = []
+        enabled: Bool = true, note: String? = nil, guidance: String? = nil, timeoutSeconds: Double? = nil,
+        models: [ModelConfig] = []
     ) {
         self.id = id
         self.kind = kind
@@ -99,6 +104,7 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         self.apiKeyEnv = apiKeyEnv
         self.enabled = enabled
         self.note = note
+        self.guidance = guidance
         self.timeoutSeconds = timeoutSeconds
         self.models = models
     }
@@ -114,7 +120,7 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         case kind = "type"
         case baseURL = "base_url"
         case apiKeyEnv = "api_key_env"
-        case enabled, note
+        case enabled, note, guidance
         case timeoutSeconds = "timeout_seconds"
         case models = "model"
     }
@@ -127,6 +133,7 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         apiKeyEnv = try c.decodeIfPresent(String.self, forKey: .apiKeyEnv) ?? ""
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
         note = try c.decodeIfPresent(String.self, forKey: .note)
+        guidance = try c.decodeIfPresent(String.self, forKey: .guidance)
         timeoutSeconds = try c.decodeNumberIfPresent(forKey: .timeoutSeconds)
         models = try c.decodeIfPresent([ModelConfig].self, forKey: .models) ?? []
     }
@@ -164,6 +171,28 @@ public struct Config: Codable, Sendable, Equatable {
 
     public func serialized() throws -> String {
         try TOMLEncoder().encode(self)
+    }
+
+    /// Scalanie trójstronne: `base` to wersja, od której zaczęło GUI, `mine` to zmiany z GUI,
+    /// `theirs` to plik zmieniony w międzyczasie z zewnątrz (`update_models`, edycja ręczna).
+    /// Na poziomie pól i pojedynczych dostawców wygrywa strona, która coś zmieniła; przy zmianie
+    /// tego samego dostawcy po obu stronach wygrywa GUI.
+    public static func merge(base: Config, mine: Config, theirs: Config) -> Config {
+        func pick<T: Equatable>(_ b: T, _ m: T, _ t: T) -> T { m != b ? m : t }
+        var out = theirs
+        out.routingGuidance = pick(base.routingGuidance, mine.routingGuidance, theirs.routingGuidance)
+        out.timeoutSeconds = pick(base.timeoutSeconds, mine.timeoutSeconds, theirs.timeoutSeconds)
+
+        func byID(_ c: Config) -> [String: ProviderConfig] {
+            Dictionary(c.providers.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        }
+        let b = byID(base), m = byID(mine), t = byID(theirs)
+        let ids = { (c: Config) in c.providers.map(\.id) }
+        // Kolejność (priorytet) ze strony, która ją zmieniła; brakujące ID doklejamy na końcu.
+        var order = ids(mine) != ids(base) ? ids(mine) : ids(theirs)
+        for id in ids(mine) + ids(theirs) where !order.contains(id) { order.append(id) }
+        out.providers = order.compactMap { id in m[id] != b[id] ? m[id] : t[id] }
+        return out
     }
 
     /// Zmienia identyfikator dostawcy. Zwraca `false`, jeśli nazwa jest pusta lub koliduje z innym dostawcą.
@@ -231,11 +260,10 @@ enum DefaultConfig {
     /// Na start tylko model na urządzeniu; resztę użytkownik dodaje z presetów (`ProviderPreset`).
     static let toml = #"""
     # Kolejność [[provider]] = priorytet fallbacku. Dostawców dodasz w aplikacji Delegate
-    # (gotowe presety) albo ręcznie tutaj.
+    # (gotowe presety) albo ręcznie tutaj. Ogólne zasady delegowania serwer podaje sam;
+    # `routing_guidance` służy do Twoich reguł globalnych, a `guidance` przy dostawcy do reguł per dostawca.
 
-    routing_guidance = """
-    Nie wysyłaj danych z pracy, sekretów ani danych osobowych do dostawców w chmurze.
-    """
+    routing_guidance = ""
 
     timeout_seconds = 120
 
@@ -243,6 +271,7 @@ enum DefaultConfig {
     id = "apple"
     type = "foundation"
     note = "Model na urządzeniu (Apple Intelligence): za darmo, prywatnie, offline. Małe okno kontekstu, tylko krótkie zadania."
+    guidance = "On-device and private, but a small context window: only short tasks."
 
     [[provider.model]]
     id = "on-device"

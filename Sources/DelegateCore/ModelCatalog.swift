@@ -70,18 +70,24 @@ public enum TagSuggester {
         return !t.contains { tok in nonChat.contains { tok.hasPrefix($0) } }
     }
 
+    /// Model na urządzeniu: małe okno kontekstu, więc nie jako ogólny, tylko do prywatnych i krótkich zadań.
+    public static let onDeviceTags = ["private", "short", "offline"]
+
     public static func tags(for info: ModelInfo) -> [String] {
         guard info.isChat else { return [] }
+        if info.id == "on-device" { return onDeviceTags }
         let t = tokens(info.id)
         let isCode = has(t, anyPrefix: ["code", "coder", "codestral", "devstral"])
-        let isReasoning = info.reasoning
-            || has(t, anyPrefix: ["reason", "thinking", "magistral"])
+        // Model „rozumujący” z nazwy jest wyspecjalizowany; flaga z API („umie myśleć”) dotyczy dziś
+        // większości modeli ogólnych, więc dodaje tag `reasoning`, ale nie odbiera ogólnych.
+        let reasoningByName = has(t, anyPrefix: ["reason", "thinking", "magistral"])
             || t.contains { ["r1", "o1", "o3", "o4", "pro"].contains($0) }
+        let isReasoning = reasoningByName || info.reasoning
         let isFast = has(t, anyPrefix: ["flash", "mini", "small", "lite", "nano", "haiku", "instant", "turbo", "tiny", "fast"])
 
         var tags: [String] = []
         if isCode { tags.append("code") }
-        if !isCode && !isReasoning { tags += ["general", "translate", "summarize"] }
+        if !isCode && !reasoningByName { tags += ["general", "translate", "summarize"] }
         if isReasoning { tags.append("reasoning") }
         if isFast { tags.append("fast") }
         if info.vision || has(t, anyPrefix: ["vision", "pixtral"]) || t.contains("vl") { tags.append("vision") }

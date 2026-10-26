@@ -235,6 +235,9 @@ func makeService(_ transport: MockTransport, keys: [String: String], config: Con
         #expect(ModelInfo(id: "mistral-embed").suggestedTags.isEmpty)
         #expect(ModelInfo(id: "x", vision: true).suggestedTags.contains("vision"))
         #expect(ModelInfo(id: "claude-3-5-haiku-20241022").suggestedTags.contains("fast"))
+        #expect(ModelInfo(id: "on-device").suggestedTags == ["private", "short", "offline"])
+        // „Umie myśleć” z API: dodaje reasoning, ale model zostaje ogólny.
+        #expect(ModelInfo(id: "gemini-flash-latest", reasoning: true).suggestedTags == ["general", "translate", "summarize", "reasoning", "fast"])
     }
 
     @Test func openRouterMetadataGivesPricesPerMillion() async throws {

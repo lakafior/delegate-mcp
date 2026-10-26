@@ -46,8 +46,20 @@ struct ProviderDetailView: View {
 
             if provider.kind != .foundation { connection }
 
-            Section("Uwaga dla Ciebie") {
-                TextField("Np. gdzie trafiają dane", text: Binding(
+            Section {
+                TextField("Wskazówki", text: Binding(
+                    get: { provider.guidance ?? "" },
+                    set: { provider.guidance = $0.isEmpty ? nil : $0 }),
+                    prompt: Text("Np. Good for translations. Never send work data here."), axis: .vertical)
+                    .lineLimit(2...5)
+            } header: {
+                Text("Wskazówki dla Claude'a")
+            } footer: {
+                Text("Claude dostaje ten tekst w instrukcjach serwera obok listy modeli: do czego ten dostawca jest dobry, czego tu nie wysyłać. Najlepiej po angielsku. Zmiana działa po restarcie Claude'a.")
+            }
+
+            Section("Notatka dla Ciebie") {
+                TextField("Np. warunki planu, gdzie trafiają dane", text: Binding(
                     get: { provider.note ?? "" },
                     set: { provider.note = $0.isEmpty ? nil : $0 }), axis: .vertical)
             }

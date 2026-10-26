@@ -109,6 +109,16 @@ import Testing
         #expect(g.modelParameterDescription.contains("gemini/gemini-pro-latest"))
     }
 
+    @Test func providerGuidanceAppearsForReadyProvidersOnly() throws {
+        var config = try Config.parse(sampleConfigToml)
+        config.providers[0].guidance = "Great for translations."
+        config.providers[2].guidance = "Never send work data."   // deepseek, niegotowy
+        let text = guide(config, ready: ["mistral"]).serverInstructions
+        #expect(text.contains("- mistral: Great for translations."))
+        #expect(!text.contains("Never send work data."))
+        #expect(try Config.parse(try config.serialized()).providers[0].guidance == "Great for translations.")
+    }
+
     @Test func noReadyModelsTellsClaudeNotToDelegate() throws {
         let g = guide(try Config.parse(sampleConfigToml), ready: [])
         #expect(g.serverInstructions.contains("Do not call `delegate`"))
@@ -235,5 +245,42 @@ extension PriceCatalogTests {
         let started = Date()
         await #expect(throws: HelperProbe.ProbeError.self) { try await HelperProbe(executable: fake).handshake(timeout: 1) }
         #expect(Date().timeIntervalSince(started) < 5)
+    }
+}
+
+@Suite struct ConfigMergeTests {
+    private func provider(_ id: String, tags: [String] = []) -> ProviderConfig {
+        ProviderConfig(id: id, kind: .openai, baseURL: "https://\(id)", models: [ModelConfig(id: "m", tags: tags)])
+    }
+
+    @Test func keepsExternalEditsAndGuiEdits() {
+        let base = Config(routingGuidance: "stare", providers: [provider("a"), provider("b")])
+        var mine = base
+        mine.providers[0].enabled = false                       // GUI: wyłącza a
+        var theirs = base
+        theirs.routingGuidance = "nowe"                          // z zewnątrz: zasady
+        theirs.providers[1].models[0].tags = ["code"]            // z zewnątrz: tagi b (update_models)
+        let merged = Config.merge(base: base, mine: mine, theirs: theirs)
+        #expect(merged.routingGuidance == "nowe")
+        #expect(merged.providers[0].enabled == false)
+        #expect(merged.providers[1].models[0].tags == ["code"])
+    }
+
+    @Test func mergesAddRemoveAndOrder() {
+        let base = Config(providers: [provider("a"), provider("b"), provider("c")])
+        var mine = base
+        mine.providers.removeAll { $0.id == "c" }               // GUI: usuwa c
+        mine.providers.reverse()                                 // GUI: kolejność b, a
+        var theirs = base
+        theirs.providers.append(provider("d"))                   // z zewnątrz: nowy d
+        let merged = Config.merge(base: base, mine: mine, theirs: theirs)
+        #expect(merged.providers.map(\.id) == ["b", "a", "d"])
+    }
+
+    @Test func guiWinsWhenBothChangedSameProvider() {
+        let base = Config(providers: [provider("a")])
+        var mine = base; mine.providers[0].note = "gui"
+        var theirs = base; theirs.providers[0].note = "plik"
+        #expect(Config.merge(base: base, mine: mine, theirs: theirs).providers[0].note == "gui")
     }
 }
