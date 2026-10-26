@@ -70,38 +70,38 @@ func makeTools(_ guide: DelegationGuide) -> [Tool] { [
             "task": prop("string", guide.tags.isEmpty
                 ? "Task tag, e.g. translate, summarize, code."
                 : "Task tag that picks the model. Available: \(guide.tags.joined(separator: ", "))."),
-            "system": prop("string", "Opcjonalna instrukcja systemowa."),
-            "temperature": prop("number", "Opcjonalna temperatura."),
-            "max_tokens": prop("integer", "Opcjonalny limit tokenów odpowiedzi."),
-            "fallback": prop("boolean", "Domyślnie true. false = tylko wskazany model."),
-            "allow_secrets": prop("boolean", "Domyślnie false. Ustaw true, jeśli celowo wysyłasz fragmenty kodu zawierające klucze lub tokeny API."),
-            "json": prop("boolean", "Domyślnie false. Ustaw true, aby wymusić odpowiedź w poprawnym formacie JSON."),
+            "system": prop("string", "Optional system instruction for the delegated model."),
+            "temperature": prop("number", "Optional sampling temperature."),
+            "max_tokens": prop("integer", "Optional limit on reply tokens."),
+            "fallback": prop("boolean", "Default true. false = use only the given model, no fallback."),
+            "allow_secrets": prop("boolean", "Default false. The server blocks prompts that look like they contain API keys or tokens; set true only if that content is intentional and safe to send."),
+            "json": prop("boolean", "Default false. true = ask the model for a valid JSON reply."),
         ], required: ["prompt"])
     ),
     Tool(
         name: "list_remote_models",
-        description: "Pyta API dostawcy o aktualne ID modeli (do aktualizacji delegate.toml). Bez argumentu: wszyscy dostawcy z kluczem.",
-        inputSchema: schema(["provider": prop("string", "ID dostawcy, np. mistral.")]),
+        description: "Asks provider APIs for current model IDs with suggested tags, context size, and prices when the API exposes them (to update delegate.toml). No argument: all providers with a key.",
+        inputSchema: schema(["provider": prop("string", "Provider ID, e.g. mistral.")]),
         annotations: .init(readOnlyHint: true)
     ),
     Tool(
         name: "update_models",
-        description: "Zapisuje tagi i koszt modeli w delegate.toml (upsert). Użyj po list_remote_models, żeby uzupełnić tagi i dodać nowe modele. Koszt: kategoria (free, cheap, paid, varies) ALBO ceny w USD za 1M tokenów (price_in, price_out). Nie dotyka kluczy API.",
+        description: "Saves model tags and cost in delegate.toml (upsert). Use after list_remote_models to fill tags/prices and add new models. Cost is a category (free, cheap, paid, varies) OR USD per 1M tokens (price_in, price_out). Never touches API keys.",
         inputSchema: schema([
-            "provider": prop("string", "ID dostawcy, np. mistral."),
+            "provider": prop("string", "Provider ID, e.g. mistral."),
             "models": .object([
                 "type": .string("array"),
-                "description": .string("Modele do zmiany lub dodania."),
+                "description": .string("Models to change or add."),
                 "items": .object([
                     "type": .string("object"),
                     "properties": .object([
-                        "id": prop("string", "ID modelu u dostawcy."),
+                        "id": prop("string", "Model ID at the provider."),
                         "tags": .object(["type": .string("array"), "items": .object(["type": .string("string")]),
-                                         "description": .string("Pełna lista tagów, np. code, translate, reasoning.")]),
-                        "cost": prop("string", "Kategoria: free, cheap, paid, varies."),
-                        "price_in": prop("number", "USD za 1M tokenów wejścia."),
-                        "price_out": prop("number", "USD za 1M tokenów wyjścia."),
-                        "note": prop("string", "Krótka uwaga."),
+                                         "description": .string("Full tag list, e.g. code, translate, reasoning.")]),
+                        "cost": prop("string", "Category: free, cheap, paid, varies."),
+                        "price_in": prop("number", "USD per 1M input tokens."),
+                        "price_out": prop("number", "USD per 1M output tokens."),
+                        "note": prop("string", "Short note."),
                     ]),
                     "required": .array([.string("id")]),
                 ]),
@@ -110,8 +110,8 @@ func makeTools(_ guide: DelegationGuide) -> [Tool] { [
     ),
     Tool(
         name: "usage_summary",
-        description: "Podsumowanie wywołań i tokenów z lokalnego logu.",
-        inputSchema: schema(["days": prop("integer", "Z ilu ostatnich dni (domyślnie 7).")]),
+        description: "Summary of delegated calls, tokens, and cost from the local log.",
+        inputSchema: schema(["days": prop("integer", "How many recent days (default 7).")]),
         annotations: .init(readOnlyHint: true)
     ),
 ] }

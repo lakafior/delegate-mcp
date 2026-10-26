@@ -94,7 +94,8 @@ struct ProviderClient {
     }
 
     /// Mistral podaje `capabilities` i `max_context_length`, OpenRouter `architecture`, `pricing`
-    /// (USD za token jako tekst) i `supported_parameters`; DeepSeek tylko ID.
+    /// (USD za token jako tekst) i `supported_parameters`, Venice `model_spec` (ceny już za 1M tokenów,
+    /// zdolności, `type`); DeepSeek tylko ID.
     private static func openAIInfo(_ m: [String: Any]) -> ModelInfo? {
         guard let id = m["id"] as? String else { return nil }
         let caps = m["capabilities"] as? [String: Any]
@@ -103,17 +104,26 @@ struct ProviderClient {
         let inputs = arch?["input_modalities"] as? [String] ?? []
         let pricing = m["pricing"] as? [String: Any]
 
+        let spec = m["model_spec"] as? [String: Any]
+        let specCaps = spec?["capabilities"] as? [String: Any]
+        let specPricing = spec?["pricing"] as? [String: Any]
+        let usd: (String) -> Double? = { number((specPricing?[$0] as? [String: Any])?["usd"]) }
+
         var chat: Bool? = nil
         if let c = caps?["completion_chat"] as? Bool { chat = c }
+        if let type = m["type"] as? String { chat = type == "text" }
         let perMillion: (Any?) -> Double? = { number($0).map { $0 * 1_000_000 } }
         return ModelInfo(
             id: id,
-            contextLength: (number(m["max_context_length"]) ?? number(m["context_length"])).map(Int.init),
-            priceIn: perMillion(pricing?["prompt"]),
-            priceOut: perMillion(pricing?["completion"]),
-            vision: (caps?["vision"] as? Bool) == true || inputs.contains("image"),
-            reasoning: params.contains("reasoning") || params.contains("include_reasoning"),
-            tools: (caps?["function_calling"] as? Bool) == true || params.contains("tools"),
+            contextLength: (number(m["max_context_length"]) ?? number(m["context_length"])
+                ?? number(spec?["availableContextTokens"])).map(Int.init),
+            priceIn: perMillion(pricing?["prompt"]) ?? usd("input"),
+            priceOut: perMillion(pricing?["completion"]) ?? usd("output"),
+            vision: (caps?["vision"] as? Bool) == true || inputs.contains("image") || (specCaps?["supportsVision"] as? Bool) == true,
+            reasoning: params.contains("reasoning") || params.contains("include_reasoning")
+                || (specCaps?["supportsReasoning"] as? Bool) == true,
+            tools: (caps?["function_calling"] as? Bool) == true || params.contains("tools")
+                || (specCaps?["supportsFunctionCalling"] as? Bool) == true,
             isChat: chat
         )
     }

@@ -26,7 +26,10 @@ public struct DelegationGuide: Sendable {
     private func costHint(_ c: Candidate) -> String {
         if c.provider.kind == .foundation { return "on-device" }
         if let cost = c.model.cost { return cost }
-        return c.model.priceIn != nil || c.model.priceOut != nil ? "priced" : ""
+        if c.model.priceIn != nil || c.model.priceOut != nil {
+            return "$\(ModelConfig.money(c.model.priceIn))/$\(ModelConfig.money(c.model.priceOut)) per 1M"
+        }
+        return ""
     }
 
     /// Krótka mapa routingu: `- translate: mistral/mistral-small-latest (free), gemini/...`.
@@ -61,7 +64,8 @@ public struct DelegationGuide: Sendable {
         Good fits: translating text; summarizing pasted text, logs, or docs; first drafts (emails, descriptions, \
         READMEs, release notes, commit messages); rewriting, reformatting, or extracting data from text; generating \
         many variants, test data, or boilerplate; a second opinion on a self-contained code snippet. The longer the \
-        expected output, the more delegation saves.
+        expected output, the more delegation saves. Rule of thumb: if you are about to write more than ~150 words of \
+        prose or repetitive content that doesn't depend on files only you can see, delegate it.
 
         Do it yourself: design decisions, debugging, changes that need repository or tool access, security-sensitive \
         work, and anything you can answer in a sentence or two.

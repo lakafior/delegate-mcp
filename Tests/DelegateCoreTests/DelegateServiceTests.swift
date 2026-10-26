@@ -251,6 +251,18 @@ func makeService(_ transport: MockTransport, keys: [String: String], config: Con
         #expect(infos.first { $0.id == "c/free:free" }?.suggestedCategory == "free")
     }
 
+    @Test func veniceModelSpecGivesPricesAndCapabilities() async throws {
+        let body = #"{"data":[{"id":"qwen3-6-27b","type":"text","context_length":256000,"model_spec":{"pricing":{"input":{"usd":0.325,"diem":0.325},"output":{"usd":3.25}},"capabilities":{"supportsVision":true,"supportsReasoning":true,"supportsFunctionCalling":true}}},{"id":"flux-img","type":"image","model_spec":{}}]}"#
+        let t = MockTransport(["api.venice.ai": .init(status: 200, body: body)])
+        let (svc, _) = try makeService(t, keys: ["VENICE_API_KEY": "k"])
+        let p = ProviderConfig(id: "venice", kind: .openai, baseURL: "https://api.venice.ai/api/v1", apiKeyEnv: "VENICE_API_KEY")
+        let infos = try await svc.modelInfos(for: p)
+        let q = try #require(infos.first { $0.id == "qwen3-6-27b" })
+        #expect(q.priceIn == 0.325 && q.priceOut == 3.25)
+        #expect(q.vision && q.reasoning && q.tools)
+        #expect(infos.first { $0.id == "flux-img" }?.isChat == false)
+    }
+
     @Test func mistralCapabilitiesMarkNonChat() async throws {
         let body = #"{"data":[{"id":"mistral-embed","capabilities":{"completion_chat":false},"max_context_length":8000},{"id":"pixtral-x","capabilities":{"completion_chat":true,"vision":true}}]}"#
         let t = MockTransport(["api.mistral.ai": .init(status: 200, body: body)])

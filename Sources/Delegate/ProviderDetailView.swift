@@ -197,9 +197,14 @@ struct ProviderDetailView: View {
                     Button("Pobierz z API…", systemImage: "arrow.down.circle") { showRemote = true }
                 }
                 Spacer()
-                Menu("Uzupełnij tagi", systemImage: "tag") {
-                    Button("Tylko modele bez tagów") { autofill(overwrite: false) }
-                    Button("Nadpisz tagi wszystkich modeli") { autofill(overwrite: true) }
+                Menu("Uzupełnij z API", systemImage: "wand.and.stars") {
+                    Section("Tagi") {
+                        Button("Tylko modele bez tagów") { autofill(overwrite: false) }
+                        Button("Nadpisz tagi wszystkich modeli") { autofill(overwrite: true) }
+                    }
+                    Section("Ceny") {
+                        Button("Pobierz ceny dla wszystkich modeli") { fetchPrices() }
+                    }
                 }
                 .disabled(provider.models.isEmpty || autofilling)
                 .fixedSize()
@@ -213,7 +218,7 @@ struct ProviderDetailView: View {
         } header: {
             Text("Modele")
         } footer: {
-            Text("Tagi oddziel przecinkami. „Uzupełnij tagi” bierze metadane z API dostawcy (zdolności, kontekst, ceny, jeśli je podaje) i ID modelu. Claude też może to zrobić przez narzędzie update_models.")
+            Text("Tagi oddziel przecinkami. „Uzupełnij z API” bierze metadane dostawcy (zdolności, kontekst, ceny, jeśli je podaje) i ID modelu. Ceny podają m.in. OpenRouter i API w tym samym formacie; Mistral, Gemini i DeepSeek ich nie udostępniają. Claude też może to zrobić przez narzędzie update_models.")
         }
     }
 
@@ -232,6 +237,50 @@ struct ProviderDetailView: View {
         }
         .padding(16)
         .frame(width: 320)
+    }
+
+    /// Ceny z API dla istniejących modeli: nadpisuje kategorię kwotami (albo „darmowy”, gdy API podaje 0).
+    /// Modeli oznaczonych jako darmowe nie ruszamy, jeśli API podaje cenę: to zwykle świadomy wybór
+    /// (darmowy plan, np. Mistral Experiment), a cena katalogowa by go zepsuła.
+    private func fetchPrices() {
+        autofilling = true
+        autofillMessage = nil
+        let snapshot = provider
+        Task {
+            defer { autofilling = false }
+            guard let list = try? await model.modelInfos(for: snapshot) else {
+                autofillMessage = "Nie udało się pobrać listy modeli z API (sprawdź klucz i test połączenia)."
+                return
+            }
+            let infos = Dictionary(list.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            var updated = 0, keptFree = 0, noPrice = 0
+            for idx in provider.models.indices {
+                guard let info = infos[provider.models[idx].id], info.priceIn != nil || info.priceOut != nil else {
+                    noPrice += 1
+                    continue
+                }
+                var m = provider.models[idx]
+                if info.suggestedCategory == "free" {
+                    m.costSetting = CostSetting(category: "free")
+                } else if m.cost == "free" {
+                    keptFree += 1
+                    continue
+                } else {
+                    m.costSetting = CostSetting(priceIn: info.priceIn, priceOut: info.priceOut)
+                }
+                if m != provider.models[idx] {
+                    provider.models[idx] = m
+                    updated += 1
+                }
+            }
+            var parts = ["Zaktualizowano ceny: \(updated)."]
+            if noPrice > 0 { parts.append("Bez ceny w API: \(noPrice).") }
+            if keptFree > 0 { parts.append("Pominięto \(keptFree) oznaczonych jako darmowe; zmień ręcznie, jeśli za nie płacisz.") }
+            if list.allSatisfy({ $0.priceIn == nil && $0.priceOut == nil }) {
+                parts = ["API tego dostawcy nie podaje cen. Ustaw je ręcznie przyciskiem kosztu przy modelu."]
+            }
+            autofillMessage = parts.joined(separator: " ")
+        }
     }
 
     /// Tagi (i koszt, jeśli API go podaje) z metadanych dostawcy; bez klucza tylko z ID modelu.
