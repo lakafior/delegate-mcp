@@ -134,7 +134,7 @@ func makeService(_ transport: MockTransport, keys: [String: String], config: Con
     @Test func unavailableOnDeviceIsSkippedAndExplained() throws {
         let (svc, _) = try makeService(MockTransport([:]), keys: [:])
         let out = try svc.listModels()
-        #expect(out.contains("**apple** (foundation) — niedostępny: test"))
+        #expect(out.contains("**apple** (foundation) — unavailable: test"))
     }
 
     @Test func allFailuresThrowWithDetails() async throws {
@@ -148,10 +148,10 @@ func makeService(_ transport: MockTransport, keys: [String: String], config: Con
     @Test func listModelsShowsKeyStatusButNeverKeys() throws {
         let (svc, _) = try makeService(MockTransport([:]), keys: ["MISTRAL_API_KEY": "sekret-123"])
         let out = try svc.listModels()
-        #expect(out.contains("**mistral** (openai) — gotowy"))
-        #expect(out.contains("brak klucza (GEMINI_API_KEY)"))
+        #expect(out.contains("**mistral** (openai) — ready"))
+        #expect(out.contains("missing key (GEMINI_API_KEY)"))
         #expect(!out.contains("sekret-123"))
-        #expect(out.contains("Zasady routingu"))
+        #expect(out.contains("Routing rules"))
     }
 
     @Test func remoteModelsParsesBothFormats() async throws {
@@ -173,7 +173,7 @@ func makeService(_ transport: MockTransport, keys: [String: String], config: Con
         l.append(.init(provider: "p", model: "m", inputTokens: 5, outputTokens: 7, ok: true, ms: 10))
         l.append(.init(provider: "p", model: "m", ok: false, error: "x", ms: 1))
         let out = svc.usageSummary()
-        #expect(out.contains("`p/m`: 2 wywołań (błędy: 1), tokeny: 5 in / 7 out"))
+        #expect(out.contains("`p/m`: 2 calls (errors: 1), tokens: 5 in / 7 out"))
     }
 }
 
@@ -281,7 +281,7 @@ func makeService(_ transport: MockTransport, keys: [String: String], config: Con
         c.providers[0].models[0].cost = nil
         c.providers[0].models[0].priceIn = 0.1
         c.providers[0].models[0].priceOut = 3
-        #expect(c.providers[0].models[0].costLabel == "$0.1 in / $3 out za 1M tok.")
+        #expect(c.providers[0].models[0].costLabel == "$0.1 in / $3 out per 1M tok.")
         #expect(try Config.parse(try c.serialized()) == c)
         let hand = try Config.parse("[[provider]]\nid='x'\ntype='openai'\n[[provider.model]]\nid='m'\nprice_in = 1\nprice_out = 2")
         #expect(hand.providers[0].models[0].priceIn == 1)
@@ -297,7 +297,7 @@ func makeService(_ transport: MockTransport, keys: [String: String], config: Con
             ModelUpdate(id: "mistral-small-latest", tags: [" Code ", "code", "Fast"], priceIn: 0.1, priceOut: 0.3),
             ModelUpdate(id: "new-model", cost: "cheap"),
         ])
-        #expect(msg.contains("zaktualizowano 1, dodano 1"))
+        #expect(msg.contains("updated 1, added 1"))
         let models = box.value.providers[0].models
         let small = try #require(models.first { $0.id == "mistral-small-latest" })
         #expect(small.tags == ["code", "fast"])
@@ -509,7 +509,7 @@ final class ConfigBox: @unchecked Sendable {
         let reply = try await svc.delegate(.init(prompt: "ile kosztujesz?"))
 
         // openAIBody ma 10 in / 3 out tokenów
-        #expect(reply.contains("koszt: $0.0000"))
+        #expect(reply.contains("cost: $0.0000"))
         let entries = UsageLog(url: log).entries()
         #expect(entries.count == 1)
         #expect(entries.first?.costUSD != nil)
@@ -523,8 +523,8 @@ final class ConfigBox: @unchecked Sendable {
         l.append(.init(provider: "mistral", model: "mistral-small", inputTokens: 200_000, outputTokens: 100_000, costUSD: 0.12, ok: true, ms: 800))
 
         let summary = svc.usageSummary()
-        #expect(summary.contains("Koszt całkowity: $0.1480"))
-        #expect(summary.contains("Zaoszczędzono vs Sonnet: $"))
+        #expect(summary.contains("Total cost: $0.1480"))
+        #expect(summary.contains("Saved vs Sonnet: $"))
         #expect(summary.contains("· $0.0280"))
         #expect(summary.contains("· $0.1200"))
     }
@@ -566,13 +566,13 @@ final class ConfigBox: @unchecked Sendable {
         // Config check
         let cfgCheck = try #require(report.checks.first { $0.name.contains("delegate.toml") })
         #expect(cfgCheck.severity == .ok)
-        #expect(cfgCheck.message.contains("5 dostawców"))
+        #expect(cfgCheck.message.contains("5 providers"))
 
         // Terminal output formatting
         let out = report.terminalOutput()
-        #expect(out.contains("=== Diagnostyka delegate-mcp ==="))
-        #expect(out.contains("Konfiguracja (delegate.toml)"))
-        #expect(out.contains("Podsumowanie:"))
+        #expect(out.contains("=== delegate-mcp diagnostics ==="))
+        #expect(out.contains("Configuration (delegate.toml)"))
+        #expect(out.contains("Summary:"))
     }
 
     @Test func doctorDetectsInvalidToml() async throws {
@@ -607,6 +607,6 @@ final class ConfigBox: @unchecked Sendable {
 
         let mistral = report.providers.first { $0.providerID == "mistral" }
         #expect(mistral?.severity == .error)
-        #expect(mistral?.status.contains("brak klucza") == true)
+        #expect(mistral?.status.contains("missing key") == true)
     }
 }

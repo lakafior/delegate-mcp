@@ -18,13 +18,13 @@ struct RoutingView: View {
                     .font(.body)
                     .frame(minHeight: 80)
             } header: {
-                Text("Własne zasady globalne")
+                Text("Custom global rules")
             } footer: {
-                Text("Doklejane do instrukcji serwera. Ogólne zasady delegowania serwer podaje sam; reguły dla jednego dostawcy wpisz w jego „Wskazówkach dla Claude'a”. Najlepiej po angielsku.")
+                Text("Added to the server instructions. The server provides the general delegation rules itself; put rules for a single provider in its \"Guidance for Claude\". English works best.")
             }
-            Section("Limity") {
+            Section("Limits") {
                 Stepper(value: $model.config.timeoutSeconds, in: 10...600, step: 10) {
-                    LabeledContent("Limit czasu jednego wywołania", value: "\(Int(model.config.timeoutSeconds)) s")
+                    LabeledContent("Timeout per call", value: "\(Int(model.config.timeoutSeconds)) s")
                 }
             }
         }
@@ -37,14 +37,14 @@ struct RoutingView: View {
 
     private var modeSection: some View {
         Section {
-            Picker("Tryb delegowania", selection: $model.config.delegationMode) {
+            Picker("Delegation mode", selection: $model.config.delegationMode) {
                 ForEach(DelegationMode.allCases, id: \.self) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
         } header: {
-            Text("Jak chętnie delegować")
+            Text("How eagerly to delegate")
         } footer: {
-            Text(model.config.delegationMode.explanation + " Zmienia ton instrukcji serwera; działa po restarcie Claude'a.")
+            Text(model.config.delegationMode.explanation + " Changes the tone of the server instructions; takes effect after restarting Claude.")
         }
     }
 
@@ -64,22 +64,22 @@ struct RoutingView: View {
                 }
             }
         } header: {
-            Text("Dane osobiste i z pracy mogą trafić do")
+            Text("Personal and work data may go to")
         } footer: {
-            Text("Claude oznacza zadanie jako publiczne, osobiste albo prywatne, a serwer pilnuje regionów: osobiste tylko do zaznaczonych, prywatne wyłącznie do modeli lokalnych. Region dostawcy zmienisz w jego ustawieniach.")
+            Text("Claude marks each task as public, personal or private, and the server enforces regions: personal tasks only go to the selected ones, private tasks only to local models. Change a provider's region in its settings.")
         }
     }
 
     private func providers(in region: PrivacyRegion) -> String {
         let ids = model.config.providers.filter { $0.effectivePrivacy == region }.map(\.id)
-        return ids.isEmpty ? "brak dostawców" : ids.joined(separator: ", ")
+        return ids.isEmpty ? "no providers" : ids.joined(separator: ", ")
     }
 
     // MARK: budżet
 
     private var budgetSection: some View {
         Section {
-            Toggle("Dzienny limit na płatne modele", isOn: Binding(
+            Toggle("Daily limit for paid models", isOn: Binding(
                 get: { model.config.dailyBudgetUSD != nil },
                 set: { model.config.dailyBudgetUSD = $0 ? (model.config.dailyBudgetUSD ?? 1) : nil }))
             if model.config.dailyBudgetUSD != nil {
@@ -92,11 +92,11 @@ struct RoutingView: View {
                         .frame(width: 90)
                 }
             }
-            LabeledContent("Wydano dziś", value: String(format: "$%.4f", model.usageStats.costToday))
+            LabeledContent("Spent today", value: String(format: "$%.4f", model.usageStats.costToday))
         } header: {
-            Text("Budżet")
+            Text("Budget")
         } footer: {
-            Text("Po przekroczeniu limitu serwer używa tylko darmowych i lokalnych modeli. Model bez znanej ceny liczy się jako płatny.")
+            Text("Once the limit is exceeded, the server uses only free and local models. A model with no known price counts as paid.")
         }
     }
 
@@ -108,23 +108,23 @@ struct RoutingView: View {
         let plan = model.routingPlan(for: request)
         let leak = SecretLeakDetector.scan(previewPrompt)
         return Section {
-            TextField("Treść zadania (opcjonalnie, do sprawdzenia sekretów)", text: $previewPrompt, axis: .vertical)
+            TextField("Task content (optional, for checking secrets)", text: $previewPrompt, axis: .vertical)
                 .lineLimit(1...4)
-            Picker("Tag zadania", selection: $previewTask) {
-                Text("bez tagu (wg priorytetu)").tag("")
+            Picker("Task tag", selection: $previewTask) {
+                Text("no tag (by priority)").tag("")
                 ForEach(allTags, id: \.self) { Text($0).tag($0) }
             }
-            Picker("Dane", selection: $previewSensitivity) {
+            Picker("Data", selection: $previewSensitivity) {
                 ForEach(Sensitivity.allCases, id: \.self) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
 
             if let leak, plan.candidates.contains(where: { $0.provider.effectivePrivacy != .local }) {
-                Label("Serwer zablokuje: wykryto \(leak.type) (\(leak.matched)).", systemImage: "lock.trianglebadge.exclamationmark")
+                Label("Server will block: detected \(leak.type) (\(leak.matched)).", systemImage: "lock.trianglebadge.exclamationmark")
                     .foregroundStyle(.red)
             }
             if plan.candidates.isEmpty {
-                Label("Żaden model nie przyjmie tego zadania.", systemImage: "xmark.octagon").foregroundStyle(.red)
+                Label("No model will accept this task.", systemImage: "xmark.octagon").foregroundStyle(.red)
             } else {
                 ForEach(Array(plan.candidates.prefix(5).enumerated()), id: \.offset) { i, c in
                     LabeledContent("\(i + 1). \(c.ref)") {
@@ -132,20 +132,20 @@ struct RoutingView: View {
                     }
                 }
                 if plan.candidates.count > 5 {
-                    Text("…i \(plan.candidates.count - 5) kolejnych jako fallback").font(.callout).foregroundStyle(.secondary)
+                    Text("…and \(plan.candidates.count - 5) more as fallback").font(.callout).foregroundStyle(.secondary)
                 }
             }
             if !plan.excluded.isEmpty {
-                DisclosureGroup("Pominięte (\(plan.excluded.count))") {
+                DisclosureGroup("Skipped (\(plan.excluded.count))") {
                     ForEach(Array(plan.excluded.enumerated()), id: \.offset) { _, e in
                         LabeledContent(e.ref) { Text(e.reason).foregroundStyle(.secondary) }
                     }
                 }
             }
         } header: {
-            Text("Podgląd: który model dostałby zadanie")
+            Text("Preview: which model would get the task")
         } footer: {
-            Text("Ta sama logika co w serwerze, bez wysyłania czegokolwiek. Tryb i instrukcje wpływają na to, czy Claude w ogóle deleguje; tu widać, dokąd zadanie trafi.")
+            Text("Same logic as the server, without sending anything. The mode and instructions affect whether Claude delegates at all; here you see where a task would go.")
         }
     }
 

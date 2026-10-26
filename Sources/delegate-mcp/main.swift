@@ -18,10 +18,10 @@ if args.contains("--print-config-path") {
 if args.contains("--init") {
     do {
         let created = try home.writeDefaultConfig()
-        print(created ? "Utworzono \(home.configURL.path)" : "Już istnieje: \(home.configURL.path)")
+        print(created ? "Created \(home.configURL.path)" : "Already exists: \(home.configURL.path)")
         exit(0)
     } catch {
-        FileHandle.standardError.write(Data("Błąd: \(error)\n".utf8))
+        FileHandle.standardError.write(Data("Error: \(error)\n".utf8))
         exit(1)
     }
 }
@@ -154,7 +154,7 @@ await server.withMethodHandler(CallTool.self) { params in
 
         case "delegate":
             guard let prompt = a["prompt"]?.stringValue, !prompt.isEmpty else {
-                return .init(content: [reply("Brak parametru prompt.")], isError: true)
+                return .init(content: [reply("Missing parameter: prompt.")], isError: true)
             }
             let request = DelegateRequest(
                 prompt: prompt,
@@ -177,7 +177,7 @@ await server.withMethodHandler(CallTool.self) { params in
 
         case "update_models":
             guard let provider = a["provider"]?.stringValue, let items = a["models"]?.arrayValue else {
-                return .init(content: [reply("Wymagane: provider i models.")], isError: true)
+                return .init(content: [reply("Required: provider and models.")], isError: true)
             }
             func number(_ v: Value?) -> Double? { v?.doubleValue ?? v?.intValue.map(Double.init) }
             let updates = items.compactMap { item -> ModelUpdate? in
@@ -196,7 +196,7 @@ await server.withMethodHandler(CallTool.self) { params in
             return .init(content: [reply(service.usageSummary(days: a["days"]?.intValue ?? 7))], isError: false)
 
         default:
-            return .init(content: [reply("Nieznane narzędzie: \(params.name)")], isError: true)
+            return .init(content: [reply("Unknown tool: \(params.name)")], isError: true)
         }
     } catch {
         return .init(content: [reply("\(error)")], isError: true)

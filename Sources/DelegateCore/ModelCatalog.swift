@@ -42,13 +42,13 @@ public struct ModelInfo: Sendable, Equatable, Identifiable {
     /// Krótki opis do `list_remote_models` i GUI.
     public var summary: String {
         var parts: [String] = []
-        if let c = contextLength { parts.append("kontekst \(c >= 1000 ? "\(c / 1000)k" : "\(c)")") }
+        if let c = contextLength { parts.append("context \(c >= 1000 ? "\(c / 1000)k" : "\(c)")") }
         if priceIn != nil || priceOut != nil {
-            var price = "$\(ModelConfig.money(priceIn))/$\(ModelConfig.money(priceOut)) za 1M"
-            if let priceSource { price += " wg \(priceSource)" }
+            var price = "$\(ModelConfig.money(priceIn))/$\(ModelConfig.money(priceOut)) per 1M"
+            if let priceSource { price += " via \(priceSource)" }
             parts.append(price)
         }
-        if !isChat { parts.append("nie czat") }
+        if !isChat { parts.append("not chat") }
         return parts.joined(separator: " · ")
     }
 }

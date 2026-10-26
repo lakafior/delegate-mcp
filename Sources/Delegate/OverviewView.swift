@@ -15,17 +15,17 @@ struct OverviewView: View {
                 Section("System") {
                     ForEach(report.checks.filter { $0.group == .system }) { checkRow($0) }
                 }
-                Section("Dostawcy") {
+                Section("Providers") {
                     ForEach(report.providers) { providerRow($0) }
                 }
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("Przegląd")
+        .navigationTitle("Overview")
         .toolbar {
             ToolbarItemGroup {
                 if let report = model.diagnostics {
-                    Button(copied ? "Skopiowano" : "Kopiuj raport", systemImage: copied ? "checkmark" : "doc.on.doc") {
+                    Button(copied ? "Copied" : "Copy report", systemImage: copied ? "checkmark" : "doc.on.doc") {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(report.terminalOutput(), forType: .string)
                         copied = true
@@ -35,7 +35,7 @@ struct OverviewView: View {
                         }
                     }
                 }
-                Button("Sprawdź ponownie", systemImage: "arrow.clockwise") { model.runDiagnostics() }
+                Button("Check again", systemImage: "arrow.clockwise") { model.runDiagnostics() }
                     .disabled(model.diagnosing)
             }
         }
@@ -64,11 +64,11 @@ struct OverviewView: View {
             .font(.title)
             .frame(width: 34)
             VStack(alignment: .leading, spacing: 2) {
-                Text(model.diagnostics == nil ? "Sprawdzam serwer, klucze i połączenia…"
-                     : errors > 0 ? "Są błędy do naprawienia"
-                     : warnings > 0 ? "Działa, są uwagi" : "Wszystko działa")
+                Text(model.diagnostics == nil ? "Checking server, keys and connections…"
+                     : errors > 0 ? "There are errors to fix"
+                     : warnings > 0 ? "Working, with notes" : "Everything works")
                     .font(.headline)
-                Text("Claude oddelegował \(stats.callsWeek) zadań w 7 dni, dziś \(stats.callsToday).")
+                Text("Claude delegated \(stats.callsWeek) tasks in 7 days, \(stats.callsToday) today.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -91,44 +91,44 @@ struct OverviewView: View {
                 remove: { Task { await model.installCode(false); model.runDiagnostics() } })
             LabeledContent {
                 HStack {
-                    Text(model.instructionsOutdated ? "starsza wersja" : (model.instructionsInstalled ? "aktualne" : "brak"))
+                    Text(model.instructionsOutdated ? "older version" : (model.instructionsInstalled ? "up to date" : "none"))
                         .foregroundStyle(model.instructionsOutdated ? .orange : .secondary)
                     if model.instructionsInstalled {
-                        if model.instructionsOutdated { Button("Zaktualizuj") { model.installInstructions(true) } }
-                        Button("Usuń") { model.installInstructions(false) }
+                        if model.instructionsOutdated { Button("Update") { model.installInstructions(true) } }
+                        Button("Remove") { model.installInstructions(false) }
                     } else {
-                        Button("Dodaj") { model.installInstructions(true) }
+                        Button("Add") { model.installInstructions(true) }
                     }
                 }
             } label: {
-                Text("Przypomnienie w ~/.claude/CLAUDE.md")
-                Text("Opcjonalne: serwer sam podaje Claude'owi instrukcje.")
+                Text("Reminder in ~/.claude/CLAUDE.md")
+                Text("Optional: the server provides instructions to Claude itself.")
             }
             LabeledContent {
-                Button("Zezwól") { model.apply(.authorizeKeys) }
+                Button("Allow") { model.apply(.authorizeKeys) }
                     .disabled(!model.helperExists)
             } label: {
-                Text("Dostęp serwera do kluczy")
+                Text("Server access to keys")
                 Text(keyAccessText)
             }
             if let message = model.integrationMessage {
                 Label(message, systemImage: "info.circle").font(.callout).foregroundStyle(.secondary)
             }
             if !model.helperExists {
-                Label("Nie znaleziono delegate-mcp obok aplikacji. Zbuduj całość skryptem scripts/build-app.sh.",
+                Label("delegate-mcp not found next to the app. Build everything with scripts/build-app.sh.",
                       systemImage: "exclamationmark.triangle")
                     .font(.callout)
             }
         } header: {
             Text("Claude")
         } footer: {
-            Text("Wystarczy podłączyć Desktop albo Code. Po zmianach dostawców zrestartuj Claude'a, żeby wczytał nowe instrukcje.")
+            Text("Connecting Desktop or Code is enough. After provider changes, restart Claude so it loads the new instructions.")
         }
     }
 
     private var keyAccessText: String {
-        guard let check = model.diagnostics?.checks.first(where: { $0.fix == .authorizeKeys || $0.name == "Dostęp serwera do kluczy" })
-        else { return "Gdy macOS pyta o hasło przy użyciu kluczy przez serwer." }
+        guard let check = model.diagnostics?.checks.first(where: { $0.fix == .authorizeKeys || $0.name == "Server access to keys" })
+        else { return "When macOS asks for a password while the server uses keys." }
         return check.message
     }
 
@@ -196,11 +196,11 @@ private struct IntegrationRow: View {
                 Text(state.label).foregroundStyle(state == .installed ? .green : (state == .notInstalled ? .secondary : .orange))
                 switch state {
                 case .installed:
-                    Button("Odłącz", action: remove)
+                    Button("Disconnect", action: remove)
                 case .notInstalled:
-                    Button("Podłącz", action: install).disabled(!enabled)
+                    Button("Connect", action: install).disabled(!enabled)
                 case .stale:
-                    Button("Napraw", action: install).disabled(!enabled)
+                    Button("Repair", action: install).disabled(!enabled)
                 }
             }
         }
@@ -210,9 +210,9 @@ private struct IntegrationRow: View {
 extension DiagnosticFix {
     var title: String {
         switch self {
-        case .installDesktop, .installCode: "Podłącz"
-        case .updateInstructions: "Dodaj / zaktualizuj"
-        case .authorizeKeys: "Zezwól"
+        case .installDesktop, .installCode: "Connect"
+        case .updateInstructions: "Add / update"
+        case .authorizeKeys: "Allow"
         }
     }
 }

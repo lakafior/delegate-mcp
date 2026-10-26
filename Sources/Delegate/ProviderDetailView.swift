@@ -33,7 +33,7 @@ struct ProviderDetailView: View {
                                     .foregroundStyle(.secondary)
                             }
                             .buttonStyle(.plain)
-                            .help("Zmień nazwę dostawcy")
+                            .help("Rename provider")
                         }
                         Text(provider.kind.title).font(.callout).foregroundStyle(.secondary)
                     }
@@ -41,9 +41,9 @@ struct ProviderDetailView: View {
                     StatusDot(status: model.status(of: provider))
                     Text(model.status(of: provider).label).font(.callout)
                 }
-                Toggle("Włączony", isOn: $provider.enabled)
-                Picker("Gdzie trafiają dane", selection: $provider.privacy) {
-                    Text("Automatycznie (\(PrivacyRegion.inferred(for: provider).title))").tag(PrivacyRegion?.none)
+                Toggle("Enabled", isOn: $provider.enabled)
+                Picker("Where data goes", selection: $provider.privacy) {
+                    Text("Automatic (\(PrivacyRegion.inferred(for: provider).title))").tag(PrivacyRegion?.none)
                     ForEach(PrivacyRegion.allCases, id: \.self) { Text($0.title).tag(PrivacyRegion?.some($0)) }
                 }
             }
@@ -51,19 +51,19 @@ struct ProviderDetailView: View {
             if provider.kind != .foundation { connection }
 
             Section {
-                TextField("Wskazówki", text: Binding(
+                TextField("Guidance", text: Binding(
                     get: { provider.guidance ?? "" },
                     set: { provider.guidance = $0.isEmpty ? nil : $0 }),
-                    prompt: Text("Np. Good for translations. Never send work data here."), axis: .vertical)
+                    prompt: Text("E.g. Good for translations. Never send work data here."), axis: .vertical)
                     .lineLimit(2...5)
             } header: {
-                Text("Wskazówki dla Claude'a")
+                Text("Guidance for Claude")
             } footer: {
-                Text("Claude dostaje ten tekst w instrukcjach serwera obok listy modeli: do czego ten dostawca jest dobry, czego tu nie wysyłać. Najlepiej po angielsku. Zmiana działa po restarcie Claude'a.")
+                Text("Claude gets this text in the server instructions next to the model list: what this provider is good for, and what not to send it. English works best. Changes take effect after restarting Claude.")
             }
 
-            Section("Notatka dla Ciebie") {
-                TextField("Np. warunki planu, gdzie trafiają dane", text: Binding(
+            Section("Note for you") {
+                TextField("E.g. plan terms, where data goes", text: Binding(
                     get: { provider.note ?? "" },
                     set: { provider.note = $0.isEmpty ? nil : $0 }), axis: .vertical)
             }
@@ -79,10 +79,10 @@ struct ProviderDetailView: View {
                 }
             }
         }
-        .alert("Zmień nazwę dostawcy", isPresented: $showingRename) {
-            TextField("Nowy identyfikator", text: $renameDraft)
-            Button("Anuluj", role: .cancel) { showingRename = false }
-            Button("Zmień") {
+        .alert("Rename provider", isPresented: $showingRename) {
+            TextField("New identifier", text: $renameDraft)
+            Button("Cancel", role: .cancel) { showingRename = false }
+            Button("Rename") {
                 let target = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
                 let oldId = provider.id
                 if model.renameProvider(from: oldId, to: target) {
@@ -91,7 +91,7 @@ struct ProviderDetailView: View {
                 }
             }
         } message: {
-            Text("Wprowadź nowy unikalny identyfikator dostawcy.")
+            Text("Enter a new unique provider identifier.")
         }
     }
 
@@ -115,17 +115,17 @@ struct ProviderDetailView: View {
     // MARK: połączenie
 
     private var connection: some View {
-        Section("Połączenie") {
-            Picker("Typ API", selection: $provider.kind) {
+        Section("Connection") {
+            Picker("API type", selection: $provider.kind) {
                 Text(ProviderKind.openai.title).tag(ProviderKind.openai)
                 Text(ProviderKind.gemini.title).tag(ProviderKind.gemini)
                 Text(ProviderKind.anthropic.title).tag(ProviderKind.anthropic)
             }
-            TextField("Adres bazowy", text: $provider.baseURL)
+            TextField("Base URL", text: $provider.baseURL)
                 .textContentType(.URL)
             // Nazwa klucza to też konto w Keychain: zatwierdzamy ją w całości (Enter / wyjście z pola),
             // a AppModel przenosi zapisany klucz pod nową nazwę.
-            TextField("Nazwa klucza", text: $keyEnvDraft, prompt: Text("Opcjonalna (zostaw puste dla modeli lokalnych, np. Ollama)"))
+            TextField("Key name", text: $keyEnvDraft, prompt: Text("Optional (leave empty for local models, e.g. Ollama)"))
                 .focused($keyEnvFocused)
                 .onAppear { keyEnvDraft = provider.apiKeyEnv }
                 .onChange(of: provider.apiKeyEnv) { if !keyEnvFocused { keyEnvDraft = provider.apiKeyEnv } }
@@ -134,32 +134,32 @@ struct ProviderDetailView: View {
                 .onDisappear { commitKeyEnv() }
 
             HStack {
-                SecureField("Klucz API", text: $keyDraft, prompt: Text(model.keySource(for: provider) == .none ? "Wklej klucz" : "Wklej, żeby zastąpić"))
-                Button("Zapisz") {
+                SecureField("API key", text: $keyDraft, prompt: Text(model.keySource(for: provider) == .none ? "Paste key" : "Paste to replace"))
+                Button("Save") {
                     model.setKey(keyDraft, for: provider)
                     keyDraft = ""
                 }
                 .buttonStyle(.glassProminent)
                 .disabled(keyDraft.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-            LabeledContent("Klucz") {
+            LabeledContent("Key") {
                 HStack {
                     Text(model.keySource(for: provider).label).foregroundStyle(.secondary)
                     if model.keySource(for: provider) == .keychain {
-                        Button("Usuń z Keychain", role: .destructive) { model.removeKey(for: provider) }
+                        Button("Remove from Keychain", role: .destructive) { model.removeKey(for: provider) }
                     }
                 }
             }
             if model.keySource(for: provider) == .none,
                let url = ProviderPreset.all.first(where: { $0.baseURL == provider.baseURL })?.keyURL.flatMap(URL.init(string:)) {
-                Link("Gdzie zdobyć klucz API", destination: url)
+                Link("Where to get an API key", destination: url)
             }
 
             Stepper(value: Binding(
                 get: { provider.timeoutSeconds ?? 0 },
                 set: { provider.timeoutSeconds = $0 > 0 ? $0 : nil }
             ), in: 0...600, step: 10) {
-                LabeledContent("Własny limit czasu", value: provider.timeoutSeconds.map { "\(Int($0)) s" } ?? "domyślny z routingu")
+                LabeledContent("Custom timeout", value: provider.timeoutSeconds.map { "\(Int($0)) s" } ?? "default from routing")
             }
 
             testRow
@@ -180,7 +180,7 @@ struct ProviderDetailView: View {
                     }
                 }
                 if model.testing.contains(provider.id) { ProgressView().controlSize(.small) }
-                Button("Testuj połączenie") { model.test(provider) }
+                Button("Test connection") { model.test(provider) }
                     .disabled(model.testing.contains(provider.id))
             }
         }
@@ -193,9 +193,9 @@ struct ProviderDetailView: View {
             if !provider.models.isEmpty {
                 Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
                     GridRow {
-                        Text("ID modelu")
-                        Text("Tagi")
-                        Text("Koszt")
+                        Text("Model ID")
+                        Text("Tags")
+                        Text("Cost")
                         Color.clear.frame(width: 22, height: 1)
                     }
                     .font(.caption)
@@ -208,24 +208,24 @@ struct ProviderDetailView: View {
             }
 
             HStack {
-                Button("Dodaj model", systemImage: "plus") { provider.models.append(ModelConfig(id: "nowy-model")) }
+                Button("Add model", systemImage: "plus") { provider.models.append(ModelConfig(id: "new-model")) }
                 if provider.kind != .foundation {
-                    Button("Pobierz z API…", systemImage: "arrow.down.circle") { showRemote = true }
+                    Button("Fetch from API…", systemImage: "arrow.down.circle") { showRemote = true }
                 }
                 Spacer()
-                Menu("Uzupełnij z API", systemImage: "wand.and.stars") {
-                    Section("Tagi") {
-                        Button("Tylko modele bez tagów") { autofill(overwrite: false) }
-                        Button("Nadpisz tagi wszystkich modeli") { autofill(overwrite: true) }
+                Menu("Fill from API", systemImage: "wand.and.stars") {
+                    Section("Tags") {
+                        Button("Only models without tags") { autofill(overwrite: false) }
+                        Button("Overwrite tags of all models") { autofill(overwrite: true) }
                     }
-                    Section("Ceny") {
-                        Button("Pobierz ceny dla wszystkich modeli") { fetchPrices() }
-                        Button("Odśwież cennik LiteLLM i pobierz ceny") { fetchPrices(refreshCatalog: true) }
+                    Section("Prices") {
+                        Button("Fetch prices for all models") { fetchPrices() }
+                        Button("Refresh LiteLLM price list and fetch prices") { fetchPrices(refreshCatalog: true) }
                     }
                 }
                 .disabled(provider.models.isEmpty || autofilling)
                 .fixedSize()
-                Button("Koszt dla wszystkich…", systemImage: "dollarsign.circle") { showBulkCost = true }
+                Button("Cost for all…", systemImage: "dollarsign.circle") { showBulkCost = true }
                     .disabled(provider.models.isEmpty)
                     .popover(isPresented: $showBulkCost, arrowEdge: .bottom) { bulkCostPopover }
             }
@@ -233,19 +233,19 @@ struct ProviderDetailView: View {
                 Label(autofillMessage, systemImage: "info.circle").font(.callout).foregroundStyle(.secondary)
             }
         } header: {
-            Text("Modele")
+            Text("Models")
         } footer: {
-            Text("Tagi oddziel przecinkami. „Uzupełnij z API” bierze metadane dostawcy (zdolności, kontekst, ceny, jeśli je podaje) i ID modelu. Ceny bierze z API (OpenRouter, Venice i zgodne), a gdy API ich nie podaje, z publicznego cennika LiteLLM (Mistral, Gemini, DeepSeek, Anthropic, OpenAI i inni). Claude też może to zrobić przez narzędzie update_models.")
+            Text("Separate tags with commas. \"Fill from API\" takes the provider's metadata (capabilities, context, prices if provided) and model IDs. Prices come from the API (OpenRouter, Venice and compatible ones), and when the API doesn't provide them, from the public LiteLLM price list (Mistral, Gemini, DeepSeek, Anthropic, OpenAI and others). Claude can also do this via the update_models tool.")
         }
     }
 
     private var bulkCostPopover: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Koszt dla wszystkich modeli „\(provider.id)”").font(.headline)
+            Text("Cost for all models of \"\(provider.id)\"").font(.headline)
             CostEditor(setting: $bulkCost)
             HStack {
                 Spacer()
-                Button("Zastosuj do wszystkich (\(provider.models.count))") {
+                Button("Apply to all (\(provider.models.count))") {
                     for i in provider.models.indices { provider.models[i].costSetting = bulkCost }
                     showBulkCost = false
                 }
@@ -266,10 +266,10 @@ struct ProviderDetailView: View {
         Task {
             defer { autofilling = false }
             if refreshCatalog, !(await model.refreshPriceCatalog()) {
-                autofillMessage = "Nie udało się pobrać cennika LiteLLM (brak sieci?). Używam ostatniej kopii."
+                autofillMessage = "Couldn't fetch the LiteLLM price list (no network?). Using the last copy."
             }
             guard let list = try? await model.modelInfos(for: snapshot) else {
-                autofillMessage = "Nie udało się pobrać listy modeli z API (sprawdź klucz i test połączenia)."
+                autofillMessage = "Couldn't fetch the model list from the API (check the key and the connection test)."
                 return
             }
             let infos = Dictionary(list.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -293,15 +293,15 @@ struct ProviderDetailView: View {
                     updated += 1
                 }
             }
-            var parts = ["Zaktualizowano ceny: \(updated)."]
-            if noPrice > 0 { parts.append("Bez ceny w API: \(noPrice).") }
-            if keptFree > 0 { parts.append("Pominięto \(keptFree) oznaczonych jako darmowe; zmień ręcznie, jeśli za nie płacisz.") }
+            var parts = ["Prices updated: \(updated)."]
+            if noPrice > 0 { parts.append("No price in API: \(noPrice).") }
+            if keptFree > 0 { parts.append("Skipped \(keptFree) marked as free; change manually if you pay for them.") }
             if list.allSatisfy({ $0.priceIn == nil && $0.priceOut == nil }) {
-                parts = ["Cen tego dostawcy nie podaje ani jego API, ani cennik LiteLLM. Ustaw je ręcznie przyciskiem kosztu przy modelu."]
+                parts = ["Neither this provider's API nor the LiteLLM price list gives prices for it. Set them manually with the cost button next to the model."]
             }
             model.loadPriceCatalogDate()
             if let date = model.priceCatalogDate {
-                parts.append("Cennik LiteLLM z \(date.formatted(date: .abbreviated, time: .shortened)).")
+                parts.append("LiteLLM price list from \(date.formatted(date: .abbreviated, time: .shortened)).")
             }
             autofillMessage = [autofillMessage, parts.joined(separator: " ")].compactMap { $0 }.joined(separator: " ")
         }
@@ -314,10 +314,10 @@ struct ProviderDetailView: View {
         let snapshot = provider
         Task {
             var infos: [String: ModelInfo] = [:]
-            var source = "z ID modeli"
+            var source = "from model IDs"
             if let list = try? await model.modelInfos(for: snapshot) {
                 for i in list { infos[i.id] = i }
-                source = "z metadanych API"
+                source = "from API metadata"
             }
             var touched = 0
             for idx in provider.models.indices {
@@ -332,7 +332,7 @@ struct ProviderDetailView: View {
                 }
                 Self.fillCost(&provider.models[idx], from: info)
             }
-            autofillMessage = "Uzupełniono tagi \(source): zmieniono \(touched) modeli."
+            autofillMessage = "Tags filled \(source): changed \(touched) models."
             autofilling = false
         }
     }
@@ -356,11 +356,11 @@ private struct ModelRow: View {
 
     var body: some View {
         GridRow {
-            TextField("ID modelu", text: $model.id)
+            TextField("Model ID", text: $model.id)
                 .labelsHidden()
                 .textFieldStyle(.roundedBorder)
                 .frame(minWidth: 150, idealWidth: 220, maxWidth: 280)
-            TextField("tagi", text: $tagsText, prompt: Text("np. code, translate"))
+            TextField("tags", text: $tagsText, prompt: Text("e.g. code, translate"))
                 .labelsHidden()
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: .infinity)
@@ -377,7 +377,7 @@ private struct ModelRow: View {
                     .padding(16)
                     .frame(width: 300)
             }
-            Button("Usuń model", systemImage: "trash", role: .destructive, action: onDelete)
+            Button("Delete model", systemImage: "trash", role: .destructive, action: onDelete)
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
                 .frame(width: 22)
@@ -403,15 +403,15 @@ private struct RemoteModelsSheet: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            Text("Modele \(provider.id)").font(.headline)
+            Text("Models of \(provider.id)").font(.headline)
             if loading {
                 ProgressView().frame(maxHeight: .infinity)
             } else if let error {
-                ContentUnavailableView("Nie udało się pobrać", systemImage: "wifi.exclamationmark", description: Text(error))
+                ContentUnavailableView("Couldn't fetch", systemImage: "wifi.exclamationmark", description: Text(error))
             } else {
                 HStack {
-                    TextField("Filtruj", text: $filter).textFieldStyle(.roundedBorder)
-                    Toggle("Także nie-czatowe", isOn: $showNonChat).toggleStyle(.checkbox)
+                    TextField("Filter", text: $filter).textFieldStyle(.roundedBorder)
+                    Toggle("Include non-chat", isOn: $showNonChat).toggleStyle(.checkbox)
                 }
                 List(visible, selection: $chosen) { info in
                     VStack(alignment: .leading, spacing: 2) {
@@ -427,9 +427,9 @@ private struct RemoteModelsSheet: View {
                 }
             }
             HStack {
-                Button("Anuluj") { dismiss() }
+                Button("Cancel") { dismiss() }
                 Spacer()
-                Button("Dodaj zaznaczone (\(chosen.count))") {
+                Button("Add selected (\(chosen.count))") {
                     onAdd(infos.filter { chosen.contains($0.id) })
                     dismiss()
                 }

@@ -32,7 +32,7 @@ public enum ClaudeIntegration {
         var root: [String: Any] = [:]
         if let data, !data.isEmpty {
             guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                throw DelegateError(description: "claude_desktop_config.json nie jest obiektem JSON")
+                throw DelegateError(description: "claude_desktop_config.json is not a JSON object")
             }
             root = obj
         }

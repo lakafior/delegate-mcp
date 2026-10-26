@@ -33,7 +33,7 @@ public struct HelperProbe: Sendable {
     /// `initialize` → `notifications/initialized` → `tools/list`; stdin zostaje otwarte do odpowiedzi.
     public func handshake(timeout: TimeInterval = 10) async throws -> Handshake {
         guard FileManager.default.isExecutableFile(atPath: executable.path) else {
-            throw ProbeError(description: "brak pliku wykonywalnego: \(executable.path)")
+            throw ProbeError(description: "no executable file: \(executable.path)")
         }
         let process = makeProcess([])
         let stdin = Pipe(), stdout = Pipe()
@@ -72,13 +72,13 @@ public struct HelperProbe: Sendable {
                         continue
                     }
                 }
-                throw ProbeError(description: "serwer zakończył pracę bez odpowiedzi na tools/list")
+                throw ProbeError(description: "server exited without a response to tools/list")
             }
             group.addTask {
                 try await Task.sleep(for: .seconds(timeout))
                 // Grupa czeka na wszystkie zadania: zabicie procesu zamyka stdout i kończy czytanie.
                 kill.process.terminate()
-                throw ProbeError(description: "brak odpowiedzi w \(Int(timeout)) s")
+                throw ProbeError(description: "no response within \(Int(timeout)) s")
             }
             defer { group.cancelAll() }
             return try await group.next()!
@@ -103,13 +103,13 @@ public struct HelperProbe: Sendable {
             group.addTask {
                 try await Task.sleep(for: .seconds(timeout))
                 kill.process.terminate()
-                throw ProbeError(description: "--check-keys: brak odpowiedzi w \(Int(timeout)) s")
+                throw ProbeError(description: "--check-keys: no response within \(Int(timeout)) s")
             }
             defer { group.cancelAll() }
             return try await group.next()!
         }
         guard let raw = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
-            throw ProbeError(description: "--check-keys: nieczytelna odpowiedź (starsza wersja serwera?)")
+            throw ProbeError(description: "--check-keys: unreadable response (older server version?)")
         }
         return raw.compactMapValues(KeychainSecretStore.Access.init(rawValue:))
     }

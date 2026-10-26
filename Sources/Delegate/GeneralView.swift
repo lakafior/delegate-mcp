@@ -8,10 +8,10 @@ struct GeneralView: View {
 
     var body: some View {
         Form {
-            Section("Aplikacja") {
-                Toggle("Uruchamiaj przy logowaniu", isOn: Binding(
+            Section("App") {
+                Toggle("Launch at login", isOn: Binding(
                     get: { model.launchAtLogin }, set: { model.launchAtLogin = $0 }))
-                Toggle("Pokazuj dzisiejsze użycie w pasku menu", isOn: $model.showUsageInMenuBar)
+                Toggle("Show today's usage in the menu bar", isOn: $model.showUsageInMenuBar)
             }
 
             Section {
@@ -21,31 +21,31 @@ struct GeneralView: View {
                     }
                     .buttonStyle(.link)
                 }
-                LabeledContent("Edycja ręczna") {
-                    Button("Edytuj delegate.toml jako tekst...") {
+                LabeledContent("Manual editing") {
+                    Button("Edit delegate.toml as text...") {
                         isEditingRawToml = true
                     }
                 }
-                LabeledContent("Cennik LiteLLM") {
+                LabeledContent("LiteLLM price list") {
                     HStack {
-                        Text(model.priceCatalogDate.map { "z \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "jeszcze nie pobrany")
+                        Text(model.priceCatalogDate.map { "from \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "not downloaded yet")
                             .foregroundStyle(.secondary)
                         if model.refreshingPrices { ProgressView().controlSize(.small) }
-                        Button("Odśwież") { Task { await model.refreshPriceCatalog() } }
+                        Button("Refresh") { Task { await model.refreshPriceCatalog() } }
                             .disabled(model.refreshingPrices)
                     }
                 }
-                LabeledContent("Binarka serwera") {
+                LabeledContent("Server binary") {
                     Text(model.helperURL.path(percentEncoded: false)).textSelection(.enabled).foregroundStyle(.secondary)
                 }
             } header: {
-                Text("Pliki")
+                Text("Files")
             } footer: {
-                Text("Edycja jako tekst zachowuje komentarze do następnego zapisu z formularzy, który zapisuje plik od nowa (bez komentarzy). Zmiany z zewnątrz, np. z update_models, aplikacja scala ze swoimi.")
+                Text("Editing as text keeps comments until the next save from the forms, which rewrites the file without comments. Outside changes, e.g. from update_models, are merged with the app's own.")
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("Ustawienia")
+        .navigationTitle("Settings")
         .onAppear { model.loadPriceCatalogDate() }
         .sheet(isPresented: $isEditingRawToml) {
             RawTomlEditorSheet(model: model, isPresented: $isEditingRawToml)
@@ -64,19 +64,19 @@ private struct RawTomlEditorSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Edycja pliku delegate.toml")
+                    Text("Edit delegate.toml")
                         .font(.headline)
-                    Text("Wprowadź zmiany bezpośrednio w TOML. Wszystkie komentarze zostaną zachowane.")
+                    Text("Make changes directly in the TOML. All comments will be kept.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Anuluj") {
+                Button("Cancel") {
                     isPresented = false
                 }
                 .keyboardShortcut(.cancelAction)
 
-                Button("Zapisz") {
+                Button("Save") {
                     save()
                 }
                 .buttonStyle(.borderedProminent)
@@ -104,7 +104,7 @@ private struct RawTomlEditorSheet: View {
                         .lineLimit(2)
                 } else {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                    Text("Składnia TOML poprawna")
+                    Text("TOML syntax is valid")
                         .font(.caption)
                         .foregroundStyle(.green)
                 }
@@ -144,7 +144,7 @@ private struct RawTomlEditorSheet: View {
             model.refresh()
             isPresented = false
         } catch {
-            parseError = "Nie udało się zapisać: \(error.localizedDescription)"
+            parseError = "Couldn't save: \(error.localizedDescription)"
         }
     }
 }

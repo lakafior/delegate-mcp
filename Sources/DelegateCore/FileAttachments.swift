@@ -20,24 +20,24 @@ enum FileAttachments {
         for raw in paths {
             let path = (raw as NSString).expandingTildeInPath
             guard path.hasPrefix("/") else {
-                throw DelegateError(description: "Plik „\(raw)”: podaj ścieżkę absolutną.")
+                throw DelegateError(description: "File \"\(raw)\": give an absolute path.")
             }
             let url = URL(fileURLWithPath: path)
             let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
             guard values?.isRegularFile == true else {
-                throw DelegateError(description: "Plik „\(raw)”: nie istnieje albo to nie jest zwykły plik.")
+                throw DelegateError(description: "File \"\(raw)\": doesn't exist or isn't a regular file.")
             }
             let size = values?.fileSize ?? 0
             guard size <= maxFileBytes else {
-                throw DelegateError(description: "Plik „\(raw)”: \(size / 1024) KB, limit \(maxFileBytes / 1024) KB na plik.")
+                throw DelegateError(description: "File \"\(raw)\": \(size / 1024) KB, limit \(maxFileBytes / 1024) KB per file.")
             }
             total += size
             guard total <= maxTotalBytes else {
-                throw DelegateError(description: "Pliki razem przekraczają \(maxTotalBytes / 1024) KB.")
+                throw DelegateError(description: "Files together exceed \(maxTotalBytes / 1024) KB.")
             }
             let data = try Data(contentsOf: url)
             guard !data.contains(0), let text = String(data: data, encoding: .utf8) else {
-                throw DelegateError(description: "Plik „\(raw)”: to nie jest tekst UTF-8.")
+                throw DelegateError(description: "File \"\(raw)\": not UTF-8 text.")
             }
             out += "\n\n--- File: \(url.lastPathComponent) ---\n\(text)\n--- End of file ---"
         }

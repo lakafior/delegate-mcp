@@ -21,7 +21,7 @@ public struct PriceCatalog: Sendable {
     /// Wpisy bez cen tokenów (obrazy, audio, `sample_spec`) pomijamy.
     public static func parse(_ data: Data) throws -> PriceCatalog {
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw DelegateError(description: "cennik \(sourceName) nie jest obiektem JSON")
+            throw DelegateError(description: "\(sourceName) price list is not a JSON object")
         }
         var prices: [String: Price] = [:]
         for (key, value) in root {

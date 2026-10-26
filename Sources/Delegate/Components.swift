@@ -26,11 +26,11 @@ struct StatusDot: View {
 extension PrivacyRegion {
     var title: String {
         switch self {
-        case .local: "lokalnie (ten Mac)"
-        case .eu: "UE"
-        case .us: "USA"
-        case .cn: "Chiny"
-        case .other: "nieznany"
+        case .local: "local (this Mac)"
+        case .eu: "EU"
+        case .us: "US"
+        case .cn: "China"
+        case .other: "unknown"
         }
     }
 }
@@ -38,9 +38,9 @@ extension PrivacyRegion {
 extension Sensitivity {
     var title: String {
         switch self {
-        case .public: "publiczne"
-        case .personal: "osobiste / praca"
-        case .private: "prywatne (tylko Mac)"
+        case .public: "public"
+        case .personal: "personal / work"
+        case .private: "private (Mac only)"
         }
     }
 }
@@ -48,17 +48,17 @@ extension Sensitivity {
 extension DelegationMode {
     var title: String {
         switch self {
-        case .conservative: "Ostrożnie"
-        case .balanced: "Zrównoważenie"
-        case .aggressive: "Agresywnie"
+        case .conservative: "Cautious"
+        case .balanced: "Balanced"
+        case .aggressive: "Aggressive"
         }
     }
 
     var explanation: String {
         switch self {
-        case .conservative: "Claude deleguje tylko wyraźnie długie zadania tekstowe (próg ok. 400 słów)."
-        case .balanced: "Claude deleguje aktywnie, gdy zadanie pasuje (próg ok. 150 słów)."
-        case .aggressive: "Claude deleguje domyślnie, nawet krótkie drafty i przeróbki (próg ok. 50 słów)."
+        case .conservative: "Claude delegates only clearly long text tasks (threshold around 400 words)."
+        case .balanced: "Claude delegates actively when a task fits (threshold around 150 words)."
+        case .aggressive: "Claude delegates by default, even short drafts and rewrites (threshold around 50 words)."
         }
     }
 }
@@ -66,10 +66,10 @@ extension DelegationMode {
 extension ProviderKind {
     var title: String {
         switch self {
-        case .openai: "API zgodne z OpenAI"
+        case .openai: "OpenAI-compatible API"
         case .gemini: "Gemini"
         case .anthropic: "Anthropic"
-        case .foundation: "Na urządzeniu (Apple)"
+        case .foundation: "On-device (Apple)"
         }
     }
 

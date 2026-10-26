@@ -100,10 +100,10 @@ public enum ProviderStatus: Sendable, Equatable {
 
     public var label: String {
         switch self {
-        case .ready: "gotowy"
-        case .disabled: "wyłączony"
-        case .missingKey(let name): "brak klucza (\(name))"
-        case .unavailable(let why): "niedostępny: \(why)"
+        case .ready: "ready"
+        case .disabled: "disabled"
+        case .missingKey(let name): "missing key (\(name))"
+        case .unavailable(let why): "unavailable: \(why)"
         }
     }
 }
@@ -179,18 +179,18 @@ public struct DelegateService: Sendable {
     public func test(_ p: ProviderConfig) async -> Result<String, DelegateError> {
         if p.kind == .foundation {
             switch onDevice.availability {
-            case .available: return .success("Model na urządzeniu dostępny")
+            case .available: return .success("On-device model available")
             case .unavailable(let why): return .failure(DelegateError(description: why))
             }
         }
         let key = secrets.secret(for: p.apiKeyEnv) ?? ""
         if p.needsKey && key.isEmpty {
-            return .failure(DelegateError(description: "Brak klucza \(p.apiKeyEnv)"))
+            return .failure(DelegateError(description: "Missing key \(p.apiKeyEnv)"))
         }
         do {
             let client = ProviderClient(transport: transport, timeout: 20)
             let ids = try await client.listModels(provider: p, apiKey: key)
-            return .success("OK, \(ids.count) modeli")
+            return .success("OK, \(ids.count) models")
         } catch {
             return .failure(DelegateError(description: "\(error)"))
         }
@@ -200,22 +200,22 @@ public struct DelegateService: Sendable {
 
     public func listModels() throws -> String {
         let config = try loadConfig()
-        var out = "# Dostawcy i modele (wg priorytetu)\n\n"
+        var out = "# Providers and models (by priority)\n\n"
         for (i, p) in config.providers.enumerated() {
             let status = self.status(of: p).label
             out += "\(i + 1). **\(p.id)** (\(p.kind.rawValue)) — \(status)\n"
-            if let n = p.note { out += "   uwaga: \(n)\n" }
-            if let g = p.guidance, !g.isEmpty { out += "   wskazówki dla Claude'a: \(g)\n" }
+            if let n = p.note { out += "   note: \(n)\n" }
+            if let g = p.guidance, !g.isEmpty { out += "   guidance for Claude: \(g)\n" }
             for m in p.models {
                 var line = "   - `\(p.id)/\(m.id)`"
-                if !m.tags.isEmpty { line += " tagi: \(m.tags.joined(separator: ", "))" }
-                if let c = m.costLabel { line += " · koszt: \(c)" }
+                if !m.tags.isEmpty { line += " tags: \(m.tags.joined(separator: ", "))" }
+                if let c = m.costLabel { line += " · cost: \(c)" }
                 if let n = m.note { line += " · \(n)" }
                 out += line + "\n"
             }
         }
         let guidance = config.routingGuidance.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !guidance.isEmpty { out += "\n## Zasady routingu\n\(guidance)\n" }
+        if !guidance.isEmpty { out += "\n## Routing rules\n\(guidance)\n" }
         return out
     }
 
@@ -239,10 +239,10 @@ public struct DelegateService: Sendable {
             let region = p.effectivePrivacy
             switch request.sensitivity {
             case .private where region != .local:
-                excluded.append(RoutingExclusion(ref: p.id, reason: "zadanie prywatne zostaje na Macu (region: \(region.rawValue))"))
+                excluded.append(RoutingExclusion(ref: p.id, reason: "private task stays on the Mac (region: \(region.rawValue))"))
                 continue
             case .personal where !config.personalRegions.contains(region):
-                excluded.append(RoutingExclusion(ref: p.id, reason: "dane osobiste nie trafiają do regionu \(region.rawValue)"))
+                excluded.append(RoutingExclusion(ref: p.id, reason: "personal data doesn't go to region \(region.rawValue)"))
                 continue
             default:
                 usable.append(p)
@@ -256,7 +256,7 @@ public struct DelegateService: Sendable {
             let s = usage.entries(since: today).compactMap(\.costUSD).reduce(0, +)
             spent = s
             if s >= budget {
-                let reason = String(format: "dzienny budżet wyczerpany ($%.2f z $%.2f)", s, budget)
+                let reason = String(format: "daily budget used up ($%.2f of $%.2f)", s, budget)
                 excluded += all.filter { !$0.model.isFree(at: $0.provider) }.map { RoutingExclusion(ref: $0.ref, reason: reason) }
                 all = all.filter { $0.model.isFree(at: $0.provider) }
             }
@@ -293,11 +293,11 @@ public struct DelegateService: Sendable {
         let list = plan.candidates
         guard !list.isEmpty else {
             let why = plan.excluded.prefix(10).map { "- \($0.ref): \($0.reason)" }.joined(separator: "\n")
-            let detail = why.isEmpty ? "" : "\nPominięte:\n" + why
+            let detail = why.isEmpty ? "" : "\nSkipped:\n" + why
             if let m = request.model {
-                throw DelegateError(description: "Model „\(m)” niedostępny dla tego zadania.\(detail)")
+                throw DelegateError(description: "Model \"\(m)\" unavailable for this task.\(detail)")
             }
-            throw DelegateError(description: "Brak modeli dla tego zadania (sensitivity: \(request.sensitivity.rawValue)).\(detail)")
+            throw DelegateError(description: "No models for this task (sensitivity: \(request.sensitivity.rawValue)).\(detail)")
         }
 
         // Weryfikacja pod kątem wycieku sekretów do dostawców zewnętrznych
@@ -305,7 +305,7 @@ public struct DelegateService: Sendable {
             let targetsCloud = list.contains { $0.provider.effectivePrivacy != .local }
             if targetsCloud, let leak = SecretLeakDetector.scan(request.prompt) ?? (request.system.flatMap(SecretLeakDetector.scan)) {
                 throw DelegateError(
-                    description: "Wykryto potencjalny sekret w prompcie (\(leak.type): \(leak.matched)). Jeśli celowo wysyłasz te dane do zewnętrznego modelu, ustaw allow_secrets = true."
+                    description: "Possible secret detected in the prompt (\(leak.type): \(leak.matched)). If you are intentionally sending this data to an external model, set allow_secrets = true."
                 )
             }
         }
@@ -334,9 +334,9 @@ public struct DelegateService: Sendable {
                                         costUSD: cost,
                                         ok: true, ms: ms))
                 var h = header(c, reply, ms: ms, cost: cost, failures: failures)
-                if attached.count > 0 { h += " · pliki: \(attached.count) (\(max(1, attached.bytes / 1024)) KB)" }
+                if attached.count > 0 { h += " · files: \(attached.count) (\(max(1, attached.bytes / 1024)) KB)" }
                 if let spent = plan.spentToday, let budget = config.dailyBudgetUSD {
-                    h += String(format: " · budżet dziś: $%.2f/$%.2f", spent + (cost ?? 0), budget)
+                    h += String(format: " · budget today: $%.2f/$%.2f", spent + (cost ?? 0), budget)
                 }
                 return h + "\n\n" + reply.text
             } catch {
@@ -347,17 +347,17 @@ public struct DelegateService: Sendable {
                 if !request.allowFallback { break }
             }
         }
-        throw DelegateError(description: "Wszystkie próby zawiodły:\n" + failures.map { "- \($0)" }.joined(separator: "\n"))
+        throw DelegateError(description: "All attempts failed:\n" + failures.map { "- \($0)" }.joined(separator: "\n"))
     }
 
     private func header(_ c: Candidate, _ r: ChatReply, ms: Int, cost: Double?, failures: [String]) -> String {
         let tokens = "\(r.inputTokens.map(String.init) ?? "?") in / \(r.outputTokens.map(String.init) ?? "?") out"
-        var h = "[delegate] model: \(c.ref) · tokeny: \(tokens)"
+        var h = "[delegate] model: \(c.ref) · tokens: \(tokens)"
         if let cost {
-            h += String(format: " · koszt: $%.4f", cost)
+            h += String(format: " · cost: $%.4f", cost)
         }
         h += " · \(String(format: "%.1f", Double(ms) / 1000)) s"
-        h += failures.isEmpty ? " · fallbacki: brak" : " · fallbacki: " + failures.joined(separator: "; ")
+        h += failures.isEmpty ? " · fallbacks: none" : " · fallbacks: " + failures.joined(separator: "; ")
         return h
     }
 
@@ -409,7 +409,7 @@ public struct DelegateService: Sendable {
     public func listRemoteModels(providerID: String?) async throws -> String {
         let config = try loadConfig()
         let targets = config.providers.filter { providerID == nil || $0.id == providerID }
-        guard !targets.isEmpty else { throw DelegateError(description: "Nie ma dostawcy „\(providerID ?? "")”.") }
+        guard !targets.isEmpty else { throw DelegateError(description: "No provider named \"\(providerID ?? "")\".") }
 
         var out = ""
         for p in targets {
@@ -418,7 +418,7 @@ public struct DelegateService: Sendable {
                 continue
             }
             if p.needsKey && !secrets.hasSecret(for: p.apiKeyEnv) {
-                out += "## \(p.id)\nbrak klucza (\(p.apiKeyEnv))\n\n"
+                out += "## \(p.id)\nmissing key (\(p.apiKeyEnv))\n\n"
                 continue
             }
             do {
@@ -426,13 +426,13 @@ public struct DelegateService: Sendable {
                 let lines = infos.map { i -> String in
                     var line = "- \(i.id)"
                     let tags = i.suggestedTags
-                    if !tags.isEmpty { line += " — sugerowane tagi: \(tags.joined(separator: ", "))" }
+                    if !tags.isEmpty { line += " — suggested tags: \(tags.joined(separator: ", "))" }
                     if !i.summary.isEmpty { line += " (\(i.summary))" }
                     return line
                 }
                 out += "## \(p.id) (\(infos.count))\n" + lines.joined(separator: "\n") + "\n\n"
             } catch {
-                out += "## \(p.id)\nbłąd: \(error)\n\n"
+                out += "## \(p.id)\nerror: \(error)\n\n"
             }
         }
         return out
@@ -442,10 +442,10 @@ public struct DelegateService: Sendable {
 
     /// Upsert modeli (tagi, koszt) w configu; klucze API i reszta pliku nietknięte.
     public func updateModels(provider providerID: String, updates: [ModelUpdate]) throws -> String {
-        guard let saveConfig else { throw DelegateError(description: "Zapis configu niedostępny w tym trybie.") }
+        guard let saveConfig else { throw DelegateError(description: "Saving the config is unavailable in this mode.") }
         var config = try loadConfig()
         guard let pi = config.providers.firstIndex(where: { $0.id == providerID }) else {
-            throw DelegateError(description: "Nie ma dostawcy „\(providerID)”. Użyj list_models.")
+            throw DelegateError(description: "No provider named \"\(providerID)\". Use list_models.")
         }
         var changed = 0, added = 0
         for u in updates {
@@ -462,7 +462,7 @@ public struct DelegateService: Sendable {
             }
         }
         try saveConfig(config)
-        return "Zapisano delegate.toml: zaktualizowano \(changed), dodano \(added) (dostawca \(providerID))."
+        return "Saved delegate.toml: updated \(changed), added \(added) (provider \(providerID))."
     }
 
     // MARK: usage_summary
@@ -470,7 +470,7 @@ public struct DelegateService: Sendable {
     public func usageSummary(days: Int = 7, now: Date = Date()) -> String {
         let since = Calendar.current.date(byAdding: .day, value: -max(days, 1), to: now)
         let entries = usage.entries(since: since)
-        guard !entries.isEmpty else { return "Brak wywołań w ostatnich \(days) dniach." }
+        guard !entries.isEmpty else { return "No calls in the last \(days) days." }
 
         struct Agg { var calls = 0, failed = 0, input = 0, output = 0, cost: Double = 0.0 }
         var byModel: [String: Agg] = [:]
@@ -483,9 +483,9 @@ public struct DelegateService: Sendable {
             a.cost += e.costUSD ?? 0.0
             byModel["\(e.provider)/\(e.model)"] = a
         }
-        var out = "# Użycie z ostatnich \(days) dni\n\n"
+        var out = "# Usage for the last \(days) days\n\n"
         for (ref, a) in byModel.sorted(by: { $0.value.calls > $1.value.calls }) {
-            var line = "- `\(ref)`: \(a.calls) wywołań (błędy: \(a.failed)), tokeny: \(a.input) in / \(a.output) out"
+            var line = "- `\(ref)`: \(a.calls) calls (errors: \(a.failed)), tokens: \(a.input) in / \(a.output) out"
             if a.cost > 0 {
                 line += String(format: " · $%.4f", a.cost)
             }
@@ -497,9 +497,9 @@ public struct DelegateService: Sendable {
         let saved = CostCalculator.savingsVsSonnet(entries)
         let unpriced = entries.filter { $0.ok && $0.costUSD == nil }.count
 
-        out += "\nRazem: \(entries.count) wywołań, \(totalInput) in / \(totalOutput) out"
-        out += String(format: "\nKoszt całkowity: $%.4f · Zaoszczędzono vs Sonnet: $%.4f", totalCost, saved)
-        if unpriced > 0 { out += "\n(\(unpriced) wywołań bez znanej ceny modelu, pominięte w kosztach)" }
+        out += "\nTotal: \(entries.count) calls, \(totalInput) in / \(totalOutput) out"
+        out += String(format: "\nTotal cost: $%.4f · Saved vs Sonnet: $%.4f", totalCost, saved)
+        if unpriced > 0 { out += "\n(\(unpriced) calls without a known model price, skipped in costs)" }
         return out
     }
 }

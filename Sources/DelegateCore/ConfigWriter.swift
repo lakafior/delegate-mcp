@@ -5,8 +5,8 @@ import Foundation
 /// Komentarzy z ręcznej edycji nie da się zachować (parser ich nie zwraca); zostaje stały nagłówek.
 enum ConfigWriter {
     static let header = """
-    # Konfiguracja Delegate. Kolejność [[provider]] = priorytet fallbacku.
-    # Plik zapisuje aplikacja: komentarze dopisane ręcznie znikną przy następnym zapisie z GUI.
+    # Delegate configuration. Order of [[provider]] = fallback priority.
+    # Written by the app: comments added by hand are removed on the next save from the GUI.
 
     """
 

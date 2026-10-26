@@ -87,15 +87,15 @@ public struct DiagnosticReport: Sendable, Codable {
 
     public func terminalOutput() -> String {
         var lines: [String] = []
-        lines.append("=== Diagnostyka delegate-mcp ===")
+        lines.append("=== delegate-mcp diagnostics ===")
         lines.append("")
-        lines.append("Elementy systemu:")
+        lines.append("System items:")
         for c in checks {
             let icon = c.severity == .ok ? "✅" : (c.severity == .warning ? "⚠️" : "❌")
             lines.append("  \(icon) \(c.name): \(c.message)")
         }
         lines.append("")
-        lines.append("Dostawcy i modele:")
+        lines.append("Providers and models:")
         for p in providers {
             let icon = p.severity == .ok ? "✅" : (p.severity == .warning ? "⚠️" : "❌")
             var pLine = "  \(icon) \(p.providerID) (\(p.kind)) — \(p.status)"
@@ -111,7 +111,7 @@ public struct DiagnosticReport: Sendable, Codable {
         let okCount = checks.filter { $0.severity == .ok }.count + providers.filter { $0.severity == .ok }.count
         let warnCount = checks.filter { $0.severity == .warning }.count + providers.filter { $0.severity == .warning }.count
         let errCount = checks.filter { $0.severity == .error }.count + providers.filter { $0.severity == .error }.count
-        lines.append("Podsumowanie: \(okCount) OK, \(warnCount) ostrzeżeń, \(errCount) błędów.")
+        lines.append("Summary: \(okCount) OK, \(warnCount) warnings, \(errCount) errors.")
         return lines.joined(separator: "\n")
     }
 }
@@ -139,14 +139,14 @@ public struct DelegateDoctor: Sendable {
             config = parsed
             let modelsCount = parsed.providers.reduce(0) { $0 + $1.models.count }
             checks.append(DiagnosticCheck(
-                name: "Konfiguracja (delegate.toml)", severity: .ok,
-                message: "Plik poprawny (\(parsed.providers.count) dostawców, \(modelsCount) modeli)",
+                name: "Configuration (delegate.toml)", severity: .ok,
+                message: "File valid (\(parsed.providers.count) providers, \(modelsCount) models)",
                 detail: home.configURL.path))
         } catch {
             config = nil
             checks.append(DiagnosticCheck(
-                name: "Konfiguracja (delegate.toml)", severity: .error,
-                message: "Błąd odczytu lub składni: \(error.localizedDescription)",
+                name: "Configuration (delegate.toml)", severity: .error,
+                message: "Read or syntax error: \(error.localizedDescription)",
                 detail: home.configURL.path))
         }
 
@@ -164,14 +164,14 @@ public struct DelegateDoctor: Sendable {
                 let h = try await probe.handshake()
                 let ok = h.tools.contains("delegate") && h.hasInstructions
                 checks.append(DiagnosticCheck(
-                    name: "Serwer MCP", severity: ok ? .ok : .warning,
+                    name: "MCP server", severity: ok ? .ok : .warning,
                     message: ok
-                        ? "Odpowiada w \(h.ms) ms (wersja \(h.serverVersion ?? "?"), \(h.tools.count) narzędzi, instrukcje dla Claude'a)"
-                        : "Odpowiada, ale bez instrukcji dla Claude'a: to starsza wersja. Przebuduj i zainstaluj aplikację.",
+                        ? "Responds in \(h.ms) ms (version \(h.serverVersion ?? "?"), \(h.tools.count) tools, instructions for Claude)"
+                        : "Responds, but without instructions for Claude: this is an older version. Rebuild and reinstall the app.",
                     detail: target.path))
             } catch {
                 checks.append(DiagnosticCheck(
-                    name: "Serwer MCP", severity: .error, message: "Nie odpowiada: \(error)", detail: target.path))
+                    name: "MCP server", severity: .error, message: "Not responding: \(error)", detail: target.path))
             }
             keyAccess = try? await probe.keyAccess()
         }
@@ -186,17 +186,17 @@ public struct DelegateDoctor: Sendable {
         let claudeMD = (try? String(contentsOf: ClaudeIntegration.globalInstructionsURL, encoding: .utf8)) ?? ""
         if !ClaudeIntegration.hasInstructions(claudeMD) {
             checks.append(DiagnosticCheck(
-                name: "Przypomnienie w ~/.claude/CLAUDE.md", severity: .ok,
-                message: "Nie dodano (opcjonalne: serwer sam podaje instrukcje)",
+                name: "Reminder in ~/.claude/CLAUDE.md", severity: .ok,
+                message: "Not added (optional: the server provides the instructions itself)",
                 detail: ClaudeIntegration.globalInstructionsURL.path, fix: .updateInstructions, group: .integration))
         } else if !ClaudeIntegration.instructionsUpToDate(claudeMD) {
             checks.append(DiagnosticCheck(
-                name: "Przypomnienie w ~/.claude/CLAUDE.md", severity: .warning,
-                message: "Starsza wersja bloku (np. z subagentem grunt)",
+                name: "Reminder in ~/.claude/CLAUDE.md", severity: .warning,
+                message: "Older version of the block (e.g. with the grunt subagent)",
                 detail: ClaudeIntegration.globalInstructionsURL.path, fix: .updateInstructions, group: .integration))
         } else {
             checks.append(DiagnosticCheck(
-                name: "Przypomnienie w ~/.claude/CLAUDE.md", severity: .ok, message: "Aktualne",
+                name: "Reminder in ~/.claude/CLAUDE.md", severity: .ok, message: "Up to date",
                 detail: ClaudeIntegration.globalInstructionsURL.path, group: .integration))
         }
 
@@ -204,11 +204,11 @@ public struct DelegateDoctor: Sendable {
         let usesOnDevice = config?.providers.contains { $0.kind == .foundation && $0.enabled } ?? false
         switch service.onDevice.availability {
         case .available:
-            checks.append(DiagnosticCheck(name: "Model na urządzeniu (Apple)", severity: .ok, message: "Dostępny"))
+            checks.append(DiagnosticCheck(name: "On-device model (Apple)", severity: .ok, message: "Available"))
         case .unavailable(let why):
             checks.append(DiagnosticCheck(
-                name: "Model na urządzeniu (Apple)", severity: usesOnDevice ? .warning : .ok,
-                message: usesOnDevice ? "Niedostępny: \(why)" : "Niedostępny (\(why)), nieużywany"))
+                name: "On-device model (Apple)", severity: usesOnDevice ? .warning : .ok,
+                message: usesOnDevice ? "Unavailable: \(why)" : "Unavailable (\(why)), not used"))
         }
 
         // Dostawcy
@@ -216,14 +216,14 @@ public struct DelegateDoctor: Sendable {
         for p in config?.providers ?? [] {
             let base = ProviderDiagnostic(providerID: p.id, kind: p.kind.rawValue, status: "", modelsCount: p.models.count, severity: .ok)
             if !p.enabled {
-                providers.append(with(base) { $0.status = "wyłączony" })
+                providers.append(with(base) { $0.status = "disabled" })
                 continue
             }
             if case .missingKey(let envName) = service.status(of: p) {
                 providers.append(with(base) {
-                    $0.status = "brak klucza (\(envName))"
-                    $0.keySource = "brak"
-                    $0.error = "Brak klucza w Keychain lub .env"
+                    $0.status = "missing key (\(envName))"
+                    $0.keySource = "none"
+                    $0.error = "No key in Keychain or .env"
                     $0.severity = .error
                 })
                 continue
@@ -237,14 +237,14 @@ public struct DelegateDoctor: Sendable {
             switch result {
             case .success(let info):
                 providers.append(with(base) {
-                    $0.status = serverAccess == .needsApproval ? "działa, ale serwer zapyta o hasło do klucza" : "gotowy (\(info))"
-                    $0.keySource = p.needsKey ? "znaleziony" : "nie wymagany"
+                    $0.status = serverAccess == .needsApproval ? "works, but the server will ask for the key password" : "ready (\(info))"
+                    $0.keySource = p.needsKey ? "found" : "not required"
                     $0.responseTimeMs = ms
                     $0.severity = serverAccess == .needsApproval ? .warning : .ok
                 })
             case .failure(let err):
                 providers.append(with(base) {
-                    $0.status = "błąd połączenia"
+                    $0.status = "connection error"
                     $0.responseTimeMs = ms
                     $0.error = err.description
                     $0.severity = .error
@@ -254,15 +254,15 @@ public struct DelegateDoctor: Sendable {
         if helper != nil {
             if !needsApproval.isEmpty {
                 checks.append(DiagnosticCheck(
-                    name: "Dostęp serwera do kluczy", severity: .warning,
-                    message: "Serwer zapyta o hasło do Keychain dla: \(needsApproval.joined(separator: ", "))",
+                    name: "Server access to keys", severity: .warning,
+                    message: "Server will ask for the Keychain password for: \(needsApproval.joined(separator: ", "))",
                     fix: .authorizeKeys))
             } else if keyAccess != nil {
-                checks.append(DiagnosticCheck(name: "Dostęp serwera do kluczy", severity: .ok, message: "Bez pytania o hasło"))
+                checks.append(DiagnosticCheck(name: "Server access to keys", severity: .ok, message: "No password prompt"))
             } else if config?.providers.contains(where: { $0.enabled && $0.needsKey }) == true {
                 checks.append(DiagnosticCheck(
-                    name: "Dostęp serwera do kluczy", severity: .warning,
-                    message: "Nie sprawdzono: podłączony serwer jest starszy niż aplikacja. Przebuduj i zainstaluj aplikację."))
+                    name: "Server access to keys", severity: .warning,
+                    message: "Not checked: the connected server is older than the app. Rebuild and reinstall the app."))
             }
         }
 
@@ -271,11 +271,11 @@ public struct DelegateDoctor: Sendable {
         let recent = service.usage.entries(since: week)
         let ok = recent.filter(\.ok).count
         checks.append(DiagnosticCheck(
-            name: "Delegowanie w ostatnich 7 dniach",
+            name: "Delegation in the last 7 days",
             severity: recent.isEmpty && anyRegistered ? .warning : .ok,
             message: recent.isEmpty
-                ? "Brak wywołań. Zrestartuj Claude po zmianach; instrukcje serwera wczytują się przy starcie sesji."
-                : "\(recent.count) wywołań (udanych: \(ok))"))
+                ? "No calls. Restart Claude after changes; the server instructions load at session start."
+                : "\(recent.count) calls (successful: \(ok))"))
 
         return DiagnosticReport(timestamp: Date(), checks: checks, providers: providers)
     }
@@ -291,16 +291,16 @@ public struct DelegateDoctor: Sendable {
         guard let command else {
             return DiagnosticCheck(
                 name: name, severity: anyRegistered ? .ok : .error,
-                message: anyRegistered ? "Nie podłączono (opcjonalne)" : "Nie podłączono: Claude nie widzi serwera",
+                message: anyRegistered ? "Not connected (optional)" : "Not connected: Claude doesn't see the server",
                 detail: detail, fix: fix, group: .integration)
         }
         if !FileManager.default.isExecutableFile(atPath: command) {
-            return DiagnosticCheck(name: name, severity: .error, message: "Wskazuje nieistniejący plik: \(command)", detail: detail, fix: fix, group: .integration)
+            return DiagnosticCheck(name: name, severity: .error, message: "Points to a nonexistent file: \(command)", detail: detail, fix: fix, group: .integration)
         }
         if let helper, command != helper.path {
-            return DiagnosticCheck(name: name, severity: .warning, message: "Wskazuje inną binarkę: \(command)", detail: detail, fix: fix, group: .integration)
+            return DiagnosticCheck(name: name, severity: .warning, message: "Points to a different binary: \(command)", detail: detail, fix: fix, group: .integration)
         }
-        return DiagnosticCheck(name: name, severity: .ok, message: "Podłączono (\(command))", detail: detail, group: .integration)
+        return DiagnosticCheck(name: name, severity: .ok, message: "Connected (\(command))", detail: detail, group: .integration)
     }
 
     private func with(_ value: ProviderDiagnostic, _ change: (inout ProviderDiagnostic) -> Void) -> ProviderDiagnostic {

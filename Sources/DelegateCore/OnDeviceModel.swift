@@ -24,10 +24,10 @@ public struct FoundationOnDeviceModel: OnDeviceModel {
             return .available
         case .unavailable(let reason):
             switch reason {
-            case .deviceNotEligible: return .unavailable("urządzenie nie obsługuje Apple Intelligence")
-            case .appleIntelligenceNotEnabled: return .unavailable("Apple Intelligence jest wyłączone")
-            case .modelNotReady: return .unavailable("model jeszcze się pobiera")
-            @unknown default: return .unavailable("niedostępny")
+            case .deviceNotEligible: return .unavailable("device doesn't support Apple Intelligence")
+            case .appleIntelligenceNotEnabled: return .unavailable("Apple Intelligence is turned off")
+            case .modelNotReady: return .unavailable("model is still downloading")
+            @unknown default: return .unavailable("unavailable")
             }
         }
     }
@@ -35,7 +35,7 @@ public struct FoundationOnDeviceModel: OnDeviceModel {
     public func respond(_ request: ChatRequest) async throws -> ChatReply {
         guard availability.isAvailable else {
             if case .unavailable(let why) = availability { throw ProviderError.badResponse(why) }
-            throw ProviderError.badResponse("model na urządzeniu niedostępny")
+            throw ProviderError.badResponse("on-device model unavailable")
         }
         let session: LanguageModelSession
         if let system = request.system, !system.isEmpty {

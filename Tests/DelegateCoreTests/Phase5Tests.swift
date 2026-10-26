@@ -182,7 +182,7 @@ import Testing
         let infos = try await svc.modelInfos(for: p)
         let small = try #require(infos.first { $0.id == "mistral-small-latest" })
         #expect(small.priceSource == "LiteLLM" && abs((small.priceOut ?? 0) - 0.6) < 1e-9)
-        #expect(small.summary.contains("wg LiteLLM"))
+        #expect(small.summary.contains("via LiteLLM"))
         #expect(infos.first { $0.id == "nowy" }?.priceIn == nil)
     }
 }
@@ -342,7 +342,7 @@ extension PriceCatalogTests {
         let error = await #expect(throws: DelegateError.self) {
             try await svc.delegate(.init(prompt: "x", sensitivity: .private))
         }
-        #expect(error?.description.contains("Pominięte") == true)
+        #expect(error?.description.contains("Skipped") == true)
     }
 
     @Test func spentBudgetSkipsPaidModels() throws {
@@ -356,7 +356,7 @@ extension PriceCatalogTests {
         #expect(plan.spentToday == 0.6)
         // deepseek („cheap”), gemini-pro („paid”) i openrouter („varies”) odpadają; darmowe zostają.
         #expect(plan.candidates.allSatisfy { $0.model.cost == "free" })
-        #expect(plan.excluded.contains { $0.ref == "deepseek/deepseek-chat" && $0.reason.contains("budżet") })
+        #expect(plan.excluded.contains { $0.ref == "deepseek/deepseek-chat" && $0.reason.contains("budget") })
         cfg.dailyBudgetUSD = 5
         #expect(svc.routingPlan(for: .init(prompt: "x"), config: cfg).candidates.contains { $0.provider.id == "deepseek" })
     }
@@ -426,7 +426,7 @@ extension PriceCatalogTests {
         let t = MockTransport(["api.mistral.ai": .init(status: 200, body: openAIBody)])
         let (svc, _) = try makeService(t, keys: ["MISTRAL_API_KEY": "m"])
         let out = try await svc.delegate(.init(prompt: "Streść", model: "mistral/mistral-small-latest", files: [f.path]))
-        #expect(out.contains("pliki: 1"))
+        #expect(out.contains("files: 1"))
         let body = String(decoding: try #require(t.calls.first?.httpBody), as: UTF8.self)
         #expect(body.contains("# Notatki"))
     }

@@ -31,11 +31,11 @@ struct MenuBarView: View {
         return VStack(alignment: .leading, spacing: 4) {
             Label("Delegate", systemImage: "arrow.triangle.branch").font(.headline)
             HStack(spacing: 14) {
-                Stat(value: "\(stats.callsToday)", label: "zadań dziś")
-                Stat(value: stats.tokensToday.formatted(.number.notation(.compactName)), label: "tokenów dziś")
-                Stat(value: "\(stats.callsWeek)", label: "w 7 dni")
+                Stat(value: "\(stats.callsToday)", label: "tasks today")
+                Stat(value: stats.tokensToday.formatted(.number.notation(.compactName)), label: "tokens today")
+                Stat(value: "\(stats.callsWeek)", label: "last 7 days")
                 if stats.costToday > 0 {
-                    Stat(value: String(format: "$%.2f", stats.costToday), label: "koszt dziś")
+                    Stat(value: String(format: "$%.2f", stats.costToday), label: "cost today")
                 }
             }
         }
@@ -47,13 +47,13 @@ struct MenuBarView: View {
     private var recent: some View {
         let entries = model.usageStats.recent
         if entries.isEmpty {
-            Text("Claude nie oddelegował jeszcze nic w tym tygodniu. Po zmianach zrestartuj Claude'a, żeby wczytał instrukcje serwera.")
+            Text("Claude hasn't delegated anything this week yet. After changes, restart Claude so it loads the server instructions.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         } else {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Ostatnie delegacje").font(.caption).foregroundStyle(.secondary)
+                Text("Recent delegations").font(.caption).foregroundStyle(.secondary)
                 ForEach(Array(entries.enumerated()), id: \.offset) { _, e in
                     RecentRow(entry: e)
                 }
@@ -72,10 +72,10 @@ struct MenuBarView: View {
         }
         return VStack(alignment: .leading, spacing: 4) {
             if enabled.isEmpty {
-                Label("Brak włączonych dostawców", systemImage: "exclamationmark.triangle.fill")
+                Label("No enabled providers", systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
             } else if issues.isEmpty {
-                Label("Gotowi dostawcy: \(enabled.count)", systemImage: "checkmark.circle.fill")
+                Label("Ready providers: \(enabled.count)", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
             } else {
                 ForEach(issues) { p in
@@ -87,7 +87,7 @@ struct MenuBarView: View {
             if model.isTestingAny {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small)
-                    Text("Testuję połączenia…").foregroundStyle(.secondary)
+                    Text("Testing connections…").foregroundStyle(.secondary)
                 }
             }
         }
@@ -101,14 +101,14 @@ struct MenuBarView: View {
 
     private var actions: some View {
         HStack {
-            Button("Testuj", systemImage: "bolt.badge.checkmark") { model.testAll() }
+            Button("Test", systemImage: "bolt.badge.checkmark") { model.testAll() }
                 .disabled(model.isTestingAny || model.config.providers.isEmpty)
             Spacer()
-            Button("Ustawienia…", systemImage: "gearshape") {
+            Button("Settings…", systemImage: "gearshape") {
                 openWindow(id: SettingsWindow.id)
                 NSApp.activate()
             }
-            Button("Zakończ") { NSApp.terminate(nil) }
+            Button("Quit") { NSApp.terminate(nil) }
         }
         .buttonStyle(.glass)
     }
@@ -149,7 +149,7 @@ private struct RecentRow: View {
         var parts: [String] = []
         if let task = entry.task { parts.append(task) }
         let tokens = (entry.inputTokens ?? 0) + (entry.outputTokens ?? 0)
-        if tokens > 0 { parts.append("\(tokens) tok.") }
+        if tokens > 0 { parts.append("\(tokens) tokens") }
         parts.append(String(format: "%.1f s", Double(entry.ms) / 1000))
         if !entry.ok, let error = entry.error { parts.append(error) }
         return parts.joined(separator: " · ")

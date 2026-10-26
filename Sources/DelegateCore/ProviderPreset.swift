@@ -32,7 +32,7 @@ public struct ProviderPreset: Sendable, Identifiable {
         ProviderPreset(
             id: "mistral", title: "Mistral", kind: .openai,
             baseURL: "https://api.mistral.ai/v1", apiKeyEnv: "MISTRAL_API_KEY",
-            note: "Za darmo tylko na planie Experiment w Mistral Studio; darmowy plan może pozwalać na użycie danych.",
+            note: "Free only on the Experiment plan in Mistral Studio; the free plan may allow use of your data.",
             keyURL: "https://console.mistral.ai/api-keys",
             models: [
                 ModelConfig(id: "mistral-small-latest", tags: ["general", "translate", "summarize", "fast"], cost: "free"),
@@ -41,7 +41,7 @@ public struct ProviderPreset: Sendable, Identifiable {
         ProviderPreset(
             id: "gemini", title: "Google Gemini", kind: .gemini,
             baseURL: "https://generativelanguage.googleapis.com/v1beta", apiKeyEnv: "GEMINI_API_KEY",
-            note: "Free tier zwykle pozwala dostawcy używać przesłanych danych.",
+            note: "The free tier usually lets the provider use submitted data.",
             keyURL: "https://aistudio.google.com/apikey",
             models: [
                 ModelConfig(id: "gemini-flash-latest", tags: ["general", "translate", "summarize", "long-context", "fast"], cost: "free"),
@@ -50,7 +50,7 @@ public struct ProviderPreset: Sendable, Identifiable {
         ProviderPreset(
             id: "deepseek", title: "DeepSeek", kind: .openai,
             baseURL: "https://api.deepseek.com/v1", apiKeyEnv: "DEEPSEEK_API_KEY",
-            note: "Dane przetwarzane w Chinach. Nie wysyłaj niczego z pracy.",
+            note: "Data is processed in China. Don't send anything work-related.",
             guidance: "Never send anything private or work-related: data is processed in China.",
             keyURL: "https://platform.deepseek.com/api_keys",
             models: [
@@ -65,26 +65,26 @@ public struct ProviderPreset: Sendable, Identifiable {
         ProviderPreset(
             id: "anthropic", title: "Anthropic API", kind: .anthropic,
             baseURL: "https://api.anthropic.com/v1", apiKeyEnv: "ANTHROPIC_API_KEY",
-            note: "Płatne API, osobno od subskrypcji Claude.",
+            note: "Paid API, separate from the Claude subscription.",
             keyURL: "https://console.anthropic.com/settings/keys",
             models: [ModelConfig(id: "claude-haiku-5-5", tags: ["general", "code", "fast"], cost: "paid")]),
         ProviderPreset(
-            id: "ollama", title: "Ollama (lokalnie)", kind: .openai,
+            id: "ollama", title: "Ollama (local)", kind: .openai,
             baseURL: "http://localhost:11434/v1",
-            note: "Model lokalny: bez klucza, dane nie opuszczają Maca.",
+            note: "Local model: no key needed, data never leaves the Mac.",
             guidance: "Runs locally on this Mac: fine for private content."),
         ProviderPreset(
-            id: "lmstudio", title: "LM Studio (lokalnie)", kind: .openai,
+            id: "lmstudio", title: "LM Studio (local)", kind: .openai,
             baseURL: "http://localhost:1234/v1",
-            note: "Model lokalny: bez klucza, dane nie opuszczają Maca.",
+            note: "Local model: no key needed, data never leaves the Mac.",
             guidance: "Runs locally on this Mac: fine for private content."),
         ProviderPreset(
-            id: "apple", title: "Apple na urządzeniu", kind: .foundation,
-            note: "Model na urządzeniu (Apple Intelligence): za darmo, prywatnie, offline. Małe okno kontekstu, tylko krótkie zadania.",
+            id: "apple", title: "Apple on-device", kind: .foundation,
+            note: "On-device model (Apple Intelligence): free, private, offline. Small context window, short tasks only.",
             guidance: "On-device and private, but a small context window: only short tasks.",
             models: [ModelConfig(id: "on-device", tags: ["private", "short", "offline"], cost: "free")]),
         ProviderPreset(
-            id: "custom", title: "Inny (API zgodne z OpenAI)", kind: .openai,
+            id: "custom", title: "Other (OpenAI-compatible API)", kind: .openai,
             baseURL: "https://api.example.com/v1", apiKeyEnv: "CUSTOM_API_KEY"),
     ]
 }

@@ -58,7 +58,7 @@ public struct ModelConfig: Codable, Sendable, Equatable, Identifiable {
     /// Czytelny koszt: kwoty, jeśli są, w przeciwnym razie kategoria.
     public var costLabel: String? {
         if priceIn != nil || priceOut != nil {
-            return "$\(Self.money(priceIn)) in / $\(Self.money(priceOut)) out za 1M tok."
+            return "$\(Self.money(priceIn)) in / $\(Self.money(priceOut)) out per 1M tok."
         }
         return cost
     }
@@ -289,9 +289,9 @@ public struct DelegateHome: Sendable {
 enum DefaultConfig {
     /// Na start tylko model na urządzeniu; resztę użytkownik dodaje z presetów (`ProviderPreset`).
     static let toml = #"""
-    # Kolejność [[provider]] = priorytet fallbacku. Dostawców dodasz w aplikacji Delegate
-    # (gotowe presety) albo ręcznie tutaj. Ogólne zasady delegowania serwer podaje sam;
-    # `routing_guidance` służy do Twoich reguł globalnych, a `guidance` przy dostawcy do reguł per dostawca.
+    # Order of [[provider]] = fallback priority. Add providers in the Delegate app
+    # (ready-made presets) or by hand here. The server provides the general delegation rules itself;
+    # `routing_guidance` holds your global rules, and `guidance` on a provider holds its per-provider rules.
 
     routing_guidance = ""
 
@@ -300,7 +300,7 @@ enum DefaultConfig {
     [[provider]]
     id = "apple"
     type = "foundation"
-    note = "Model na urządzeniu (Apple Intelligence): za darmo, prywatnie, offline. Małe okno kontekstu, tylko krótkie zadania."
+    note = "On-device model (Apple Intelligence): free, private, offline. Small context window, short tasks only."
     guidance = "On-device and private, but a small context window: only short tasks."
 
     [[provider.model]]

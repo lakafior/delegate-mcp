@@ -8,9 +8,9 @@ enum KeySource: Equatable {
 
     var label: String {
         switch self {
-        case .none: "brak"
-        case .keychain: "w Keychain"
-        case .environment: "ze zmiennej / .env"
+        case .none: "none"
+        case .keychain: "in Keychain"
+        case .environment: "from environment / .env"
         }
     }
 }
@@ -23,9 +23,9 @@ enum IntegrationState: Equatable {
 
     var label: String {
         switch self {
-        case .notInstalled: "nie zainstalowano"
-        case .installed: "zainstalowano"
-        case .stale: "wskazuje inną ścieżkę"
+        case .notInstalled: "not installed"
+        case .installed: "installed"
+        case .stale: "points to another path"
         }
     }
 }
@@ -38,7 +38,7 @@ final class AppModel {
     var saveError: String?
 
     private(set) var keySources: [String: KeySource] = [:]
-    private(set) var onDevice: OnDeviceAvailability = .unavailable("sprawdzam")
+    private(set) var onDevice: OnDeviceAvailability = .unavailable("checking")
     var testResults: [String: Result<String, DelegateError>] = [:]
     var testing: Set<String> = []
 
@@ -78,7 +78,7 @@ final class AppModel {
             configModified = modificationDate()
             loadError = nil
         } catch {
-            loadError = "Nie można wczytać \(home.configURL.lastPathComponent): \(error)"
+            loadError = "Can't load \(home.configURL.lastPathComponent): \(error)"
         }
     }
 
@@ -120,7 +120,7 @@ final class AppModel {
             configModified = modificationDate()
             saveError = nil
         } catch {
-            saveError = "Zapis nie powiódł się: \(error)"
+            saveError = "Save failed: \(error)"
         }
         refresh()
     }
@@ -188,7 +188,7 @@ final class AppModel {
                 saveError = "Keychain: \(error)"
             }
         }
-        integrationMessage = ok ? "Serwer ma dostęp do kluczy (\(count)) bez pytania o hasło." : integrationMessage
+        integrationMessage = ok ? "Server can access keys (\(count)) without a password prompt." : integrationMessage
         refresh()
         return ok
     }
@@ -375,7 +375,7 @@ final class AppModel {
             do {
                 if newValue { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
             } catch {
-                saveError = "Start przy logowaniu: \(error.localizedDescription)"
+                saveError = "Launch at login: \(error.localizedDescription)"
             }
         }
     }
@@ -414,7 +414,7 @@ final class AppModel {
             let updated = try ClaudeIntegration.updatingDesktopConfig(existing, command: install ? helperURL.path : nil)
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try updated.write(to: url, options: .atomic)
-            integrationMessage = install ? "Dodano do Claude Desktop. Uruchom go ponownie." : "Usunięto z Claude Desktop. Uruchom go ponownie."
+            integrationMessage = install ? "Added to Claude Desktop. Restart it." : "Removed from Claude Desktop. Restart it."
         } catch {
             integrationMessage = "Claude Desktop: \(error)"
         }
@@ -427,11 +427,11 @@ final class AppModel {
         let command = install
             ? "claude mcp remove \(name) -s user >/dev/null 2>&1; claude mcp add \(name) -s user -- '\(path)'"
             : "claude mcp remove \(name) -s user"
-        integrationMessage = "Uruchamiam claude…"
+        integrationMessage = "Running claude…"
         let result = await Self.runShell(command)
         integrationMessage = result.status == 0
-            ? (install ? "Dodano do Claude Code." : "Usunięto z Claude Code.")
-            : "Claude Code: \(result.output.isEmpty ? "błąd \(result.status) (czy `claude` jest w PATH?)" : result.output)"
+            ? (install ? "Added to Claude Code." : "Removed from Claude Code.")
+            : "Claude Code: \(result.output.isEmpty ? "error \(result.status) (is `claude` in PATH?)" : result.output)"
         refreshIntegrations()
     }
 
@@ -470,7 +470,7 @@ final class AppModel {
             let updated = install ? ClaudeIntegration.addingInstructions(to: text) : ClaudeIntegration.removingInstructions(from: text)
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try updated.write(to: url, atomically: true, encoding: .utf8)
-            integrationMessage = install ? "Zapisano blok „Delegowanie i tańsze modele” w ~/.claude/CLAUDE.md." : "Usunięto blok z ~/.claude/CLAUDE.md."
+            integrationMessage = install ? "Saved the \"Delegating to cheaper models\" block in ~/.claude/CLAUDE.md." : "Removed the block from ~/.claude/CLAUDE.md."
         } catch {
             integrationMessage = "CLAUDE.md: \(error)"
         }

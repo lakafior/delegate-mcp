@@ -21,17 +21,17 @@ extension ModelConfig {
         if priceIn != nil || priceOut != nil {
             return "$\(ModelConfig.money(priceIn)) / $\(ModelConfig.money(priceOut))"
         }
-        return cost.map(CostCategory.title) ?? "ustaw"
+        return cost.map(CostCategory.title) ?? "set"
     }
 }
 
 extension CostCategory {
     static func title(_ category: String) -> String {
         switch category {
-        case "free": "darmowy"
-        case "cheap": "tani"
-        case "paid": "płatny"
-        case "varies": "zmienny"
+        case "free": "free"
+        case "cheap": "cheap"
+        case "paid": "paid"
+        case "varies": "varies"
         default: category
         }
     }
@@ -50,17 +50,17 @@ struct CostEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Picker("Rodzaj kosztu", selection: $mode) {
-                Text("Kategoria").tag(Mode.category)
-                Text("Kwota").tag(Mode.amount)
+            Picker("Cost type", selection: $mode) {
+                Text("Category").tag(Mode.category)
+                Text("Amount").tag(Mode.amount)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
 
             switch mode {
             case .category:
-                Picker("Kategoria", selection: $setting.category) {
-                    Text("— brak —").tag(String?.none)
+                Picker("Category", selection: $setting.category) {
+                    Text("— none —").tag(String?.none)
                     ForEach(CostCategory.all, id: \.self) { c in
                         Text(CostCategory.title(c)).tag(String?.some(c))
                     }
@@ -68,18 +68,18 @@ struct CostEditor: View {
             case .amount:
                 Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 8) {
                     GridRow {
-                        Text("Wejście")
+                        Text("Input")
                         TextField("0", value: $setting.priceIn, format: .number)
                             .textFieldStyle(.roundedBorder)
                             .multilineTextAlignment(.trailing)
-                        Text("USD / 1M tok.").foregroundStyle(.secondary).font(.caption)
+                        Text("USD / 1M tokens").foregroundStyle(.secondary).font(.caption)
                     }
                     GridRow {
-                        Text("Wyjście")
+                        Text("Output")
                         TextField("0", value: $setting.priceOut, format: .number)
                             .textFieldStyle(.roundedBorder)
                             .multilineTextAlignment(.trailing)
-                        Text("USD / 1M tok.").foregroundStyle(.secondary).font(.caption)
+                        Text("USD / 1M tokens").foregroundStyle(.secondary).font(.caption)
                     }
                 }
             }

@@ -88,9 +88,9 @@ struct UsageView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 HStack {
-                    Picker("Zakres", selection: $days) {
-                        Text("7 dni").tag(7)
-                        Text("30 dni").tag(30)
+                    Picker("Range", selection: $days) {
+                        Text("7 days").tag(7)
+                        Text("30 days").tag(30)
                     }
                     .pickerStyle(.segmented)
                     .frame(maxWidth: 220)
@@ -98,39 +98,39 @@ struct UsageView: View {
                     Spacer()
 
                     Menu {
-                        Button("Eksportuj CSV...") { exportCSV() }
-                        Button("Eksportuj JSON...") { exportJSON() }
+                        Button("Export CSV...") { exportCSV() }
+                        Button("Export JSON...") { exportJSON() }
                     } label: {
-                        Label("Eksportuj", systemImage: "square.and.arrow.up")
+                        Label("Export", systemImage: "square.and.arrow.up")
                     }
                     .disabled(entries.isEmpty)
                 }
 
                 Grid(horizontalSpacing: 12, verticalSpacing: 12) {
                     GridRow {
-                        StatTile(title: "Tokeny oddelegowane", value: totalTokens.formatted(),
-                                 caption: "Nie poszły z Twoich limitów Claude'a")
-                        StatTile(title: "Wywołania", value: "\(entries.count)",
-                                 caption: "Błędy: \(entries.filter { !$0.ok }.count)")
+                        StatTile(title: "Tokens delegated", value: totalTokens.formatted(),
+                                 caption: "Didn't count against your Claude limits")
+                        StatTile(title: "Calls", value: "\(entries.count)",
+                                 caption: "Errors: \(entries.filter { !$0.ok }.count)")
                     }
                     GridRow {
-                        StatTile(title: "Koszt", value: String(format: "$%.4f", totalCost),
-                                 caption: "Płatne modele u dostawców")
-                        StatTile(title: "Równowartość w API Sonneta", value: String(format: "~$%.2f", totalSavings),
-                                 caption: "Tyle kosztowałoby to przez API, nie z subskrypcji")
+                        StatTile(title: "Cost", value: String(format: "$%.4f", totalCost),
+                                 caption: "Paid models from providers")
+                        StatTile(title: "Equivalent Sonnet API cost", value: String(format: "~$%.2f", totalSavings),
+                                 caption: "What this would cost via the API, not the subscription")
                     }
                 }
                 if unpricedCount > 0 {
-                    Label("\(unpricedCount) wywołań modeli bez podanej ceny nie wlicza się do kosztu ani oszczędności. Ustaw kwoty w ustawieniach dostawcy.", systemImage: "info.circle")
+                    Label("\(unpricedCount) calls to models without a price aren't counted in cost or savings. Set amounts in the provider settings.", systemImage: "info.circle")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
 
                 if entries.isEmpty {
-                    ContentUnavailableView("Brak danych", systemImage: "chart.bar", description: Text("Użycie pojawi się po pierwszych delegowanych zadaniach."))
+                    ContentUnavailableView("No data", systemImage: "chart.bar", description: Text("Usage will appear after the first delegated tasks."))
                 } else {
                     Chart(bars) { bar in
-                        BarMark(x: .value("Dzień", bar.day, unit: .day), y: .value("Tokeny", bar.tokens))
+                        BarMark(x: .value("Day", bar.day, unit: .day), y: .value("Tokens", bar.tokens))
                             .foregroundStyle(by: .value("Model", bar.model))
                     }
                     // Stała oś na cały zakres: przy danych z jednego dnia Charts rozciągałby go na całą szerokość.
@@ -146,7 +146,7 @@ struct UsageView: View {
                             Text(row.ref).font(.body.monospaced())
                             Spacer()
                             let costStr = row.priced ? String(format: " · $%.4f", row.cost) : ""
-                            Text("\(row.calls) wywołań · błędy \(row.failed) · \(row.input) in / \(row.output) out\(costStr)")
+                            Text("\(row.calls) calls · errors \(row.failed) · \(row.input) in / \(row.output) out\(costStr)")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                         }
@@ -156,7 +156,7 @@ struct UsageView: View {
             }
             .padding(20)
         }
-        .navigationTitle("Użycie")
+        .navigationTitle("Usage")
         .onAppear { entries = model.usage(days: days) }
         .onChange(of: days) { entries = model.usage(days: days) }
     }
@@ -164,7 +164,7 @@ struct UsageView: View {
     @MainActor
     private func exportCSV() {
         let panel = NSSavePanel()
-        panel.title = "Eksportuj historię użycia (CSV)"
+        panel.title = "Export usage history (CSV)"
         panel.nameFieldStringValue = "delegate-usage.csv"
         panel.allowedContentTypes = [.commaSeparatedText]
         if panel.runModal() == .OK, let url = panel.url {
@@ -176,7 +176,7 @@ struct UsageView: View {
     @MainActor
     private func exportJSON() {
         let panel = NSSavePanel()
-        panel.title = "Eksportuj historię użycia (JSON)"
+        panel.title = "Export usage history (JSON)"
         panel.nameFieldStringValue = "delegate-usage.json"
         panel.allowedContentTypes = [.json]
         if panel.runModal() == .OK, let url = panel.url {

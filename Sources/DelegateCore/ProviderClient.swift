@@ -8,7 +8,7 @@ public struct URLSessionTransport: HTTPTransport {
     public init() {}
     public func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw ProviderError.badResponse("brak odpowiedzi HTTP") }
+        guard let http = response as? HTTPURLResponse else { throw ProviderError.badResponse("no HTTP response") }
         return (data, http)
     }
 }
@@ -22,9 +22,9 @@ public enum ProviderError: Error, CustomStringConvertible, Sendable {
     public var description: String {
         switch self {
         case .http(let status, let body): "HTTP \(status): \(body)"
-        case .network(let m): "sieć: \(m)"
-        case .badResponse(let m): "zła odpowiedź: \(m)"
-        case .missingKey(let name): "brak klucza \(name)"
+        case .network(let m): "network: \(m)"
+        case .badResponse(let m): "bad response: \(m)"
+        case .missingKey(let name): "missing key \(name)"
         }
     }
 }
@@ -60,7 +60,7 @@ struct ProviderClient {
         case .openai: try await chatOpenAI(provider, model, apiKey, request)
         case .gemini: try await chatGemini(provider, model, apiKey, request)
         case .anthropic: try await chatAnthropic(provider, model, apiKey, request)
-        case .foundation: throw ProviderError.badResponse("model na urządzeniu obsługuje DelegateService")
+        case .foundation: throw ProviderError.badResponse("the on-device model is handled by DelegateService")
         }
     }
 
@@ -165,7 +165,7 @@ struct ProviderClient {
 
         let message = (json["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any]
         guard let text = message?["content"] as? String, !text.isEmpty else {
-            throw ProviderError.badResponse("pusta odpowiedź modelu")
+            throw ProviderError.badResponse("empty model reply")
         }
         let usage = json["usage"] as? [String: Any]
         return ChatReply(text: text,
@@ -191,7 +191,7 @@ struct ProviderClient {
 
         let content = (json["candidates"] as? [[String: Any]])?.first?["content"] as? [String: Any]
         let text = (content?["parts"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined()
-        guard !text.isEmpty else { throw ProviderError.badResponse("pusta odpowiedź modelu") }
+        guard !text.isEmpty else { throw ProviderError.badResponse("empty model reply") }
         let usage = json["usageMetadata"] as? [String: Any]
         return ChatReply(text: text,
                          inputTokens: usage?["promptTokenCount"] as? Int,
@@ -220,7 +220,7 @@ struct ProviderClient {
 
         let content = (json["content"] as? [[String: Any]])?.first
         guard let text = content?["text"] as? String, !text.isEmpty else {
-            throw ProviderError.badResponse("pusta odpowiedź modelu")
+            throw ProviderError.badResponse("empty model reply")
         }
         let usage = json["usage"] as? [String: Any]
         return ChatReply(text: text,
@@ -235,7 +235,7 @@ struct ProviderClient {
     }
 
     private func makeRequest(url: String, method: String) throws -> URLRequest {
-        guard let u = URL(string: url) else { throw ProviderError.badResponse("zły URL: \(url)") }
+        guard let u = URL(string: url) else { throw ProviderError.badResponse("bad URL: \(url)") }
         var req = URLRequest(url: u, timeoutInterval: timeout)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -279,7 +279,7 @@ struct ProviderClient {
         let raw = String(decoding: data.prefix(300), as: UTF8.self)
             .replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespaces)
-        return raw.isEmpty ? "brak treści błędu" : raw
+        return raw.isEmpty ? "no error body" : raw
     }
 
     private func perform(_ req: URLRequest) async throws -> [String: Any] {
@@ -293,7 +293,7 @@ struct ProviderClient {
             throw ProviderError.http(status: http.statusCode, body: body)
         }
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw ProviderError.badResponse("odpowiedź nie jest obiektem JSON")
+            throw ProviderError.badResponse("response is not a JSON object")
         }
         return json
     }

@@ -3,7 +3,6 @@ import PackageDescription
 
 let package = Package(
     name: "delegate",
-    defaultLocalization: "en",
     platforms: [.macOS(.v26)],
     products: [
         .library(name: "DelegateCore", targets: ["DelegateCore"]),
@@ -28,8 +27,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "Delegate",
-            dependencies: ["DelegateCore"],
-            resources: [.process("Resources")]
+            dependencies: ["DelegateCore"]
         ),
         .testTarget(name: "DelegateCoreTests", dependencies: ["DelegateCore"]),
     ]

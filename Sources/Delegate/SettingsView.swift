@@ -33,11 +33,11 @@ struct SettingsView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $selection) {
-                Label("Przegląd", systemImage: "gauge.with.dots.needle.67percent").tag(SidebarItem.overview)
+                Label("Overview", systemImage: "gauge.with.dots.needle.67percent").tag(SidebarItem.overview)
                     .badge(model.hasProviderIssues ? Text(Image(systemName: "exclamationmark.triangle.fill")) : nil)
-                Section("Dostawcy (kolejność = priorytet)") {
+                Section("Providers (order = priority)") {
                     if model.config.providers.isEmpty {
-                        Text("Brak dostawców. Dodaj pierwszego przyciskiem +.")
+                        Text("No providers. Add one with the + button.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }
@@ -49,25 +49,25 @@ struct SettingsView: View {
                         }
                         .tag(SidebarItem.provider(p.id))
                         .contextMenu {
-                            Button("Zmień nazwę…", systemImage: "pencil") {
+                            Button("Rename…", systemImage: "pencil") {
                                 renameDraft = p.id
                                 renamingProvider = p.id
                             }
-                            Button("Usuń „\(p.id)”", role: .destructive) { pendingDelete = p.id }
+                            Button("Delete \"\(p.id)\"", role: .destructive) { pendingDelete = p.id }
                         }
                     }
                     .onMove { model.config.providers.move(fromOffsets: $0, toOffset: $1) }
                 }
-                Section("Aplikacja") {
+                Section("App") {
                     Label("Routing", systemImage: "arrow.triangle.branch").tag(SidebarItem.routing)
-                    Label("Użycie", systemImage: "chart.bar").tag(SidebarItem.usage)
-                    Label("Ustawienia", systemImage: "gearshape").tag(SidebarItem.settings)
+                    Label("Usage", systemImage: "chart.bar").tag(SidebarItem.usage)
+                    Label("Settings", systemImage: "gearshape").tag(SidebarItem.settings)
                 }
             }
             .navigationSplitViewColumnWidth(min: 210, ideal: 240)
             .toolbar {
                 ToolbarItem {
-                    Menu("Dodaj dostawcę", systemImage: "plus") {
+                    Menu("Add provider", systemImage: "plus") {
                         ForEach(ProviderPreset.all) { preset in
                             Button {
                                 selection = .provider(model.addProvider(from: preset))
@@ -82,11 +82,11 @@ struct SettingsView: View {
             detail
         }
         .confirmationDialog(
-            "Usunąć dostawcę „\(pendingDelete ?? "")”?",
+            "Delete provider \"\(pendingDelete ?? "")\"?",
             isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
             titleVisibility: .visible
         ) {
-            Button("Usuń", role: .destructive) {
+            Button("Delete", role: .destructive) {
                 if let id = pendingDelete {
                     selection = .overview
                     model.removeProvider(id: id)
@@ -94,15 +94,15 @@ struct SettingsView: View {
                 pendingDelete = nil
             }
         } message: {
-            Text("Klucz API tego dostawcy zostanie usunięty z Keychain.")
+            Text("This provider's API key will be removed from Keychain.")
         }
         .alert(
-            "Zmień nazwę dostawcy",
+            "Rename provider",
             isPresented: Binding(get: { renamingProvider != nil }, set: { if !$0 { renamingProvider = nil } })
         ) {
-            TextField("Nowy identyfikator", text: $renameDraft)
-            Button("Anuluj", role: .cancel) { renamingProvider = nil }
-            Button("Zmień") {
+            TextField("New identifier", text: $renameDraft)
+            Button("Cancel", role: .cancel) { renamingProvider = nil }
+            Button("Rename") {
                 if let oldId = renamingProvider {
                     let target = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
                     if model.renameProvider(from: oldId, to: target) {
@@ -114,7 +114,7 @@ struct SettingsView: View {
                 }
             }
         } message: {
-            Text("Wprowadź nowy unikalny identyfikator dostawcy.")
+            Text("Enter a new unique provider identifier.")
         }
         .onChange(of: model.config) { model.configChanged() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -134,7 +134,7 @@ struct SettingsView: View {
                 })
                 .id(id)
             } else {
-                ContentUnavailableView("Brak dostawcy", systemImage: "questionmark.circle")
+                ContentUnavailableView("No provider", systemImage: "questionmark.circle")
             }
 
         case .routing: RoutingView(model: model)
@@ -151,7 +151,7 @@ struct SettingsView: View {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                 Text(err).font(.callout).lineLimit(2)
                 Spacer()
-                Button("Zamknij") {
+                Button("Close") {
                     model.saveError = nil
                     model.loadError = nil
                 }
