@@ -23,7 +23,7 @@ urządzeniu (Apple Foundation Models, `type = "foundation"`): bez klucza, offlin
 | Narzędzie | Do czego |
 |---|---|
 | `list_models` | Lista dostawców i modeli wg priorytetu, z tagami, kosztami, statusem klucza i zasadami routingu |
-| `delegate` | Wysyła zadanie: `model` (`provider/model`), `task` (tag) albo automatycznie wg priorytetu; opcjonalnie `system`, `temperature`, `max_tokens`, `fallback=false`, `sensitivity` (`public`/`personal`/`private`) |
+| `delegate` | Wysyła zadanie: `model` (`provider/model`), `task` (tag) albo automatycznie wg priorytetu; opcjonalnie `system`, `temperature`, `max_tokens`, `fallback=false`, `sensitivity` (`public`/`personal`/`private`), `files` (ścieżki plików tekstowych, które serwer czyta sam) |
 | `list_remote_models` | Pyta API dostawcy o aktualne ID modeli, z sugerowanymi tagami, kontekstem i cenami (jeśli API je podaje) |
 | `update_models` | Zapisuje tagi i koszt modeli w `delegate.toml` (upsert, bez kluczy). Koszt: kategoria (`free`/`cheap`/`paid`/`varies`) albo `price_in`/`price_out` w USD za 1M tokenów |
 | `usage_summary` | Podsumowanie wywołań i tokenów z lokalnego logu |
@@ -113,9 +113,11 @@ dostawcy i zaktualizuj delegate.toml”*.
 
 Główny mechanizm to **instrukcje serwera MCP** (`DelegationGuide.serverInstructions`): serwer podaje je
 przy `initialize`, a Claude Code i Claude Desktop wstrzykują je do każdej sesji. Są generowane z configu
-przy starcie serwera: kiedy delegować, czego nie, oraz mapa tag → gotowe modele (włączone, z kluczem)
-i `routing_guidance`. Opis narzędzia `delegate` (lista tagów i modeli) budowany jest przy każdym
-`tools/list`, więc Claude nie musi wołać `list_models`. Teksty dla Claude'a są po angielsku.
+przy starcie serwera: kiedy delegować (krótkie wejście, długie wyjście; długie teksty z dysku przez `files`,
+bo przepisywanie ich do promptu kosztuje Claude'a tyle samo tokenów), katalog po jednej linii na dostawcę
+(region, koszt, do 5 modeli z tagami, wskazówka) i `routing_guidance`. Model wybiera Claude; kolejność
+dostawców to tylko domyślna trasa i fallback (najpierw modele o wspólnych tagach). Instrukcje i opisy narzędzi
+idą w każdym zapytaniu, więc są krótkie (test `instructionsStayCompact`). Teksty dla Claude'a są po angielsku.
 
 Aplikacja (Ogólne → Claude) może dodatkowo dopisać do `~/.claude/CLAUDE.md` krótki blok
 (`ClaudeIntegration.instructions`), który tylko wzmacnia nawyk; starszy blok podmienia przyciskiem „Zaktualizuj”.

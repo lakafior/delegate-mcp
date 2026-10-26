@@ -102,11 +102,13 @@ import Testing
         let config = try Config.parse(sampleConfigToml)
         let g = guide(config, ready: ["mistral", "gemini"])
         let text = g.serverInstructions
-        #expect(text.contains("- translate: mistral/mistral-small-latest (free), gemini/gemini-flash-latest (free)"))
-        #expect(text.contains("Deleguj"))
+        // Jedna linia na dostawcę; translate/summarize wynikają z general, wspólny koszt raz przy dostawcy.
+        #expect(text.contains("- mistral · eu · free: mistral-small-latest (general), codestral-latest (code)"))
+        #expect(text.contains("- gemini · us: gemini-flash-latest (free, general, long-context), gemini-pro-latest (paid, reasoning, code)"))
+        #expect(text.contains("User's rules: Deleguj"))
         #expect(!text.contains("deepseek"))
+        #expect(text.contains("`files`"))
         #expect(g.tags.first == "general")
-        #expect(g.modelParameterDescription.contains("gemini/gemini-pro-latest"))
     }
 
     @Test func providerGuidanceAppearsForReadyProvidersOnly() throws {
@@ -114,14 +116,14 @@ import Testing
         config.providers[0].guidance = "Great for translations."
         config.providers[2].guidance = "Never send work data."   // deepseek, niegotowy
         let text = guide(config, ready: ["mistral"]).serverInstructions
-        #expect(text.contains("- mistral: Great for translations."))
+        #expect(text.contains("codestral-latest (code). Note: Great for translations."))
         #expect(!text.contains("Never send work data."))
         #expect(try Config.parse(try config.serialized()).providers[0].guidance == "Great for translations.")
     }
 
     @Test func noReadyModelsTellsClaudeNotToDelegate() throws {
         let g = guide(try Config.parse(sampleConfigToml), ready: [])
-        #expect(g.serverInstructions.contains("Do not call `delegate`"))
+        #expect(g.serverInstructions.contains("Don't call `delegate`"))
         #expect(g.tags.isEmpty)
     }
 }
@@ -379,10 +381,72 @@ extension PriceCatalogTests {
         let text = g.serverInstructions
         #expect(text.contains("Delegate by default"))
         #expect(text.contains("~50"))
-        #expect(text.contains("only providers in these regions: local, eu, us"))
-        #expect(text.contains("only local models (apple)"))
-        #expect(text.contains("daily budget of $1.00"))
+        #expect(text.contains("`personal` = personal or work data, regions local, eu, us"))
+        #expect(text.contains("local models only (apple)"))
+        #expect(text.contains("after $1.00"))
         let noLocal = DelegationGuide(config: c) { $0.id == "mistral" }.serverInstructions
-        #expect(noLocal.contains("No local model is ready"))
+        #expect(noLocal.contains("no local model is ready"))
+    }
+}
+
+@Suite struct FilesAndFallbackTests {
+    private func temp(_ name: String, _ data: Data) throws -> URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("files-\(UUID())")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent(name)
+        try data.write(to: url)
+        return url
+    }
+
+    @Test func filesAreAppendedByNameAndValidated() throws {
+        let log = try temp("build.log", Data("linia błędu\n".utf8))
+        let composed = try FileAttachments.compose(prompt: "Streść log.", paths: [log.path])
+        #expect(composed.prompt.contains("--- File: build.log ---\nlinia błędu"))
+        #expect(!composed.prompt.contains(log.deletingLastPathComponent().path))   // bez pełnej ścieżki
+        #expect(composed.count == 1)
+
+        #expect(throws: DelegateError.self) { try FileAttachments.compose(prompt: "", paths: ["relative.txt"]) }
+        #expect(throws: DelegateError.self) { try FileAttachments.compose(prompt: "", paths: ["/nie/ma/takiego"]) }
+        let binary = try temp("x.bin", Data([0x00, 0xFF, 0x10]))
+        #expect(throws: DelegateError.self) { try FileAttachments.compose(prompt: "", paths: [binary.path]) }
+        let big = try temp("big.txt", Data(repeating: 0x61, count: FileAttachments.maxFileBytes + 1))
+        #expect(throws: DelegateError.self) { try FileAttachments.compose(prompt: "", paths: [big.path]) }
+    }
+
+    @Test func secretsInFilesAreBlocked() async throws {
+        let f = try temp("env.txt", Data("OPENAI=sk-abcdefghijklmnopqrstuvwxyz123456".utf8))
+        let t = MockTransport(["api.mistral.ai": .init(status: 200, body: openAIBody)])
+        let (svc, _) = try makeService(t, keys: ["MISTRAL_API_KEY": "m"])
+        await #expect(throws: DelegateError.self) { try await svc.delegate(.init(prompt: "Streść", files: [f.path])) }
+        #expect(t.calls.isEmpty)
+    }
+
+    @Test func fileContentIsSentAndHeaderMentionsIt() async throws {
+        let f = try temp("notes.md", Data("# Notatki".utf8))
+        let t = MockTransport(["api.mistral.ai": .init(status: 200, body: openAIBody)])
+        let (svc, _) = try makeService(t, keys: ["MISTRAL_API_KEY": "m"])
+        let out = try await svc.delegate(.init(prompt: "Streść", model: "mistral/mistral-small-latest", files: [f.path]))
+        #expect(out.contains("pliki: 1"))
+        let body = String(decoding: try #require(t.calls.first?.httpBody), as: UTF8.self)
+        #expect(body.contains("# Notatki"))
+    }
+
+    @Test func fallbackPrefersModelsSimilarToTheChosenOne() throws {
+        let (svc, _) = try makeService(MockTransport([:]), keys: ["MISTRAL_API_KEY": "m", "GEMINI_API_KEY": "g", "DEEPSEEK_API_KEY": "d"])
+        let cfg = try Config.parse(sampleConfigToml)
+        // codestral (code): następne powinny być modele z tagiem code, przed ogólnymi z wyższym priorytetem.
+        let order = svc.candidates(for: .init(prompt: "x", model: "mistral/codestral-latest"), config: cfg).map(\.ref)
+        #expect(order.first == "mistral/codestral-latest")
+        let firstGeneral = try #require(order.firstIndex(of: "mistral/mistral-small-latest"))
+        #expect(try #require(order.firstIndex(of: "gemini/gemini-pro-latest")) < firstGeneral)
+        #expect(try #require(order.firstIndex(of: "deepseek/deepseek-chat")) < firstGeneral)
+    }
+
+    @Test func instructionsStayCompact() throws {
+        var c = try Config.parse(sampleConfigToml)
+        c.routingGuidance = ""
+        let text = DelegationGuide(config: c) { _ in true }.serverInstructions
+        // Idą w każdym zapytaniu: pilnujemy rozmiaru (ok. 4 znaki na token).
+        #expect(text.count < 2600, "instrukcje mają \(text.count) znaków")
     }
 }

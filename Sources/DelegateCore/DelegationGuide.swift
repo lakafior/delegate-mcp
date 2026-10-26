@@ -1,9 +1,10 @@
 import Foundation
 
 /// Teksty, którymi serwer MCP mówi Claude'owi, kiedy i jak delegować: instrukcje serwera
-/// (Claude Code i Desktop wstrzykują je do każdej sesji) oraz opis narzędzia `delegate`.
-/// Generowane z configu, żeby Claude znał dostępne modele i tagi bez wołania `list_models`.
-/// Po angielsku, niezależnie od języka GUI: modele najpewniej trzymają się instrukcji w tym języku.
+/// (Claude Code i Desktop wstrzykują je do każdego zapytania) oraz opisy narzędzi.
+/// Idą w każdej turze, więc mają być krótkie: katalog to jedna linia na dostawcę, pełna lista w `list_models`.
+/// Model wybiera Claude; serwer pilnuje tylko twardych granic (regiony, budżet, sekrety).
+/// Po angielsku, niezależnie od języka GUI.
 public struct DelegationGuide: Sendable {
     /// Gotowe do użycia (włączone, z kluczem) modele wg priorytetu.
     public let candidates: [Candidate]
@@ -13,6 +14,9 @@ public struct DelegationGuide: Sendable {
     public let mode: DelegationMode
     public let personalRegions: [PrivacyRegion]
     public let dailyBudgetUSD: Double?
+
+    /// Ile modeli dostawcy pokazać w katalogu; resztę Claude znajdzie w `list_models`.
+    static let modelsPerProvider = 5
 
     public init(config: Config, isReady: (ProviderConfig) -> Bool) {
         let ready = config.providers.filter(isReady)
@@ -27,8 +31,10 @@ public struct DelegationGuide: Sendable {
         }
     }
 
-    /// Tagi, których nie pokazujemy Claude'owi: `delegate` wysyła tylko tekst, więc „vision” by mylił.
+    /// Tagi, których nie pokazujemy: `delegate` wysyła tylko tekst („vision” by mylił), a `translate`
+    /// i `summarize` wynikają z `general`.
     static let hiddenTags: Set<String> = ["vision"]
+    static let impliedByGeneral: Set<String> = ["translate", "summarize"]
 
     /// Tagi w kolejności pierwszego wystąpienia (czyli wg priorytetu dostawców).
     public var tags: [String] {
@@ -36,23 +42,38 @@ public struct DelegationGuide: Sendable {
         return candidates.flatMap { $0.model.tags.map { $0.lowercased() } }.filter { seen.insert($0).inserted }
     }
 
-    private func costHint(_ c: Candidate) -> String {
-        if c.provider.kind == .foundation { return "on-device" }
-        if let cost = c.model.cost { return cost }
-        if c.model.priceIn != nil || c.model.priceOut != nil {
-            return "$\(ModelConfig.money(c.model.priceIn))/$\(ModelConfig.money(c.model.priceOut)) per 1M"
-        }
-        return ""
+    // MARK: katalog
+
+    private func cost(_ m: ModelConfig) -> String {
+        if m.priceIn != nil || m.priceOut != nil { return "$\(ModelConfig.money(m.priceIn))/$\(ModelConfig.money(m.priceOut))" }
+        return m.cost ?? "?"
     }
 
-    /// Krótka mapa routingu: `- translate: mistral/mistral-small-latest (free), gemini/...`.
-    var routingTable: String {
-        tags.map { tag in
-            let refs = candidates.filter { $0.model.tags.contains { $0.lowercased() == tag } }.prefix(3).map { c in
-                let hint = costHint(c)
-                return hint.isEmpty ? c.ref : "\(c.ref) (\(hint))"
+    private func shownTags(_ m: ModelConfig) -> [String] {
+        let tags = m.tags.map { $0.lowercased() }.filter { !Self.hiddenTags.contains($0) }
+        return tags.contains("general") ? tags.filter { !Self.impliedByGeneral.contains($0) } : tags
+    }
+
+    /// `- mistral · eu · free: mistral-small-latest (general, fast), codestral-latest (code) +3. Note: …`
+    var catalog: String {
+        var providers: [ProviderConfig] = []
+        for c in candidates where !providers.contains(where: { $0.id == c.provider.id }) { providers.append(c.provider) }
+        let notes = Dictionary(providerGuidance.map { ($0.id, $0.text) }, uniquingKeysWith: { first, _ in first })
+        return providers.map { p in
+            let costs = Set(p.models.map(cost))
+            let shared = costs.count == 1 ? costs.first : nil
+            let models = p.models.prefix(Self.modelsPerProvider).map { m -> String in
+                var parts: [String] = []
+                if shared == nil { parts.append(cost(m)) }
+                parts += shownTags(m)
+                return parts.isEmpty ? m.id : "\(m.id) (\(parts.joined(separator: ", ")))"
             }
-            return "- \(tag): \(refs.joined(separator: ", "))"
+            var line = "- \(p.id) · \(p.effectivePrivacy.rawValue)"
+            if let shared { line += " · \(shared)" }
+            line += ": " + models.joined(separator: ", ")
+            if p.models.count > Self.modelsPerProvider { line += " +\(p.models.count - Self.modelsPerProvider)" }
+            if let note = notes[p.id] { line += ". Note: \(note)" }
+            return line
         }.joined(separator: "\n")
     }
 
@@ -60,56 +81,38 @@ public struct DelegationGuide: Sendable {
 
     public var serverInstructions: String {
         guard !candidates.isEmpty else {
-            return """
-            The `delegate` server has no usable models right now (no provider with an API key is enabled). \
-            Do not call `delegate`; tell the user to add a provider in the Delegate app if they ask about it.
-            """
+            return "The `delegate` server has no usable models (no enabled provider with a key). Don't call `delegate`."
         }
         var out = """
-        `delegate` hands self-contained tasks to cheaper models (free tiers, local models). The user's Claude \
-        usage limits are finite, so every task you delegate instead of writing yourself saves them. \(modeIntro)
+        `delegate` sends a task to a cheaper model to save the user's Claude usage limits. \(modeIntro)
 
-        Delegate when all of these hold:
-        - the task fits in one prompt: the other model sees ONLY your prompt (no files, tools, or conversation), so paste all needed context;
-        - you can quickly check the result;
-        - no secrets or credentials are involved, and personal or work data is sent only with the right `sensitivity` (below).
+        It pays off when your input is short and the output long: first drafts (emails, docs, release notes, \
+        commit messages), variants, test data, boilerplate, rewrites of a short text. Rule of thumb: delegate \
+        when you would otherwise write over ~\(wordThreshold) words that don't depend on things only you can see. \
+        It does NOT pay off to retype a long text from the conversation (that costs you as much as doing the task): \
+        for long inputs on disk, pass their paths in `files` and the server reads them. Do it yourself: design, \
+        debugging, anything needing tools or repo access, short answers.
 
-        Good fits: translating text; summarizing pasted text, logs, or docs; first drafts (emails, descriptions, \
-        READMEs, release notes, commit messages); rewriting, reformatting, or extracting data from text; generating \
-        many variants, test data, or boilerplate; a second opinion on a self-contained code snippet. The longer the \
-        expected output, the more delegation saves. Rule of thumb: if you are about to write more than ~\(wordThreshold) \
-        words of prose or repetitive content that doesn't depend on files only you can see, delegate it.
+        The model sees only `prompt` and `files`: state the task and output format fully. Check the result.
 
-        Do it yourself: design decisions, debugging, changes that need repository or tool access, security-sensitive \
-        work, and anything you can answer in a sentence or two.
-
-        How: call `delegate` directly with a `task` tag (no need to call `list_models` first). Ask for the exact output \
-        format you need. The reply header names the model that answered. Review the result before using it; if it is \
-        wrong or weak, fix it or do the task yourself, and don't present delegated output as verified without checking.
+        Choose `model` yourself from the catalog below, weighing what the task needs, cost (prefer free or cheaper \
+        at similar quality), and data region. Without `model`, the server routes by `task` tag and provider order. \
+        On errors it falls back to similar models.
         """
         out += "\n\n" + sensitivitySection
         if let budget = dailyBudgetUSD {
-            out += String(format: "\n\nPaid models share a daily budget of $%.2f. Once it is spent, the server uses only free models; no need to track it yourself.", budget)
+            out += String(format: "\nPaid models stop for the day after $%.2f; the server enforces it.", budget)
         }
-        out += "\n\nAvailable task tags → models (tried in this order, with automatic fallback):\n" + routingTable
-        if !providerGuidance.isEmpty {
-            out += "\n\nUser's notes per provider (pick a provider with `model` when a note fits the task):\n"
-                + providerGuidance.map { "- \($0.id): \($0.text)" }.joined(separator: "\n")
-        }
-        if !routingGuidance.isEmpty {
-            out += "\n\nUser's routing rules (follow them):\n" + routingGuidance
-        }
+        out += "\n\nCatalog (provider · data region · cost per 1M in/out): \n" + catalog
+        if !routingGuidance.isEmpty { out += "\n\nUser's rules: " + routingGuidance }
         return out
     }
 
     private var modeIntro: String {
         switch mode {
-        case .conservative:
-            "Delegate only clearly long, self-contained text tasks where the savings are obvious; when in doubt, do it yourself."
-        case .balanced:
-            "Use it proactively."
-        case .aggressive:
-            "Delegate by default: whenever the criteria below hold, delegate even short drafts and rewrites instead of writing them yourself."
+        case .conservative: "Delegate only clearly worthwhile tasks; when in doubt, do it yourself."
+        case .balanced: "Use it proactively."
+        case .aggressive: "Delegate by default whenever the task fits."
         }
     }
 
@@ -125,37 +128,21 @@ public struct DelegationGuide: Sendable {
     var sensitivitySection: String {
         let local = Array(Set(candidates.filter { $0.provider.effectivePrivacy == .local }.map(\.provider.id))).sorted()
         let regions = personalRegions.map(\.rawValue).joined(separator: ", ")
-        var s = """
-        Data sensitivity (the server enforces it; set `sensitivity` on every call that carries such data):
-        - `public` (default): nothing personal; any provider.
-        - `personal`: personal or work data without secrets; only providers in these regions: \(regions).
-        """
-        s += local.isEmpty
-            ? "\n- `private`: must stay on this Mac. No local model is ready, so do private tasks yourself."
-            : "\n- `private`: must stay on this Mac; only local models (\(local.joined(separator: ", "))), with small context windows."
-        return s
+        let priv = local.isEmpty ? "no local model is ready, do it yourself" : "local models only (\(local.joined(separator: ", ")))"
+        return "`sensitivity` (enforced): `public` default; `personal` = personal or work data, regions \(regions); "
+            + "`private` = stays on this Mac, \(priv). Never send secrets."
     }
 
-    // MARK: opis narzędzia `delegate`
+    // MARK: opisy narzędzi
 
     public var toolDescription: String {
-        var d = """
-        Send a self-contained task to a cheaper model to save the user's Claude usage limits. Use for translation, \
-        summarizing pasted text, first drafts, rewriting/extraction, bulk generation, or a second opinion on a code \
-        snippet. The model sees ONLY the prompt (no files, tools, or conversation): include all context. Pick a `task` \
-        tag; a specific `model` is optional. Falls back to the next model on errors. Never send secrets; mark personal \
-        or work data with `sensitivity`. Check the result before using it.
-        """
-        if candidates.isEmpty { d += " No models are currently available." }
-        return d
+        candidates.isEmpty
+            ? "Send a task to a cheaper model. No models are available right now."
+            : "Send a self-contained task to a cheaper model (saves the user's Claude limits). See the server instructions for when, which model, and `sensitivity`."
     }
 
-    /// Opis parametru `model` z listą dostępnych modeli (ucięty, żeby nie zapchać kontekstu).
     public var modelParameterDescription: String {
-        let refs = candidates.map(\.ref)
-        let shown = refs.prefix(25).joined(separator: ", ")
-        let more = refs.count > 25 ? ", … (\(refs.count - 25) more, see list_models)" : ""
-        return "Optional specific model as provider/model. Available: \(shown)\(more). Leave empty to route by `task`."
+        "provider/model from the catalog in the server instructions (full list: list_models). Empty = route by `task`."
     }
 }
 

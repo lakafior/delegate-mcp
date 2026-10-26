@@ -16,10 +16,13 @@ public struct DelegateRequest: Sendable {
     public var jsonMode: Bool
     /// Jak wrażliwe są dane; serwer odrzuca dostawców spoza dozwolonych regionów.
     public var sensitivity: Sensitivity
+    /// Ścieżki plików tekstowych, które serwer dokleja do promptu (`FileAttachments`).
+    public var files: [String]
 
     public init(prompt: String, system: String? = nil, model: String? = nil, task: String? = nil,
                 temperature: Double? = nil, maxTokens: Int? = nil, allowFallback: Bool = true,
-                allowSecrets: Bool = false, jsonMode: Bool = false, sensitivity: Sensitivity = .public) {
+                allowSecrets: Bool = false, jsonMode: Bool = false, sensitivity: Sensitivity = .public,
+                files: [String] = []) {
         self.prompt = prompt
         self.system = system
         self.model = model
@@ -30,6 +33,7 @@ public struct DelegateRequest: Sendable {
         self.allowSecrets = allowSecrets
         self.jsonMode = jsonMode
         self.sensitivity = sensitivity
+        self.files = files
     }
 }
 
@@ -264,13 +268,27 @@ public struct DelegateService: Sendable {
         }
         if let wanted = request.model, !wanted.isEmpty {
             let exact = all.filter { $0.ref == wanted || (!wanted.contains("/") && $0.model.id == wanted) }
-            all = request.allowFallback ? exact + all.filter { c in !exact.contains(c) } : exact
+            if request.allowFallback {
+                // Fallback po modelu wybranym przez Claude'a: najpierw podobne (wspólne tagi), potem reszta wg priorytetu.
+                let chosen = Set(exact.first?.model.tags.map { $0.lowercased() } ?? [])
+                let shared = { (c: Candidate) in c.model.tags.filter { chosen.contains($0.lowercased()) }.count }
+                let rest = all.filter { c in !exact.contains(c) }.enumerated()
+                    .sorted { a, b in shared(a.element) != shared(b.element) ? shared(a.element) > shared(b.element) : a.offset < b.offset }
+                    .map(\.element)
+                all = exact + rest
+            } else {
+                all = exact
+            }
         }
         return RoutingPlan(candidates: all, excluded: excluded, spentToday: spent)
     }
 
-    public func delegate(_ request: DelegateRequest) async throws -> String {
+    public func delegate(_ original: DelegateRequest) async throws -> String {
         let config = try loadConfig()
+        // Pliki doklejamy przed wszystkim innym: limity czasu i wykrywanie sekretów dotyczą pełnej treści.
+        let attached = try FileAttachments.compose(prompt: original.prompt, paths: original.files)
+        var request = original
+        request.prompt = attached.prompt
         let plan = routingPlan(for: request, config: config)
         let list = plan.candidates
         guard !list.isEmpty else {
@@ -315,7 +333,12 @@ public struct DelegateService: Sendable {
                                         inputTokens: reply.inputTokens, outputTokens: reply.outputTokens,
                                         costUSD: cost,
                                         ok: true, ms: ms))
-                return header(c, reply, ms: ms, cost: cost, failures: failures) + "\n\n" + reply.text
+                var h = header(c, reply, ms: ms, cost: cost, failures: failures)
+                if attached.count > 0 { h += " · pliki: \(attached.count) (\(max(1, attached.bytes / 1024)) KB)" }
+                if let spent = plan.spentToday, let budget = config.dailyBudgetUSD {
+                    h += String(format: " · budżet dziś: $%.2f/$%.2f", spent + (cost ?? 0), budget)
+                }
+                return h + "\n\n" + reply.text
             } catch {
                 let ms = Int(Date().timeIntervalSince(started) * 1000)
                 usage.append(UsageEntry(provider: c.provider.id, model: c.model.id, task: request.task,

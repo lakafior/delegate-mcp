@@ -72,7 +72,7 @@ func currentGuide() -> DelegationGuide {
 func makeTools(_ guide: DelegationGuide) -> [Tool] { [
     Tool(
         name: "list_models",
-        description: "Full catalog of providers and models by priority, with tags, costs, key status, and routing rules. Optional: `delegate` already knows the available models and tags.",
+        description: "Full model list with tags, costs, key status. Only if the catalog in the server instructions isn't enough.",
         inputSchema: schema([:]),
         annotations: .init(readOnlyHint: true)
     ),
@@ -80,48 +80,48 @@ func makeTools(_ guide: DelegationGuide) -> [Tool] { [
         name: "delegate",
         description: guide.toolDescription,
         inputSchema: schema([
-            "prompt": prop("string", "The complete task with all needed context; the model sees nothing else."),
+            "prompt": prop("string", "Full task and output format; the model sees nothing else."),
+            "files": .object([
+                "type": .string("array"),
+                "items": .object(["type": .string("string")]),
+                "description": .string("Absolute paths of text files the server reads and appends (instead of retyping them)."),
+            ]),
             "model": prop("string", guide.modelParameterDescription),
-            "task": prop("string", guide.tags.isEmpty
-                ? "Task tag, e.g. translate, summarize, code."
-                : "Task tag that picks the model. Available: \(guide.tags.joined(separator: ", "))."),
-            "system": prop("string", "Optional system instruction for the delegated model."),
-            "temperature": prop("number", "Optional sampling temperature."),
-            "max_tokens": prop("integer", "Optional limit on reply tokens."),
-            "fallback": prop("boolean", "Default true. false = use only the given model, no fallback."),
-            "allow_secrets": prop("boolean", "Default false. The server blocks prompts that look like they contain API keys or tokens; set true only if that content is intentional and safe to send."),
-            "json": prop("boolean", "Default false. true = ask the model for a valid JSON reply."),
+            "task": prop("string", guide.tags.isEmpty ? "Task tag." : "Task tag: \(guide.tags.joined(separator: ", "))."),
             "sensitivity": .object([
                 "type": .string("string"),
                 "enum": .array(Sensitivity.allCases.map { .string($0.rawValue) }),
-                "description": .string("public (default) = nothing personal; personal = personal or work data, sent only to allowed regions; private = stays on this Mac (local models only). Enforced by the server."),
             ]),
+            "system": prop("string", "System instruction."),
+            "temperature": prop("number", "Temperature."),
+            "max_tokens": prop("integer", "Reply token limit."),
+            "json": prop("boolean", "Ask for a JSON reply."),
+            "fallback": prop("boolean", "Default true; false = only the given model."),
+            "allow_secrets": prop("boolean", "Default false; true only if detected keys/tokens are intentional."),
         ], required: ["prompt"])
     ),
     Tool(
         name: "list_remote_models",
-        description: "Asks provider APIs for current model IDs with suggested tags, context size, and prices when the API exposes them (to update delegate.toml). No argument: all providers with a key.",
-        inputSchema: schema(["provider": prop("string", "Provider ID, e.g. mistral.")]),
+        description: "Current model IDs from provider APIs, with suggested tags and prices (for update_models).",
+        inputSchema: schema(["provider": prop("string", "Provider ID; empty = all.")]),
         annotations: .init(readOnlyHint: true)
     ),
     Tool(
         name: "update_models",
-        description: "Saves model tags and cost in delegate.toml (upsert). Use after list_remote_models to fill tags/prices and add new models. Cost is a category (free, cheap, paid, varies) OR USD per 1M tokens (price_in, price_out). Never touches API keys.",
+        description: "Upsert model tags and cost in delegate.toml. Cost: category (free, cheap, paid, varies) or price_in/price_out in USD per 1M tokens.",
         inputSchema: schema([
-            "provider": prop("string", "Provider ID, e.g. mistral."),
+            "provider": prop("string", "Provider ID."),
             "models": .object([
                 "type": .string("array"),
-                "description": .string("Models to change or add."),
                 "items": .object([
                     "type": .string("object"),
                     "properties": .object([
-                        "id": prop("string", "Model ID at the provider."),
-                        "tags": .object(["type": .string("array"), "items": .object(["type": .string("string")]),
-                                         "description": .string("Full tag list, e.g. code, translate, reasoning.")]),
-                        "cost": prop("string", "Category: free, cheap, paid, varies."),
-                        "price_in": prop("number", "USD per 1M input tokens."),
-                        "price_out": prop("number", "USD per 1M output tokens."),
-                        "note": prop("string", "Short note."),
+                        "id": .object(["type": .string("string")]),
+                        "tags": .object(["type": .string("array"), "items": .object(["type": .string("string")])]),
+                        "cost": .object(["type": .string("string")]),
+                        "price_in": .object(["type": .string("number")]),
+                        "price_out": .object(["type": .string("number")]),
+                        "note": .object(["type": .string("string")]),
                     ]),
                     "required": .array([.string("id")]),
                 ]),
@@ -130,8 +130,8 @@ func makeTools(_ guide: DelegationGuide) -> [Tool] { [
     ),
     Tool(
         name: "usage_summary",
-        description: "Summary of delegated calls, tokens, and cost from the local log.",
-        inputSchema: schema(["days": prop("integer", "How many recent days (default 7).")]),
+        description: "Delegated calls, tokens, and cost from the local log.",
+        inputSchema: schema(["days": prop("integer", "Recent days (default 7).")]),
         annotations: .init(readOnlyHint: true)
     ),
 ] }
@@ -167,7 +167,8 @@ await server.withMethodHandler(CallTool.self) { params in
                 allowSecrets: a["allow_secrets"]?.boolValue ?? false,
                 jsonMode: a["json"]?.boolValue ?? false,
                 // Nieznana wartość: ostrożniej traktujemy ją jak dane osobiste, nie publiczne.
-                sensitivity: Sensitivity(rawValue: a["sensitivity"]?.stringValue ?? "public") ?? .personal
+                sensitivity: Sensitivity(rawValue: a["sensitivity"]?.stringValue ?? "public") ?? .personal,
+                files: a["files"]?.arrayValue?.compactMap(\.stringValue) ?? []
             )
             return .init(content: [reply(try await service.delegate(request))], isError: false)
 
