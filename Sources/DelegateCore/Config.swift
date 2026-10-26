@@ -169,8 +169,9 @@ public struct Config: Codable, Sendable, Equatable {
         try TOMLDecoder().decode(Config.self, from: toml)
     }
 
+    /// TOML do zapisu z GUI (UTF-8, stała kolejność pól); patrz `ConfigWriter`.
     public func serialized() throws -> String {
-        try TOMLEncoder().encode(self)
+        ConfigWriter.write(self)
     }
 
     /// Scalanie trójstronne: `base` to wersja, od której zaczęło GUI, `mine` to zmiany z GUI,
@@ -241,7 +242,7 @@ public struct DelegateHome: Sendable {
         return try Config.parse(String(contentsOf: configURL, encoding: .utf8))
     }
 
-    /// Zapis z GUI. Uwaga: serializacja nie zachowuje komentarzy z ręcznie edytowanego TOML.
+    /// Zapis z GUI. Komentarzy z ręcznie edytowanego TOML nie zachowuje (patrz `ConfigWriter`).
     public func save(_ config: Config) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try config.serialized().write(to: configURL, atomically: true, encoding: .utf8)

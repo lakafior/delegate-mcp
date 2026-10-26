@@ -42,7 +42,7 @@ Wymaga Xcode z Swift 6.2+ i macOS 26+. Zależności (swift-sdk, TOMLKit) pobiera
 
 Aplikacja: `./scripts/build-app.sh` składa `dist/Delegate.app` (serwer w `Contents/Helpers/delegate-mcp`,
 podpis ad-hoc; `SIGN_ID="Developer ID Application: …"` do dystrybucji). Flagi aplikacji do ręcznego
-sprawdzania widoków: `--settings` otwiera okno przy starcie, `--select=routing|usage|general|<id dostawcy>`
+sprawdzania widoków: `--settings` otwiera okno przy starcie, `--select=overview|routing|usage|settings|<id dostawcy>`
 wybiera panel. `DELEGATE_HOME=/tmp/x` odcina od prawdziwego configu.
 
 Binarki z `swift build` mają podpis ad-hoc, którego ACL wpisów w Keychain nie zna, więc odczyt klucza

@@ -63,6 +63,14 @@ struct UsageView: View {
         return rows.values.sorted { $0.calls > $1.calls }
     }
 
+    private var chartRange: ClosedRange<Date> {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let start = cal.date(byAdding: .day, value: -(days - 1), to: today) ?? today
+        let end = cal.date(byAdding: .day, value: 1, to: today) ?? today
+        return start...end
+    }
+
     private var totalTokens: Int {
         entries.reduce(0) { $0 + ($1.inputTokens ?? 0) + ($1.outputTokens ?? 0) }
     }
@@ -98,15 +106,18 @@ struct UsageView: View {
                     .disabled(entries.isEmpty)
                 }
 
-                GlassEffectContainer(spacing: 12) {
-                    HStack(spacing: 12) {
-                        StatTile(title: "Wywołania", value: "\(entries.count)")
-                        StatTile(title: "Tokeny", value: totalTokens.formatted())
-                        StatTile(title: "Błędy", value: "\(entries.filter { !$0.ok }.count)")
+                Grid(horizontalSpacing: 12, verticalSpacing: 12) {
+                    GridRow {
+                        StatTile(title: "Tokeny oddelegowane", value: totalTokens.formatted(),
+                                 caption: "Nie poszły z Twoich limitów Claude'a")
+                        StatTile(title: "Wywołania", value: "\(entries.count)",
+                                 caption: "Błędy: \(entries.filter { !$0.ok }.count)")
                     }
-                    HStack(spacing: 12) {
-                        StatTile(title: "Koszt", value: String(format: "$%.4f", totalCost))
-                        StatTile(title: "Zaoszczędzono vs Sonnet", value: String(format: "~$%.2f", totalSavings))
+                    GridRow {
+                        StatTile(title: "Koszt", value: String(format: "$%.4f", totalCost),
+                                 caption: "Płatne modele u dostawców")
+                        StatTile(title: "Równowartość w API Sonneta", value: String(format: "~$%.2f", totalSavings),
+                                 caption: "Tyle kosztowałoby to przez API, nie z subskrypcji")
                     }
                 }
                 if unpricedCount > 0 {
@@ -122,6 +133,12 @@ struct UsageView: View {
                         BarMark(x: .value("Dzień", bar.day, unit: .day), y: .value("Tokeny", bar.tokens))
                             .foregroundStyle(by: .value("Model", bar.model))
                     }
+                    // Stała oś na cały zakres: przy danych z jednego dnia Charts rozciągałby go na całą szerokość.
+                    .chartXScale(domain: chartRange)
+                    .chartXAxis { AxisMarks(values: .stride(by: .day, count: days > 7 ? 5 : 1)) { _ in
+                        AxisGridLine()
+                        AxisValueLabel(format: .dateTime.day().month(.abbreviated))
+                    } }
                     .frame(height: 220)
 
                     ForEach(byModel) { row in
@@ -170,17 +187,20 @@ struct UsageView: View {
     }
 }
 
+/// Kafelek na treść: zwykłe tło, bez Liquid Glass (szkło jest dla warstwy kontrolek i nawigacji).
 private struct StatTile: View {
     let title: String
     let value: String
+    var caption: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).font(.caption).foregroundStyle(.secondary)
-            Text(value).font(.title2.bold())
+            Text(value).font(.title2.bold().monospacedDigit())
+            if let caption { Text(caption).font(.caption2).foregroundStyle(.tertiary) }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+        .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 12))
     }
 }

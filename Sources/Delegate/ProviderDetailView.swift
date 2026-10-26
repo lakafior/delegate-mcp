@@ -355,7 +355,7 @@ private struct ModelRow: View {
             TextField("ID modelu", text: $model.id)
                 .labelsHidden()
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 230)
+                .frame(minWidth: 150, idealWidth: 220, maxWidth: 280)
             TextField("tagi", text: $tagsText, prompt: Text("np. code, translate"))
                 .labelsHidden()
                 .textFieldStyle(.roundedBorder)

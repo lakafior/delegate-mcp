@@ -2,22 +2,22 @@ import DelegateCore
 import SwiftUI
 
 enum SidebarItem: Hashable {
+    case overview
     case provider(String)
     case routing
     case usage
-    case diagnostics
-    case general
+    case settings
 }
 
 extension SidebarItem {
-    /// `--select=routing|usage|diagnostics|general|<id dostawcy>`: do ręcznego sprawdzania widoków.
+    /// `--select=overview|routing|usage|settings|<id dostawcy>`: do ręcznego sprawdzania widoków.
     static func fromLaunchArguments() -> SidebarItem? {
         guard let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--select=") }) else { return nil }
         switch arg.dropFirst("--select=".count) {
+        case "overview", "diagnostics": return .overview
         case "routing": return .routing
         case "usage": return .usage
-        case "diagnostics": return .diagnostics
-        case "general": return .general
+        case "settings", "general": return .settings
         case let id: return .provider(String(id))
         }
     }
@@ -25,7 +25,7 @@ extension SidebarItem {
 
 struct SettingsView: View {
     @Bindable var model: AppModel
-    @State private var selection: SidebarItem? = SidebarItem.fromLaunchArguments() ?? .general
+    @State private var selection: SidebarItem? = SidebarItem.fromLaunchArguments() ?? .overview
     @State private var pendingDelete: String?
     @State private var renamingProvider: String?
     @State private var renameDraft = ""
@@ -33,6 +33,8 @@ struct SettingsView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $selection) {
+                Label("Przegląd", systemImage: "gauge.with.dots.needle.67percent").tag(SidebarItem.overview)
+                    .badge(model.hasProviderIssues ? Text(Image(systemName: "exclamationmark.triangle.fill")) : nil)
                 Section("Dostawcy (kolejność = priorytet)") {
                     if model.config.providers.isEmpty {
                         Text("Brak dostawców. Dodaj pierwszego przyciskiem +.")
@@ -59,8 +61,7 @@ struct SettingsView: View {
                 Section("Aplikacja") {
                     Label("Routing", systemImage: "arrow.triangle.branch").tag(SidebarItem.routing)
                     Label("Użycie", systemImage: "chart.bar").tag(SidebarItem.usage)
-                    Label("Diagnostyka", systemImage: "stethoscope").tag(SidebarItem.diagnostics)
-                    Label("Ogólne", systemImage: "gearshape").tag(SidebarItem.general)
+                    Label("Ustawienia", systemImage: "gearshape").tag(SidebarItem.settings)
                 }
             }
             .navigationSplitViewColumnWidth(min: 210, ideal: 240)
@@ -87,7 +88,7 @@ struct SettingsView: View {
         ) {
             Button("Usuń", role: .destructive) {
                 if let id = pendingDelete {
-                    selection = .general
+                    selection = .overview
                     model.removeProvider(id: id)
                 }
                 pendingDelete = nil
@@ -138,8 +139,8 @@ struct SettingsView: View {
 
         case .routing: RoutingView(model: model)
         case .usage: UsageView(model: model)
-        case .diagnostics: DiagnosticsView(model: model)
-        case .general, nil: GeneralView(model: model)
+        case .settings: GeneralView(model: model)
+        case .overview, nil: OverviewView(model: model)
         }
     }
 

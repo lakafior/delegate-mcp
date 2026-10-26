@@ -284,3 +284,30 @@ extension PriceCatalogTests {
         #expect(Config.merge(base: base, mine: mine, theirs: theirs).providers[0].note == "gui")
     }
 }
+
+@Suite struct ConfigWriterTests {
+    @Test func roundTripsSampleAndKeepsUnicode() throws {
+        var c = try Config.parse(sampleConfigToml)
+        c.providers[0].guidance = "Dobry do tłumaczeń \"cudzysłów\" i \\ backslash"
+        c.providers[0].note = "linia 1\nlinia 2 \"\"\" potrójny"
+        c.providers[1].enabled = false
+        c.providers[1].timeoutSeconds = 45.5
+        c.providers[0].models[0].priceIn = 0.0000001
+        c.providers[0].models[0].priceOut = 3
+        let text = try c.serialized()
+        #expect(text.contains("Dobry do tłumaczeń"))        // bez \u0142
+        #expect(!text.contains("\\u0"))
+        #expect(text.contains("price_out = 3\n"))
+        #expect(!text.contains("e-07"))
+        #expect(text.contains("[[provider]]\nid = \"mistral\"\ntype = \"openai\""))
+        #expect(try Config.parse(text) == c)
+    }
+
+    @Test func omitsDefaults() throws {
+        let c = Config(providers: [ProviderConfig(id: "x", kind: .foundation)])
+        let text = try c.serialized()
+        #expect(!text.contains("enabled"))
+        #expect(!text.contains("base_url"))
+        #expect(try Config.parse(text) == c)
+    }
+}

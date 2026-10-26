@@ -10,8 +10,9 @@ struct DelegateApp: App {
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: model.hasProviderIssues ? "exclamationmark.triangle" : "arrow.triangle.branch")
-                if model.showCostInMenuBar && model.costToday > 0 {
-                    Text(String(format: "$%.2f", model.costToday))
+                if model.showUsageInMenuBar {
+                    let stats = model.usageStats
+                    Text(stats.costToday > 0 ? "\(stats.callsToday) · \(String(format: "$%.2f", stats.costToday))" : "\(stats.callsToday)")
                 }
             }
         }

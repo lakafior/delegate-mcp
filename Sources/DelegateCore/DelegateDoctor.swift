@@ -11,9 +11,15 @@ public enum DiagnosticFix: String, Sendable, Codable {
     case installDesktop, installCode, updateInstructions, authorizeKeys
 }
 
+/// Do grupowania w GUI: podpięcie w Claude osobno od reszty systemu.
+public enum DiagnosticGroup: String, Sendable, Codable {
+    case system, integration
+}
+
 public struct DiagnosticCheck: Sendable, Codable, Identifiable {
     public var id: String { name }
     public var name: String
+    public var group: DiagnosticGroup
     public var severity: DiagnosticSeverity
     public var message: String
     public var detail: String?
@@ -21,8 +27,10 @@ public struct DiagnosticCheck: Sendable, Codable, Identifiable {
 
     public var fixable: Bool { fix != nil }
 
-    public init(name: String, severity: DiagnosticSeverity, message: String, detail: String? = nil, fix: DiagnosticFix? = nil) {
+    public init(name: String, severity: DiagnosticSeverity, message: String, detail: String? = nil,
+                fix: DiagnosticFix? = nil, group: DiagnosticGroup = .system) {
         self.name = name
+        self.group = group
         self.severity = severity
         self.message = message
         self.detail = detail
@@ -180,16 +188,16 @@ public struct DelegateDoctor: Sendable {
             checks.append(DiagnosticCheck(
                 name: "Przypomnienie w ~/.claude/CLAUDE.md", severity: .ok,
                 message: "Nie dodano (opcjonalne: serwer sam podaje instrukcje)",
-                detail: ClaudeIntegration.globalInstructionsURL.path, fix: .updateInstructions))
+                detail: ClaudeIntegration.globalInstructionsURL.path, fix: .updateInstructions, group: .integration))
         } else if !ClaudeIntegration.instructionsUpToDate(claudeMD) {
             checks.append(DiagnosticCheck(
                 name: "Przypomnienie w ~/.claude/CLAUDE.md", severity: .warning,
                 message: "Starsza wersja bloku (np. z subagentem grunt)",
-                detail: ClaudeIntegration.globalInstructionsURL.path, fix: .updateInstructions))
+                detail: ClaudeIntegration.globalInstructionsURL.path, fix: .updateInstructions, group: .integration))
         } else {
             checks.append(DiagnosticCheck(
                 name: "Przypomnienie w ~/.claude/CLAUDE.md", severity: .ok, message: "Aktualne",
-                detail: ClaudeIntegration.globalInstructionsURL.path))
+                detail: ClaudeIntegration.globalInstructionsURL.path, group: .integration))
         }
 
         // Model na urządzeniu: ostrzeżenie tylko, gdy jest włączony w configu
@@ -284,15 +292,15 @@ public struct DelegateDoctor: Sendable {
             return DiagnosticCheck(
                 name: name, severity: anyRegistered ? .ok : .error,
                 message: anyRegistered ? "Nie podłączono (opcjonalne)" : "Nie podłączono: Claude nie widzi serwera",
-                detail: detail, fix: fix)
+                detail: detail, fix: fix, group: .integration)
         }
         if !FileManager.default.isExecutableFile(atPath: command) {
-            return DiagnosticCheck(name: name, severity: .error, message: "Wskazuje nieistniejący plik: \(command)", detail: detail, fix: fix)
+            return DiagnosticCheck(name: name, severity: .error, message: "Wskazuje nieistniejący plik: \(command)", detail: detail, fix: fix, group: .integration)
         }
         if let helper, command != helper.path {
-            return DiagnosticCheck(name: name, severity: .warning, message: "Wskazuje inną binarkę: \(command)", detail: detail, fix: fix)
+            return DiagnosticCheck(name: name, severity: .warning, message: "Wskazuje inną binarkę: \(command)", detail: detail, fix: fix, group: .integration)
         }
-        return DiagnosticCheck(name: name, severity: .ok, message: "Podłączono (\(command))", detail: detail)
+        return DiagnosticCheck(name: name, severity: .ok, message: "Podłączono (\(command))", detail: detail, group: .integration)
     }
 
     private func with(_ value: ProviderDiagnostic, _ change: (inout ProviderDiagnostic) -> Void) -> ProviderDiagnostic {

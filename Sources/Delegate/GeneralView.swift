@@ -1,57 +1,17 @@
 import DelegateCore
 import SwiftUI
 
+/// Ustawienia aplikacji i pliki. Podpięcie w Claude i diagnostyka są w Przeglądzie.
 struct GeneralView: View {
     @Bindable var model: AppModel
     @State private var isEditingRawToml = false
 
     var body: some View {
         Form {
-            Section("Claude") {
-                IntegrationRow(
-                    title: "Claude Desktop", state: model.desktopState, enabled: model.helperExists,
-                    install: { model.installDesktop(true) }, remove: { model.installDesktop(false) })
-                IntegrationRow(
-                    title: "Claude Code", state: model.codeState, enabled: model.helperExists,
-                    install: { Task { await model.installCode(true) } }, remove: { Task { await model.installCode(false) } })
-                LabeledContent("Instrukcja dla Claude") {
-                    HStack {
-                        Text(model.instructionsOutdated ? "starsza wersja" : (model.instructionsInstalled ? "aktualna" : "brak"))
-                            .foregroundStyle(.secondary)
-                        if model.instructionsInstalled {
-                            if model.instructionsOutdated { Button("Zaktualizuj") { model.installInstructions(true) } }
-                            Button("Usuń") { model.installInstructions(false) }
-                        } else {
-                            Button("Dopisz do ~/.claude/CLAUDE.md") { model.installInstructions(true) }
-                        }
-                    }
-                }
-                LabeledContent("Dostęp do Keychain") {
-                    Button("Zezwól serwerowi na odczyt kluczy") { model.reauthorizeKeys() }
-                        .disabled(!model.helperExists)
-                }
-                if let message = model.integrationMessage {
-                    Label(message, systemImage: "info.circle").font(.callout).foregroundStyle(.secondary)
-                }
-                if !model.helperExists {
-                    Label("Nie znaleziono delegate-mcp obok aplikacji. Zbuduj całość skryptem scripts/build-app.sh.", systemImage: "exclamationmark.triangle")
-                        .font(.callout)
-                }
-            }
-
-            Section("Model na urządzeniu") {
-                LabeledContent("Apple Intelligence") {
-                    switch model.onDevice {
-                    case .available: Label("dostępny", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                    case .unavailable(let why): Text(why).foregroundStyle(.secondary)
-                    }
-                }
-            }
-
             Section("Aplikacja") {
                 Toggle("Uruchamiaj przy logowaniu", isOn: Binding(
                     get: { model.launchAtLogin }, set: { model.launchAtLogin = $0 }))
-                Toggle("Pokazuj dzisiejszy koszt w pasku menu", isOn: $model.showCostInMenuBar)
+                Toggle("Pokazuj dzisiejsze użycie w pasku menu", isOn: $model.showUsageInMenuBar)
             }
 
             Section {
@@ -81,11 +41,11 @@ struct GeneralView: View {
             } header: {
                 Text("Pliki")
             } footer: {
-                Text("Edycja jako tekst zachowuje komentarze i formatowanie. Zmiany w formularzach GUI mogą nadpisywać komentarze. Jeśli macOS pyta o hasło przy użyciu kluczy przez serwer, kliknij „Zezwól serwerowi na odczyt kluczy” w sekcji Claude.")
+                Text("Edycja jako tekst zachowuje komentarze do następnego zapisu z formularzy, który zapisuje plik od nowa (bez komentarzy). Zmiany z zewnątrz, np. z update_models, aplikacja scala ze swoimi.")
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("Ogólne")
+        .navigationTitle("Ustawienia")
         .onAppear { model.loadPriceCatalogDate() }
         .sheet(isPresented: $isEditingRawToml) {
             RawTomlEditorSheet(model: model, isPresented: $isEditingRawToml)
@@ -185,30 +145,6 @@ private struct RawTomlEditorSheet: View {
             isPresented = false
         } catch {
             parseError = "Nie udało się zapisać: \(error.localizedDescription)"
-        }
-    }
-}
-
-private struct IntegrationRow: View {
-    let title: String
-    let state: IntegrationState
-    let enabled: Bool
-    let install: () -> Void
-    let remove: () -> Void
-
-    var body: some View {
-        LabeledContent(title) {
-            HStack {
-                Text(state.label).foregroundStyle(state == .installed ? .green : .secondary)
-                switch state {
-                case .installed:
-                    Button("Usuń", action: remove)
-                case .notInstalled:
-                    Button("Zainstaluj", action: install).disabled(!enabled)
-                case .stale:
-                    Button("Napraw", action: install).disabled(!enabled)
-                }
-            }
         }
     }
 }

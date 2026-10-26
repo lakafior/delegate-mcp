@@ -55,9 +55,18 @@ final class AppModel {
     private let device = FoundationOnDeviceModel()
 
     init() {
+        showUsageInMenuBar = UserDefaults.standard.object(forKey: Self.showUsageKey) as? Bool
+            ?? UserDefaults.standard.bool(forKey: "showCostInMenuBar")
         load()
         refresh()
         migrateKeychainAccessIfNeeded()
+        // Log zawiera tylko metadane, ale rośnie bez końca; rok wystarczy do statystyk.
+        try? UsageLog(url: home.usageURL).prune(olderThan: 365)
+        refreshUsage()
+        // Serwer dopisuje do logu w innym procesie; sprawdzamy datę pliku, a czytamy tylko po zmianie.
+        usageTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refreshUsage() }
+        }
     }
 
     // MARK: config
@@ -305,23 +314,41 @@ final class AppModel {
         return UsageLog(url: home.usageURL).entries(since: since)
     }
 
-    var callsToday: Int {
-        let start = Calendar.current.startOfDay(for: Date())
-        return UsageLog(url: home.usageURL).entries(since: start).count
+    struct UsageStats: Equatable {
+        var callsToday = 0
+        var tokensToday = 0
+        var costToday = 0.0
+        var callsWeek = 0
+        /// Ostatnie wywołania, najnowsze pierwsze.
+        var recent: [UsageEntry] = []
     }
 
-    var costToday: Double {
-        let start = Calendar.current.startOfDay(for: Date())
-        return UsageLog(url: home.usageURL).entries(since: start).compactMap(\.costUSD).reduce(0, +)
+    private(set) var usageStats = UsageStats()
+    private var usageModified: Date?
+    private var usageDay: Date?
+    private var usageTimer: Timer?
+
+    /// Przelicza statystyki, gdy log się zmienił (albo zaczął się nowy dzień).
+    func refreshUsage(force: Bool = false) {
+        let modified = (try? FileManager.default.attributesOfItem(atPath: home.usageURL.path))?[.modificationDate] as? Date
+        let today = Calendar.current.startOfDay(for: Date())
+        guard force || modified != usageModified || today != usageDay else { return }
+        usageModified = modified
+        usageDay = today
+        let week = usage(days: 7)
+        let todays = week.filter { $0.ts >= today }
+        usageStats = UsageStats(
+            callsToday: todays.count,
+            tokensToday: todays.reduce(0) { $0 + ($1.inputTokens ?? 0) + ($1.outputTokens ?? 0) },
+            costToday: todays.compactMap(\.costUSD).reduce(0, +),
+            callsWeek: week.count,
+            recent: Array(week.suffix(5).reversed()))
     }
 
-    private static let showCostInMenuBarKey = "showCostInMenuBar"
-    var showCostInMenuBar: Bool {
-        get { UserDefaults.standard.bool(forKey: Self.showCostInMenuBarKey) }
-        set {
-            UserDefaults.standard.set(newValue, forKey: Self.showCostInMenuBarKey)
-            refresh()
-        }
+    private static let showUsageKey = "showUsageInMenuBar"
+    /// Liczba dzisiejszych zadań (i koszt, jeśli > 0) obok ikony w pasku menu.
+    var showUsageInMenuBar: Bool {
+        didSet { UserDefaults.standard.set(showUsageInMenuBar, forKey: Self.showUsageKey) }
     }
 
     /// Ostrzeżenie w pasku menu: tylko to, co użytkownik może naprawić (brak klucza, nieudany test).
