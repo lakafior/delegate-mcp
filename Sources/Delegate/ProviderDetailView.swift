@@ -218,7 +218,7 @@ struct ProviderDetailView: View {
         } header: {
             Text("Modele")
         } footer: {
-            Text("Tagi oddziel przecinkami. „Uzupełnij z API” bierze metadane dostawcy (zdolności, kontekst, ceny, jeśli je podaje) i ID modelu. Ceny podają m.in. OpenRouter i API w tym samym formacie; Mistral, Gemini i DeepSeek ich nie udostępniają. Claude też może to zrobić przez narzędzie update_models.")
+            Text("Tagi oddziel przecinkami. „Uzupełnij z API” bierze metadane dostawcy (zdolności, kontekst, ceny, jeśli je podaje) i ID modelu. Ceny bierze z API (OpenRouter, Venice i zgodne), a gdy API ich nie podaje, z publicznego cennika LiteLLM (Mistral, Gemini, DeepSeek, Anthropic, OpenAI i inni). Claude też może to zrobić przez narzędzie update_models.")
         }
     }
 
@@ -277,7 +277,7 @@ struct ProviderDetailView: View {
             if noPrice > 0 { parts.append("Bez ceny w API: \(noPrice).") }
             if keptFree > 0 { parts.append("Pominięto \(keptFree) oznaczonych jako darmowe; zmień ręcznie, jeśli za nie płacisz.") }
             if list.allSatisfy({ $0.priceIn == nil && $0.priceOut == nil }) {
-                parts = ["API tego dostawcy nie podaje cen. Ustaw je ręcznie przyciskiem kosztu przy modelu."]
+                parts = ["Cen tego dostawcy nie podaje ani jego API, ani cennik LiteLLM. Ustaw je ręcznie przyciskiem kosztu przy modelu."]
             }
             autofillMessage = parts.joined(separator: " ")
         }

@@ -16,6 +16,8 @@ public struct ModelInfo: Sendable, Equatable, Identifiable {
     public var tools = false
     /// `false` dla embeddingów, moderacji, OCR, audio itp.
     public var isChat = true
+    /// Skąd są ceny, gdy nie z API dostawcy (np. „LiteLLM”).
+    public var priceSource: String?
 
     public init(id: String, contextLength: Int? = nil, priceIn: Double? = nil, priceOut: Double? = nil,
                 vision: Bool = false, reasoning: Bool = false, tools: Bool = false, isChat: Bool? = nil) {
@@ -42,7 +44,9 @@ public struct ModelInfo: Sendable, Equatable, Identifiable {
         var parts: [String] = []
         if let c = contextLength { parts.append("kontekst \(c >= 1000 ? "\(c / 1000)k" : "\(c)")") }
         if priceIn != nil || priceOut != nil {
-            parts.append("$\(ModelConfig.money(priceIn))/$\(ModelConfig.money(priceOut)) za 1M")
+            var price = "$\(ModelConfig.money(priceIn))/$\(ModelConfig.money(priceOut)) za 1M"
+            if let priceSource { price += " wg \(priceSource)" }
+            parts.append(price)
         }
         if !isChat { parts.append("nie czat") }
         return parts.joined(separator: " · ")

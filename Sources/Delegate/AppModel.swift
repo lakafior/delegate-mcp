@@ -356,19 +356,45 @@ final class AppModel {
         refreshIntegrations()
     }
 
-    func installCode(_ install: Bool) {
+    func installCode(_ install: Bool) async {
         let path = helperURL.path.replacingOccurrences(of: "'", with: "'\\''")
         let name = ClaudeIntegration.serverName
         let command = install
             ? "claude mcp remove \(name) -s user >/dev/null 2>&1; claude mcp add \(name) -s user -- '\(path)'"
             : "claude mcp remove \(name) -s user"
         integrationMessage = "Uruchamiam claude…"
+        let result = await Self.runShell(command)
+        integrationMessage = result.status == 0
+            ? (install ? "Dodano do Claude Code." : "Usunięto z Claude Code.")
+            : "Claude Code: \(result.output.isEmpty ? "błąd \(result.status) (czy `claude` jest w PATH?)" : result.output)"
+        refreshIntegrations()
+    }
+
+    // MARK: diagnostyka
+
+    /// Ostatni raport trzymamy w modelu, żeby przejście między zakładkami nie powtarzało testów.
+    private(set) var diagnostics: DiagnosticReport?
+    private(set) var diagnosing = false
+
+    func runDiagnostics() {
+        guard !diagnosing else { return }
+        diagnosing = true
+        let doctor = DelegateDoctor(home: home, helper: helperExists ? helperURL : nil)
         Task {
-            let result = await Self.runShell(command)
-            integrationMessage = result.status == 0
-                ? (install ? "Dodano do Claude Code." : "Usunięto z Claude Code.")
-                : "Claude Code: \(result.output.isEmpty ? "błąd \(result.status) (czy `claude` jest w PATH?)" : result.output)"
-            refreshIntegrations()
+            diagnostics = await doctor.diagnose()
+            diagnosing = false
+        }
+    }
+
+    func apply(_ fix: DiagnosticFix) {
+        Task {
+            switch fix {
+            case .installDesktop: installDesktop(true)
+            case .installCode: await installCode(true)
+            case .updateInstructions: installInstructions(true)
+            case .authorizeKeys: reauthorizeKeys()
+            }
+            runDiagnostics()
         }
     }
 

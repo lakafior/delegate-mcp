@@ -73,6 +73,32 @@ public struct KeychainSecretStore: SecretStore {
         return SecItemCopyMatching(q as CFDictionary, nil) == errSecSuccess
     }
 
+    public enum Access: String, Sendable, Codable {
+        case readable, missing, needsApproval
+    }
+
+    /// Czy ten proces odczyta klucz bez okna z hasłem. Interakcję z Keychain wyłączamy globalnie
+    /// (`SecKeychainSetUserInteractionAllowed`), więc wołaj tylko z krótkiego procesu diagnostycznego
+    /// (`delegate-mcp --check-keys`), nigdy z aplikacji ani serwera.
+    public func accessWithoutPrompt(for name: String) -> Access {
+        typealias SetInteraction = @convention(c) (DarwinBoolean) -> OSStatus
+        if let handle = dlopen("/System/Library/Frameworks/Security.framework/Security", RTLD_LAZY) {
+            if let sym = dlsym(handle, "SecKeychainSetUserInteractionAllowed") {
+                _ = unsafeBitCast(sym, to: SetInteraction.self)(false)
+            }
+            dlclose(handle)
+        }
+        var q = query(name)
+        q[kSecReturnData as String] = true
+        q[kSecMatchLimit as String] = kSecMatchLimitOne
+        var out: CFTypeRef?
+        switch SecItemCopyMatching(q as CFDictionary, &out) {
+        case errSecSuccess: return .readable
+        case errSecItemNotFound: return .missing
+        default: return .needsApproval
+        }
+    }
+
     /// Tworzy obiekt SecAccess z listą zaufanych binariów w modelu macOS ACL (dynamiczne powiązanie symboli unika ostrzeżeń kompilatora).
     private static func createLegacyAccess(name: String, paths: [String]) throws -> SecAccess {
         typealias SecTrustedAppCreateFunc = @convention(c) (UnsafePointer<CChar>?, UnsafeMutablePointer<SecTrustedApplication?>) -> OSStatus

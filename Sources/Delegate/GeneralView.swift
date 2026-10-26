@@ -13,7 +13,7 @@ struct GeneralView: View {
                     install: { model.installDesktop(true) }, remove: { model.installDesktop(false) })
                 IntegrationRow(
                     title: "Claude Code", state: model.codeState, enabled: model.helperExists,
-                    install: { model.installCode(true) }, remove: { model.installCode(false) })
+                    install: { Task { await model.installCode(true) } }, remove: { Task { await model.installCode(false) } })
                 LabeledContent("Instrukcja dla Claude") {
                     HStack {
                         Text(model.instructionsOutdated ? "starsza wersja" : (model.instructionsInstalled ? "aktualna" : "brak"))

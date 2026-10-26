@@ -113,6 +113,7 @@ public struct DelegateService: Sendable {
     let transport: any HTTPTransport
     let usage: UsageLog
     let onDevice: any OnDeviceModel
+    let priceCatalog: PriceCatalogStore?
 
     public init(
         loadConfig: @escaping @Sendable () throws -> Config,
@@ -120,7 +121,8 @@ public struct DelegateService: Sendable {
         transport: any HTTPTransport = URLSessionTransport(),
         onDevice: any OnDeviceModel = FoundationOnDeviceModel(),
         saveConfig: (@Sendable (Config) throws -> Void)? = nil,
-        usage: UsageLog
+        usage: UsageLog,
+        priceCatalog: PriceCatalogStore? = nil
     ) {
         self.loadConfig = loadConfig
         self.saveConfig = saveConfig
@@ -128,6 +130,7 @@ public struct DelegateService: Sendable {
         self.transport = transport
         self.onDevice = onDevice
         self.usage = usage
+        self.priceCatalog = priceCatalog
     }
 
     /// Standardowe podpięcie: katalog domowy, `.env` + Keychain.
@@ -139,7 +142,8 @@ public struct DelegateService: Sendable {
             transport: transport,
             onDevice: onDevice,
             saveConfig: { try home.save($0) },
-            usage: UsageLog(url: home.usageURL)
+            usage: UsageLog(url: home.usageURL),
+            priceCatalog: PriceCatalogStore(cacheURL: home.priceCatalogURL, transport: transport)
         )
     }
 
@@ -297,12 +301,24 @@ public struct DelegateService: Sendable {
         try await modelInfos(for: p).map(\.id)
     }
 
-    /// Modele z metadanymi i sugestiami tagów (do GUI i `list_remote_models`).
+    /// Modele z metadanymi i sugestiami tagów (do GUI i `list_remote_models`). Ceny, których API
+    /// nie podaje, uzupełnia z cennika LiteLLM (jeśli zna tego dostawcę).
     public func modelInfos(for p: ProviderConfig) async throws -> [ModelInfo] {
         if p.kind == .foundation { return [ModelInfo(id: "on-device", contextLength: 4096, priceIn: 0, priceOut: 0)] }
         let key = secrets.secret(for: p.apiKeyEnv) ?? ""
         if p.needsKey && key.isEmpty { throw ProviderError.missingKey(p.apiKeyEnv) }
-        return try await ProviderClient(transport: transport, timeout: 30).listModelInfo(provider: p, apiKey: key)
+        let timeout = p.timeoutSeconds ?? 30
+        var infos = try await ProviderClient(transport: transport, timeout: timeout).listModelInfo(provider: p, apiKey: key)
+        let unpriced = infos.indices.filter { infos[$0].priceIn == nil && infos[$0].priceOut == nil }
+        guard !unpriced.isEmpty, PriceCatalog.catalogProvider(forBaseURL: p.baseURL) != nil,
+              let catalog = await priceCatalog?.load() else { return infos }
+        for i in unpriced {
+            guard let price = catalog.price(for: infos[i].id, provider: p) else { continue }
+            infos[i].priceIn = price.input
+            infos[i].priceOut = price.output
+            infos[i].priceSource = PriceCatalog.sourceName
+        }
+        return infos
     }
 
     public func listRemoteModels(providerID: String?) async throws -> String {
@@ -316,14 +332,12 @@ public struct DelegateService: Sendable {
                 out += "## \(p.id)\n- on-device (\(status(of: p).label))\n\n"
                 continue
             }
-            let key = secrets.secret(for: p.apiKeyEnv) ?? ""
-            if p.needsKey && key.isEmpty {
+            if p.needsKey && !secrets.hasSecret(for: p.apiKeyEnv) {
                 out += "## \(p.id)\nbrak klucza (\(p.apiKeyEnv))\n\n"
                 continue
             }
             do {
-                let client = ProviderClient(transport: transport, timeout: p.timeoutSeconds ?? config.timeoutSeconds)
-                let infos = try await client.listModelInfo(provider: p, apiKey: key)
+                let infos = try await modelInfos(for: p)
                 let lines = infos.map { i -> String in
                     var line = "- \(i.id)"
                     let tags = i.suggestedTags

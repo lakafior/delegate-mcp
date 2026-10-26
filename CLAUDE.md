@@ -69,6 +69,8 @@ Katalog: `~/Library/Application Support/Delegate/` (nadpisywany przez `$DELEGATE
   Wczytywany przy każdym wywołaniu, więc restart nie jest potrzebny.
 - `.env` — awaryjne klucze (`MISTRAL_API_KEY=...`), `chmod 600`.
 - `delegate_usage.jsonl` — log użycia (tylko metadane, bez treści promptów).
+- `price_catalog.json` — kopia cennika LiteLLM (odświeżana co tydzień). `modelInfos` uzupełnia z niego ceny,
+  których API dostawcy nie podaje (Mistral, Gemini, DeepSeek, Anthropic, OpenAI…); dopasowanie po hoście `base_url`.
 
 Klucze: zmienna środowiska → `.env` → Keychain (service `com.mar.delegate`, account =
 `api_key_env` z configu). Dostawca bez klucza jest pomijany, nic się nie psuje. Zmiana nazwy dostawcy
@@ -95,7 +97,10 @@ Claude Desktop: `~/Library/Application Support/Claude/claude_desktop_config.json
 }
 ```
 
-Flagi CLI: `--init`, `--print-config-path`, `--version`. W trybie serwera nic nie wolno
+Flagi CLI: `--init`, `--print-config-path`, `--version`, `doctor` (diagnostyka w terminalu),
+`--check-keys` (JSON: czy ta binarka odczyta klucze bez okna z hasłem; interakcję z Keychain wyłącza, więc
+nigdy nie pyta). Diagnostyka (`DelegateDoctor` + `HelperProbe`) testuje binarkę zarejestrowaną w Claude:
+handshake MCP, instrukcje i `--check-keys`. W trybie serwera nic nie wolno
 drukować na stdout (należy do protokołu), logi idą na stderr.
 
 ## Pierwsze kroki po instalacji

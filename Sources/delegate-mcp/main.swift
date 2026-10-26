@@ -25,8 +25,23 @@ if args.contains("--init") {
         exit(1)
     }
 }
+// Dla diagnostyki: czy TEN plik binarny (czyli serwer uruchamiany przez Claude'a) odczyta klucze
+// bez okna z hasłem. Wypisuje JSON `{"<api_key_env>": "readable|missing|needsApproval"}`.
+if args.contains("--check-keys") {
+    let env = EnvSecretStore(dotEnv: home.envURL)
+    let keychain = KeychainSecretStore()
+    var result: [String: String] = [:]
+    for p in (try? home.loadConfig())?.providers ?? [] where p.needsKey {
+        result[p.apiKeyEnv] = env.hasSecret(for: p.apiKeyEnv)
+            ? KeychainSecretStore.Access.readable.rawValue
+            : keychain.accessWithoutPrompt(for: p.apiKeyEnv).rawValue
+    }
+    let data = (try? JSONSerialization.data(withJSONObject: result, options: [.sortedKeys])) ?? Data("{}".utf8)
+    print(String(decoding: data, as: UTF8.self))
+    exit(0)
+}
 if args.contains("doctor") || args.contains("--doctor") {
-    let doctor = DelegateDoctor(home: home)
+    let doctor = DelegateDoctor(home: home, helper: Bundle.main.executableURL)
     let report = await doctor.diagnose()
     print(report.terminalOutput())
     exit(report.allOk ? 0 : 1)
