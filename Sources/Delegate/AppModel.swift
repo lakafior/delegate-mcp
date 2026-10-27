@@ -250,7 +250,17 @@ final class AppModel {
 
     /// Co serwer zrobiłby z zadaniem przy obecnym configu (podgląd w Routingu, nic nie wysyła).
     func routingPlan(for request: DelegateRequest) -> RoutingPlan {
-        DelegateService(home: home).routingPlan(for: request, config: config)
+        _ = cooldownsRevision   // przerwy są w pliku, więc widok odświeżamy licznikiem
+        return DelegateService(home: home).routingPlan(for: request, config: config)
+    }
+
+    /// Zmienia się po zdjęciu przerw, żeby podgląd routingu przeliczył się od nowa.
+    var cooldownsRevision = 0
+
+    /// Zdejmuje wszystkie przerwy modeli (np. po doładowaniu konta albo włączeniu billingu).
+    func clearCooldowns() {
+        ModelCooldowns(url: home.cooldownsURL).clear()
+        cooldownsRevision += 1
     }
 
     func modelInfos(for p: ProviderConfig) async throws -> [ModelInfo] {

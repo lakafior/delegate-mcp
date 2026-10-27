@@ -253,6 +253,8 @@ public struct DelegateHome: Sendable {
     public var usageURL: URL { directory.appendingPathComponent("delegate_usage.jsonl") }
     /// Kopia cennika LiteLLM (cache, odświeżany co tydzień).
     public var priceCatalogURL: URL { directory.appendingPathComponent("price_catalog.json") }
+    /// Przerwy dla modeli po błędach (`ModelCooldowns`).
+    public var cooldownsURL: URL { directory.appendingPathComponent("model_cooldowns.json") }
 
     /// `$DELEGATE_HOME` albo `~/Library/Application Support/Delegate`.
     public static func resolve(environment: [String: String] = ProcessInfo.processInfo.environment) -> DelegateHome {

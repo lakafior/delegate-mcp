@@ -141,6 +141,10 @@ struct RoutingView: View {
                         LabeledContent(e.ref) { Text(e.reason).foregroundStyle(.secondary) }
                     }
                 }
+                if plan.excluded.contains(where: { $0.reason.hasPrefix("paused until") }) {
+                    Button("Resume paused models") { model.clearCooldowns() }
+                        .help("Models that just failed (quota, overload, unsupported) are skipped for a while. Resume them, e.g. after topping up or enabling billing.")
+                }
             }
         } header: {
             Text("Preview: which model would get the task")

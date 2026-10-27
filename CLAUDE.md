@@ -70,6 +70,7 @@ Katalog: `~/Library/Application Support/Delegate/` (nadpisywany przez `$DELEGATE
   Wczytywany przy każdym wywołaniu, więc restart nie jest potrzebny.
 - `.env` — awaryjne klucze (`MISTRAL_API_KEY=...`), `chmod 600`.
 - `delegate_usage.jsonl` — log użycia (tylko metadane, bez treści promptów).
+- `model_cooldowns.json` — przerwy dla modeli po błędach (`ModelCooldowns`), wspólne dla wszystkich sesji.
 - `price_catalog.json` — kopia cennika LiteLLM: odświeżana co tydzień, wcześniej (najwyżej raz na dobę), gdy brakuje
   ceny modelu czatowego, oraz ręcznie (Ogólne → Cennik LiteLLM, „Uzupełnij z API” przy dostawcy). `modelInfos` uzupełnia z niego ceny,
   których API dostawcy nie podaje (Mistral, Gemini, DeepSeek, Anthropic, OpenAI…); dopasowanie po hoście `base_url`.
@@ -133,6 +134,10 @@ i podgląd w zakładce Routing):
   (domyślnie local, eu, us), `private` tylko do lokalnych. Nieznana wartość `sensitivity` = `personal`.
 - **Dzienny budżet** (`daily_budget_usd`): po wydaniu limitu (suma `cost_usd` z dzisiejszego logu) płatne modele
   odpadają; nieznana cena liczy się jako płatna, lokalne i `free` zawsze przechodzą.
+- **Przerwy** (`ModelCooldowns`): model, który odmówił, jest pomijany przez jakiś czas, zamiast zjadać limit czasu:
+  429 z `limit: 0` → doba, 429 z „retry in …” → tyle, ile podał dostawca, inny 429 → 60 s, 402 → godzina,
+  503/502/504/529 i timeout (tylko przy pełnym, nieprzyciętym limicie) → 5 min, 500 → 2 min, 404 i 400 „only supports…”
+  → tydzień. Sukces zdejmuje przerwę; w Routingu przycisk „Resume paused models” zdejmuje wszystkie.
 - **Tryb** (`delegation_mode`: `conservative`/`balanced`/`aggressive`) zmienia ton i próg słów w instrukcjach serwera.
 
 ## Ważne

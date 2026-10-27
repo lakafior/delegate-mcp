@@ -130,6 +130,7 @@ public struct DelegateService: Sendable {
     let usage: UsageLog
     let onDevice: any OnDeviceModel
     let priceCatalog: PriceCatalogStore?
+    public let cooldowns: ModelCooldowns
 
     public init(
         loadConfig: @escaping @Sendable () throws -> Config,
@@ -138,7 +139,8 @@ public struct DelegateService: Sendable {
         onDevice: any OnDeviceModel = FoundationOnDeviceModel(),
         saveConfig: (@Sendable (Config) throws -> Void)? = nil,
         usage: UsageLog,
-        priceCatalog: PriceCatalogStore? = nil
+        priceCatalog: PriceCatalogStore? = nil,
+        cooldowns: ModelCooldowns = ModelCooldowns(url: nil)
     ) {
         self.loadConfig = loadConfig
         self.saveConfig = saveConfig
@@ -147,6 +149,7 @@ public struct DelegateService: Sendable {
         self.onDevice = onDevice
         self.usage = usage
         self.priceCatalog = priceCatalog
+        self.cooldowns = cooldowns
     }
 
     /// Standardowe podpięcie: katalog domowy, `.env` + Keychain.
@@ -159,7 +162,8 @@ public struct DelegateService: Sendable {
             onDevice: onDevice,
             saveConfig: { try home.save($0) },
             usage: UsageLog(url: home.usageURL),
-            priceCatalog: PriceCatalogStore(cacheURL: home.priceCatalogURL, transport: transport)
+            priceCatalog: PriceCatalogStore(cacheURL: home.priceCatalogURL, transport: transport),
+            cooldowns: ModelCooldowns(url: home.cooldownsURL)
         )
     }
 
@@ -213,6 +217,7 @@ public struct DelegateService: Sendable {
     public func listModels() throws -> String {
         let config = try loadConfig()
         var out = "# Providers and models (by priority)\n\n"
+        let cooling = cooldowns.active()
         for (i, p) in config.providers.enumerated() {
             let status = self.status(of: p).label
             out += "\(i + 1). **\(p.id)** (\(p.kind.rawValue)) — \(status)\n"
@@ -223,6 +228,9 @@ public struct DelegateService: Sendable {
                 if !m.tags.isEmpty { line += " tags: \(m.tags.joined(separator: ", "))" }
                 if let c = m.costLabel { line += " · cost: \(c)" }
                 if let n = m.note { line += " · \(n)" }
+                if let pause = cooling["\(p.id)/\(m.id)"] {
+                    line += " · PAUSED until \(pause.until.formatted(date: .omitted, time: .shortened)): \(pause.reason)"
+                }
                 out += line + "\n"
             }
         }
@@ -261,6 +269,16 @@ public struct DelegateService: Sendable {
             }
         }
         var all = usable.flatMap { p in p.models.map { Candidate(provider: p, model: $0) } }
+
+        let cooling = cooldowns.active(now: now)
+        if !cooling.isEmpty {
+            let time = DateFormatter()
+            time.dateFormat = "HH:mm"
+            excluded += all.compactMap { c in
+                cooling[c.ref].map { RoutingExclusion(ref: c.ref, reason: "paused until \(time.string(from: $0.until)): \($0.reason)") }
+            }
+            all = all.filter { cooling[$0.ref] == nil }
+        }
 
         var spent: Double?
         if let budget = config.dailyBudgetUSD {
@@ -352,7 +370,8 @@ public struct DelegateService: Sendable {
         let deadline = request.deadlineSeconds.map { Date().addingTimeInterval($0) }
 
         for (i, c) in list.enumerated() {
-            var timeout = Self.computeTimeout(for: request, provider: c.provider, config: config)
+            let fullTimeout = Self.computeTimeout(for: request, provider: c.provider, config: config)
+            var timeout = fullTimeout
             if let deadline {
                 let left = deadline.timeIntervalSinceNow
                 guard left >= Self.minAttemptSeconds else {
@@ -374,6 +393,7 @@ public struct DelegateService: Sendable {
                     reply = try await client.chat(provider: c.provider, model: c.model.id, apiKey: key, request: chat)
                 }
                 let ms = Int(Date().timeIntervalSince(started) * 1000)
+                cooldowns.clear(c.ref)
                 let cost = CostCalculator.computeCost(model: c.model, inputTokens: reply.inputTokens, outputTokens: reply.outputTokens)
                 usage.append(UsageEntry(provider: c.provider.id, model: c.model.id, task: request.task,
                                         inputTokens: reply.inputTokens, outputTokens: reply.outputTokens,
@@ -398,6 +418,9 @@ public struct DelegateService: Sendable {
                 usage.append(UsageEntry(provider: c.provider.id, model: c.model.id, task: request.task,
                                         ok: false, error: String(describing: error), ms: ms))
                 failures.append("\(c.ref) → \(error)")
+                if let pause = ModelCooldowns.cooldown(for: error, fullTimeout: timeout >= fullTimeout) {
+                    cooldowns.set(c.ref, ModelCooldown(until: Date().addingTimeInterval(pause.seconds), reason: pause.reason))
+                }
                 if !request.allowFallback { break }
             }
         }

@@ -527,3 +527,55 @@ extension PriceCatalogTests {
         #expect(await DelegateJobs { _ in "" }.result(ids: [], wait: 1) == "No background jobs.")
     }
 }
+
+@Suite struct CooldownTests {
+    @Test func errorsMapToSensiblePauses() {
+        func pause(_ status: Int, _ body: String) -> TimeInterval? {
+            ModelCooldowns.cooldown(for: ProviderError.http(status: status, body: body))?.seconds
+        }
+        #expect(pause(429, "Quota exceeded ... limit: 0, model: gemini-3.1-pro") == ModelCooldowns.day)
+        #expect(pause(429, "Please retry in 1h2m3.5s.") == 3723.5)
+        #expect(pause(429, "Too many requests") == 60)
+        #expect(pause(503, "high demand") == 300)
+        #expect(pause(400, "This model only supports Interactions API.") == ModelCooldowns.week)
+        #expect(pause(400, "Invalid JSON payload") == nil)   // nasz błąd, nie modelu
+        #expect(pause(401, "bad key") == nil)
+        #expect(ModelCooldowns.retryDelay(in: "retry after 30 seconds") == 30)
+        #expect(ModelCooldowns.cooldown(for: ProviderError.network("The request timed out."))?.seconds == 300)
+        // Przycięty limit wywołania synchronicznego to nie wina modelu.
+        #expect(ModelCooldowns.cooldown(for: ProviderError.network("The request timed out."), fullTimeout: false) == nil)
+    }
+
+    @Test func failedModelIsSkippedUntilPauseEndsAndSuccessClearsIt() async throws {
+        let t = MockTransport([
+            "api.mistral.ai": .init(status: 503, body: #"{"error":{"message":"overloaded"}}"#),
+            "generativelanguage.googleapis.com": .init(status: 200, body: geminiBody),
+        ])
+        let (svc, _) = try makeService(t, keys: ["MISTRAL_API_KEY": "m", "GEMINI_API_KEY": "g"])
+        let first = try await svc.delegate(.init(prompt: "x", model: "mistral/mistral-small-latest"))
+        #expect(first.contains("gemini/"))
+        #expect(svc.cooldowns.active()["mistral/mistral-small-latest"] != nil)
+
+        let cfg = try svc.currentConfig()
+        let plan = svc.routingPlan(for: .init(prompt: "x"), config: cfg)
+        #expect(!plan.candidates.map(\.ref).contains("mistral/mistral-small-latest"))
+        #expect(plan.excluded.contains { $0.ref == "mistral/mistral-small-latest" && $0.reason.contains("overloaded (HTTP 503)") })
+        let later = svc.routingPlan(for: .init(prompt: "x"), config: cfg, now: Date().addingTimeInterval(301))
+        #expect(later.candidates.map(\.ref).contains("mistral/mistral-small-latest"))
+        #expect(try svc.listModels().contains("PAUSED until"))
+
+        await #expect(throws: DelegateError.self) {
+            try await svc.delegate(.init(prompt: "x", model: "mistral/mistral-small-latest", allowFallback: false))
+        }
+        svc.cooldowns.clear()
+        #expect(svc.cooldowns.active().isEmpty)
+    }
+
+    @Test func cooldownsPersistInFile() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("cool-\(UUID()).json")
+        ModelCooldowns(url: url).set("a/b", ModelCooldown(until: Date().addingTimeInterval(60), reason: "r"))
+        #expect(ModelCooldowns(url: url).active()["a/b"]?.reason == "r")
+        ModelCooldowns(url: url).clear("a/b")
+        #expect(ModelCooldowns(url: url).active().isEmpty)
+    }
+}
