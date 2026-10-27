@@ -2,3 +2,7 @@ wrangler.jsonc
 .assetsignore
 .DS_Store
 .wrangler
+# wrangler-action in CI installs wrangler here; it must not be uploaded as a page asset.
+node_modules
+package.json
+package-lock.json
