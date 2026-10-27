@@ -119,6 +119,8 @@ public enum ProviderStatus: Sendable, Equatable {
 
 public struct DelegateError: Error, CustomStringConvertible, Sendable {
     public let description: String
+    /// Gałąź, na której agent zostawił niedokończoną pracę (np. po przekroczeniu czasu), dla zakładki Jobs.
+    public var branch: String? = nil
 }
 
 /// Logika czterech narzędzi MCP; zwraca gotowy tekst dla Claude'a.

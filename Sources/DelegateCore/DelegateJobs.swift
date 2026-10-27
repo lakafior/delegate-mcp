@@ -100,7 +100,8 @@ public actor DelegateJobs {
                 let result = try await outcome()
                 self.finish(id, .done(result.text), branch: result.branch)
             } catch {
-                self.finish(id, .failed("\(error)"), branch: nil)
+                // Agent po przekroczeniu czasu może zostawić gałąź z niedokończoną pracą.
+                self.finish(id, .failed("\(error)"), branch: (error as? DelegateError)?.branch)
             }
         }
         return id

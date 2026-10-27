@@ -264,12 +264,15 @@ public struct AgentRunner: Sendable {
                 await conn.close()
                 let partial = await collector.text
                 var note = ""
+                var kept: String?
                 if write, let b = snapshot.finishBranch(message: commitMessage + "\n\n(unfinished: timed out)",
                                                         author: "Delegate (\(agent.name))"), b.commits > 0 {
                     keepBranch = true
+                    kept = b.branch
                     note = "\nUnfinished changes are on branch `\(b.branch)` (\(b.summary)); review before using them."
                 }
-                throw DelegateError(description: "\(agent.name) didn't finish in \(timeout).\(note) Partial report:\n\(partial)")
+                throw DelegateError(description: "\(agent.name) didn't finish in \(timeout).\(note) Partial report:\n\(partial)",
+                                    branch: kept)
             }
             await conn.close()
             var branch: RepoSnapshot.BranchResult?

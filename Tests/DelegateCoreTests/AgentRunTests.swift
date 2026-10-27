@@ -227,6 +227,19 @@ func makeRepo() throws -> URL {
         #expect(store.all().map(\.id) == [other])
     }
 
+    @Test func failedJobKeepsTheBranchOfUnfinishedWork() async throws {
+        let dir = try tempDir("jobs")
+        let store = JobStore(directory: dir)
+        let jobs = DelegateJobs(run: { _ in "" }, store: store)
+        let id = await jobs.start(label: "vibe (write): x", details: .init(agent: "vibe", write: true)) { () throws -> String in
+            throw DelegateError(description: "Vibe didn't finish", branch: "delegate/vibe-x-abc123")
+        }
+        _ = await jobs.result(ids: [id], wait: 5)
+        let stored = try #require(store.all().first)
+        #expect(stored.job.state == .failed("Vibe didn't finish"))
+        #expect(stored.job.details?.branch == "delegate/vibe-x-abc123")
+    }
+
     @Test func runningJobOfALiveServerIsNotRemoved() async throws {
         let dir = try tempDir("jobs")
         let store = JobStore(directory: dir)
@@ -414,6 +427,19 @@ func makeRepo() throws -> URL {
         #expect(try RepoSnapshot.git(["show", "\(b.branch):notes.txt"], in: repo) == "committed\nagent line\nagent line")
         await #expect(throws: DelegateError.self) {
             _ = try await r.run(agent: try agent("writer"), repo: repo, task: "x", write: true, branchFrom: "delegate/missing")
+        }
+    }
+
+    @Test func timeoutKeepsUnfinishedWorkOnABranchAndReportsIt() async throws {
+        let repo = try makeRepo()
+        do {
+            _ = try await runner().run(agent: try agent("writehang"), repo: repo, task: "Half a job", write: true,
+                                       timeout: .seconds(2), jobID: "cccccc3")
+            Issue.record("expected a timeout")
+        } catch let e as DelegateError {
+            #expect(e.branch == "delegate/fake-half-a-job-cccccc")
+            #expect(e.description.contains("Unfinished changes are on branch `delegate/fake-half-a-job-cccccc`"))
+            #expect(try RepoSnapshot.git(["show", "\(e.branch ?? ""):notes.txt"], in: repo) == "committed\nhalf done")
         }
     }
 

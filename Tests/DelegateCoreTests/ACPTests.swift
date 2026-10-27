@@ -7,7 +7,8 @@ import Testing
 
 /// Atrapa agenta ACP: skrypt Pythona mówiący JSON-RPC po stdio. Scenariusz w `FAKE_SCENARIO`:
 /// `ok` (sesja, dwa fragmenty odpowiedzi, prośba o zgodę na zapis), `auth` (sesja wymaga logowania),
-/// `crash` (wychodzi przy `session/new`), `hang` (nie odpowiada na `session/prompt`).
+/// `crash` (wychodzi przy `session/new`), `hang` (nie odpowiada na `session/prompt`),
+/// `writehang` (zmienia plik i nie odpowiada).
 let fakeAgentScript = #"""
 #!/usr/bin/python3 -I
 import json, os, sys
@@ -58,6 +59,9 @@ while True:
         send({"jsonrpc": "2.0", "id": mid, "result": {}})
     elif method == "session/prompt":
         if scenario == "hang":
+            continue
+        if scenario == "writehang":
+            open("notes.txt", "a").write("half done\n")
             continue
         sid = m["params"]["sessionId"]
         text = m["params"]["prompt"][0]["text"]
