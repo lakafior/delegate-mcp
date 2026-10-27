@@ -33,8 +33,21 @@ struct SettingsView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $selection) {
-                Label("Overview", systemImage: "gauge.with.dots.needle.67percent").tag(SidebarItem.overview)
-                    .badge(model.hasProviderIssues ? Text(Image(systemName: "exclamationmark.triangle.fill")) : nil)
+                // Bez `.badge`: na macOS blokował zaznaczenie wiersza, gdy było wybrane coś innego.
+                Label {
+                    HStack {
+                        Text("Overview")
+                        Spacer()
+                        if model.hasProviderIssues {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                                .help("Some providers need attention")
+                        }
+                    }
+                } icon: {
+                    Image(systemName: "gauge.with.dots.needle.67percent")
+                }
+                .tag(SidebarItem.overview)
                 Section("Providers (order = priority)") {
                     if model.config.providers.isEmpty {
                         Text("No providers. Add one with the + button.")
