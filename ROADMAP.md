@@ -47,7 +47,9 @@ Claude (albo inny asystent) jako dyrygent: rozbija pracę na zadania, oddaje je 
   subskrypcji w kwadrans).
 
 ### C. Skill `/swarm` — jawny tryb dyrygenta
-- [ ] Instrukcje serwera tylko zachęcają do delegowania, a Claude i tak decyduje sam. `/swarm wdroż roadmapę
+- [x] Skill w `~/.claude/skills/swarm/SKILL.md` (`SwarmSkill`, instalacja z Overview), plus `branch_from` w
+  `delegate_agent` na rundy poprawek na gałęzi agenta. Do sprawdzenia w prawdziwej pracy (E).
+- Instrukcje serwera tylko zachęcają do delegowania, a Claude i tak decyduje sam. `/swarm wdroż roadmapę
   z ROADMAP.md` daje mu procedurę: rozbić cel na niezależne zadania → dobrać agentów i modele → wysłać równolegle →
   przejrzeć wyniki → scalić dobre, zgłosić resztę. Najpewniej największy efekt najmniejszym kosztem; ma sens po B.
 

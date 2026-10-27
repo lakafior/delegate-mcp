@@ -46,6 +46,7 @@ final class AppModel {
     private(set) var codeState: IntegrationState = .notInstalled
     private(set) var instructionsInstalled = false
     private(set) var instructionsOutdated = false
+    private(set) var swarmSkillState: SwarmSkill.State = .notInstalled
     var integrationMessage: String?
 
     private var saved = Config()
@@ -558,6 +559,19 @@ final class AppModel {
         let text = (try? String(contentsOf: ClaudeIntegration.globalInstructionsURL, encoding: .utf8)) ?? ""
         instructionsInstalled = ClaudeIntegration.hasInstructions(text)
         instructionsOutdated = instructionsInstalled && !ClaudeIntegration.instructionsUpToDate(text)
+        swarmSkillState = SwarmSkill.state(of: try? String(contentsOf: SwarmSkill.url, encoding: .utf8))
+    }
+
+    func installSwarmSkill(_ install: Bool) {
+        do {
+            if install { try SwarmSkill.install() } else { try SwarmSkill.remove() }
+            integrationMessage = install
+                ? "Saved the /swarm skill in ~/.claude/skills/swarm. Start a new Claude Code session to use it."
+                : "Removed the /swarm skill."
+        } catch {
+            integrationMessage = "/swarm skill: \(error)"
+        }
+        refreshIntegrations()
     }
 
     func installDesktop(_ install: Bool) {

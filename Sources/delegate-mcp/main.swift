@@ -126,6 +126,7 @@ func agentTool(_ guide: DelegationGuide) -> Tool {
                 "description": .string("The whole repo is sent to the agent's cloud model; personal = work or personal code."),
             ]),
             "report_file": prop("string", "Absolute path; write the report there and return only the header and a preview."),
+            "branch_from": prop("string", "Write mode: branch or commit to start from instead of HEAD, e.g. a previous delegate/… branch for a follow-up round."),
             "mode": .object([
                 "type": .string("string"), "enum": .array([.string("read"), .string("write")]),
                 "description": .string("read (default) or write (changes on a new branch; give a precise, self-contained task and the checks to run)."),
@@ -312,13 +313,17 @@ await server.withMethodHandler(CallTool.self) { params in
             let model = a["model"]?.stringValue ?? settings?.model
             let effort = a["effort"]?.stringValue ?? settings?.effort
             let write = a["mode"]?.stringValue == "write"
+            let branchFrom = a["branch_from"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+            if branchFrom != nil && !write {
+                return .init(content: [reply("branch_from works only with mode \"write\".")], isError: true)
+            }
             let id = await jobs.start(label: "\(agentID)\(write ? " (write)" : ""): " + DelegateJobs.shortLabel(task)) {
                 await agentSlots.acquire()
                 let started = Date()
                 defer { Task { await agentSlots.release() } }
                 do {
                     let report = try await agentRunner.run(agent: agent, repo: repoURL, task: task, model: model,
-                                                           effort: effort, write: write)
+                                                           effort: effort, write: write, branchFrom: branchFrom)
                     usageLog.append(UsageEntry(provider: "agent:\(agentID)", model: report.model ?? "default", task: "agent",
                                                inputTokens: report.inputTokens, outputTokens: report.outputTokens,
                                                ok: true, ms: Int(report.seconds * 1000)))

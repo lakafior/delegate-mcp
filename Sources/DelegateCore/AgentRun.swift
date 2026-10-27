@@ -142,7 +142,8 @@ public struct AgentRunner: Sendable {
     static func writePrompt(task: String, cwd: URL, branch: String, base: String) -> String {
         """
         You are working in a git worktree of the user's repository at \(cwd.path), on branch \(branch) created from \
-        \(base.prefix(10)). Make the changes the task asks for by editing files in this directory. You may run builds \
+        \(base.prefix(10)) (it may already contain earlier work on this task: check `git log` first). Make the changes \
+        the task asks for by editing files in this directory. You may run builds \
         and tests; network access is available for package managers. You already run inside a sandbox, so tools that \
         start their own sandbox must have it disabled (Swift packages: `swift build --disable-sandbox`, \
         `swift test --disable-sandbox`). Do not commit, push, switch branches or touch files outside this directory: \
@@ -155,7 +156,7 @@ public struct AgentRunner: Sendable {
     }
 
     public func run(agent: InstalledAgent, repo: URL, task: String, model: String? = nil, effort: String? = nil,
-                    write: Bool = false, timeout: Duration = .seconds(600),
+                    write: Bool = false, branchFrom: String? = nil, timeout: Duration = .seconds(600),
                     jobID: String = UUID().uuidString) async throws -> AgentReport {
         if useSandbox && !AgentSandbox.isAvailable {
             throw DelegateError(description: "sandbox-exec is missing on this Mac; agents won't run without a sandbox.")
@@ -169,7 +170,8 @@ public struct AgentRunner: Sendable {
         let copyPath = jobDir.appendingPathComponent("repo", isDirectory: true)
         let snapshot = write
             ? try RepoSnapshot.createBranch(repo: repo, at: copyPath,
-                                            branch: RepoSnapshot.branchName(agent: agent.id, task: task, id: jobID))
+                                            branch: RepoSnapshot.branchName(agent: agent.id, task: task, id: jobID),
+                                            from: branchFrom)
             : try RepoSnapshot.create(repo: repo, at: copyPath)
         // Gałąź ze zmianami zostaje w repo użytkownika; pustą (albo przy błędzie przed pracą) usuwamy.
         var keepBranch = false

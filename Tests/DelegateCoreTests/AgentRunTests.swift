@@ -366,6 +366,21 @@ func makeRepo() throws -> URL {
         #expect(try RepoSnapshot.git(["worktree", "list"], in: repo).split(separator: "\n").count == 1)
     }
 
+    @Test func followUpRoundContinuesOnTheAgentBranch() async throws {
+        let repo = try makeRepo()
+        let r = try runner()
+        let first = try await r.run(agent: try agent("writer"), repo: repo, task: "Round one", write: true, jobID: "aaaaaa1")
+        let firstBranch = try #require(first.branch?.branch)
+        let second = try await r.run(agent: try agent("writer"), repo: repo, task: "Round two", write: true,
+                                     branchFrom: firstBranch, jobID: "bbbbbb2")
+        let b = try #require(second.branch)
+        #expect(b.commits == 1)   // tylko nowa runda, licząc od gałęzi pierwszej
+        #expect(try RepoSnapshot.git(["show", "\(b.branch):notes.txt"], in: repo) == "committed\nagent line\nagent line")
+        await #expect(throws: DelegateError.self) {
+            _ = try await r.run(agent: try agent("writer"), repo: repo, task: "x", write: true, branchFrom: "delegate/missing")
+        }
+    }
+
     @Test func noChangesMeansNoBranch() async throws {
         let repo = try makeRepo()
         let report = try await runner().run(agent: try agent("noop"), repo: repo, task: "Look around", write: true)
@@ -403,5 +418,24 @@ func makeRepo() throws -> URL {
         var now = 0, peak = 0
         func enter() { now += 1; peak = max(peak, now) }
         func leave() { now -= 1 }
+    }
+}
+
+@Suite struct SwarmSkillTests {
+    @Test func stateDistinguishesOursFromAForeignSkill() {
+        #expect(SwarmSkill.state(of: nil) == .notInstalled)
+        #expect(SwarmSkill.state(of: SwarmSkill.content) == .installed)
+        #expect(SwarmSkill.state(of: SwarmSkill.content + "\nedited") == .outdated)
+        #expect(SwarmSkill.state(of: "---\nname: swarm\n---\nsomeone else's skill") == .foreign)
+    }
+
+    @Test func skillIsAValidClaudeCodeSkillThatUsesTheTools() {
+        let text = SwarmSkill.content
+        #expect(text.hasPrefix("---\nname: swarm\ndescription: "))
+        for needle in ["$ARGUMENTS", "list_models", "delegate_agent", "mode: \"write\"", "branch_from",
+                       "delegate_result", "git merge --squash", "output_file", "sensitivity"] {
+            #expect(text.contains(needle), "missing \(needle)")
+        }
+        #expect(text.count < 6000, "skill has \(text.count) characters")
     }
 }

@@ -165,7 +165,10 @@ worktree, `.git/objects`, `refs/heads/delegate/*`, metadanych worktree, cache na
 (tylko w piaskownicy), tryb sesji `acceptEdits`/`accept-edits`. Agent nie commituje; po zadaniu `finishBranch`
 commituje jako „Delegate (<agent>)”, zwraca `--stat` i polecenia review/merge/discard; pusta gałąź jest usuwana.
 SwiftPM w piaskownicy wymaga `--disable-sandbox` (mówi to polecenie dla agenta). Limit równoległych agentów:
-`max_parallel_agents` (domyślnie 3, `AgentSlots`).
+`max_parallel_agents` (domyślnie 3, `AgentSlots`). `branch_from` (tylko zapis): runda poprawek startuje z gałęzi
+poprzedniego agenta zamiast z `HEAD`.
+**Skill `/swarm`** (`SwarmSkill`): procedura dyrygenta dla Claude Code w `~/.claude/skills/swarm/SKILL.md`, instalowana
+z Overview (rozpoznawana po znaczniku `<!-- delegate-mcp swarm skill -->`; cudzego skilla o tej nazwie nie nadpisujemy).
 Testy na atrapie agenta (Python) w `ACPTests.swift` i `AgentRunTests.swift`.
 
 ## Ważne

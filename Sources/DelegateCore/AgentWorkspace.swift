@@ -29,15 +29,17 @@ public struct RepoSnapshot: Sendable {
 
     /// Tryb zapisu: worktree na nowej gałęzi od `HEAD`. Niezacommitowane zmiany oryginału do niej nie wchodzą
     /// (gałąź ma się czysto scalać z tym, co jest w repo), co raport zaznacza.
-    public static func createBranch(repo: URL, at path: URL, branch: String) throws -> RepoSnapshot {
+    /// `from`: gałąź albo commit, od którego zacząć (runda poprawek na gałęzi poprzedniego agenta); `nil` = `HEAD`.
+    public static func createBranch(repo: URL, at path: URL, branch: String, from: String? = nil) throws -> RepoSnapshot {
         guard let root = toplevel(of: repo) else {
             throw DelegateError(description: "\(repo.path) is not a git repository.")
         }
         let base: String
         do {
-            base = try git(["rev-parse", "HEAD"], in: root)
+            base = try git(["rev-parse", "--verify", "--quiet", (from ?? "HEAD") + "^{commit}"], in: root)
         } catch {
-            throw DelegateError(description: "\(root.lastPathComponent) has no commits yet.")
+            throw DelegateError(description: from.map { "No branch or commit \"\($0)\" in \(root.lastPathComponent)." }
+                ?? "\(root.lastPathComponent) has no commits yet.")
         }
         let dirty = !((try? git(["status", "--porcelain", "--untracked-files=no"], in: root)) ?? "").isEmpty
         try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -244,7 +246,8 @@ public struct AgentSandbox: Sendable {
     static func userDirectory(_ name: Int32) -> URL? {
         var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
         guard confstr(name, &buffer, buffer.count) > 0 else { return nil }
-        return URL(fileURLWithPath: String(cString: buffer), isDirectory: true)
+        let bytes = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+        return URL(fileURLWithPath: String(decoding: bytes, as: UTF8.self), isDirectory: true)
     }
 
     /// Tryb zapisu: części `.git`, do których git pisze przy `add`/`commit` na gałęzi `delegate/*`.

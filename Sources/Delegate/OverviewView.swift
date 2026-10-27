@@ -110,6 +110,27 @@ struct OverviewView: View {
                 Text("Optional: the server provides instructions to Claude itself.")
             }
             LabeledContent {
+                HStack {
+                    switch model.swarmSkillState {
+                    case .installed:
+                        Text("installed").foregroundStyle(.secondary)
+                        Button("Remove") { model.installSwarmSkill(false) }
+                    case .outdated:
+                        Text("older version").foregroundStyle(.orange)
+                        Button("Update") { model.installSwarmSkill(true) }
+                        Button("Remove") { model.installSwarmSkill(false) }
+                    case .notInstalled:
+                        Text("none").foregroundStyle(.secondary)
+                        Button("Add") { model.installSwarmSkill(true) }
+                    case .foreign:
+                        Text("another skill uses this name").foregroundStyle(.orange)
+                    }
+                }
+            } label: {
+                Text("Skill /swarm in Claude Code")
+                Text("Conductor mode: split a goal into tasks, run them on agents in parallel, review and merge.")
+            }
+            LabeledContent {
                 Button("Allow") { model.apply(.authorizeKeys) }
                     .disabled(!model.helperExists)
             } label: {
