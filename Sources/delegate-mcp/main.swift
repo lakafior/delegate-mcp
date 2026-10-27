@@ -80,6 +80,14 @@ let agentRunner = AgentRunner(home: home)
 let agentSlots = AgentSlots(limit: ((try? home.loadConfig()) ?? Config()).maxParallelAgents ?? Config.defaultMaxParallelAgents)
 let usageLog = UsageLog(url: home.usageURL)
 
+/// Nazwa klienta MCP (dyrygenta) z `initialize`; instrukcje serwera są stałe, więc podpowiedź o agencie na tej samej
+/// subskrypcji trafia do opisu `delegate_agent` i do `list_models`, które klient pobiera po `initialize`.
+actor ClientState {
+    var name: String?
+    func set(_ name: String) { self.name = name }
+}
+let clientState = ClientState()
+
 func schema(_ properties: [String: Value], required: [String] = []) -> Value {
     var obj: [String: Value] = ["type": .string("object"), "properties": .object(properties)]
     if !required.isEmpty { obj["required"] = .array(required.map { .string($0) }) }
@@ -107,13 +115,17 @@ func currentGuide() -> DelegationGuide {
 }
 
 /// Lista narzędzi budowana na żądanie: opis `delegate` zawiera aktualne modele i tagi.
-func makeTools(_ guide: DelegationGuide) -> [Tool] { baseTools(guide) + (guide.agents.isEmpty ? [] : [agentTool(guide)]) }
+func makeTools(_ guide: DelegationGuide, clientName: String? = nil) -> [Tool] {
+    baseTools(guide) + (guide.agents.isEmpty ? [] : [agentTool(guide, clientName: clientName)])
+}
 
 /// `delegate_agent` tylko, gdy jest zainstalowany agent: bez niego narzędzie tylko zabierałoby miejsce.
-func agentTool(_ guide: DelegationGuide) -> Tool {
-    Tool(
+func agentTool(_ guide: DelegationGuide, clientName: String?) -> Tool {
+    let hint = AssistantClient.hint(clientName: clientName, agents: guide.agents,
+                                    config: (try? service.currentConfig()) ?? Config()).map { " " + $0 } ?? ""
+    return Tool(
         name: "delegate_agent",
-        description: "Run a coding agent on a git repo in the background, in a sandbox. mode=read (default): read-only snapshot (HEAD + uncommitted changes), returns a report. mode=write: the agent edits files, builds and tests on a new branch delegate/… from HEAD; you get the branch, diff stat and summary, then review (git diff) and merge or delete it. Returns a job ID; collect with delegate_result (jobs take minutes).",
+        description: "Run a coding agent on a git repo in the background, in a sandbox. mode=read (default): read-only snapshot (HEAD + uncommitted changes), returns a report. mode=write: the agent edits files, builds and tests on a new branch delegate/… from HEAD; you get the branch, diff stat and summary, then review (git diff) and merge or delete it. Returns a job ID; collect with delegate_result (jobs take minutes)." + hint,
         inputSchema: schema([
             "agent": prop("string", "Agent ID: \(guide.agents.joined(separator: ", ")). Models and effort per agent: list_models."),
             "repo": prop("string", "Absolute path inside the git repository."),
@@ -224,7 +236,7 @@ let server = Server(
     capabilities: .init(tools: .init(listChanged: true))
 )
 
-await server.withMethodHandler(ListTools.self) { _ in .init(tools: makeTools(currentGuide())) }
+await server.withMethodHandler(ListTools.self) { _ in .init(tools: makeTools(currentGuide(), clientName: await clientState.name)) }
 
 await server.withMethodHandler(CallTool.self) { params in
     let a = params.arguments ?? [:]
@@ -233,7 +245,8 @@ await server.withMethodHandler(CallTool.self) { params in
         case "list_models":
             let config = (try? service.currentConfig()) ?? Config()
             let agents = AgentCatalog.describe(installed: agentInstaller.installed(), config: config,
-                                               checks: AgentCheckCache(url: home.agentChecksURL).load())
+                                               checks: AgentCheckCache(url: home.agentChecksURL).load(),
+                                               clientName: await clientState.name)
             return .init(content: [reply(try service.listModels() + agents)], isError: false)
 
         case "delegate":
@@ -351,7 +364,7 @@ await server.withMethodHandler(CallTool.self) { params in
     }
 }
 
-try await server.start(transport: StdioTransport())
+try await server.start(transport: StdioTransport(), initializeHook: { info, _ in await clientState.set(info.name) })
 
 // Zmiana zestawu agentów (instalacja, usunięcie, wyłączenie w apce): klient dostaje `tools/list_changed`
 // i pobiera narzędzia od nowa, z aktualnym opisem `delegate_agent`.

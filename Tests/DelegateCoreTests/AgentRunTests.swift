@@ -439,3 +439,31 @@ func makeRepo() throws -> URL {
         #expect(text.count < 6000, "skill has \(text.count) characters")
     }
 }
+
+@Suite struct AssistantClientTests {
+    @Test func clientNamesMapToTheirOwnAgent() {
+        #expect(AssistantClient.sameSubscriptionAgent(clientName: "claude-code") == "claude-acp")
+        #expect(AssistantClient.sameSubscriptionAgent(clientName: "claude-ai") == "claude-acp")
+        #expect(AssistantClient.sameSubscriptionAgent(clientName: "codex-mcp-client") == "codex-acp")
+        #expect(AssistantClient.sameSubscriptionAgent(clientName: "cursor-vscode") == "cursor")
+        #expect(AssistantClient.sameSubscriptionAgent(clientName: "Visual Studio Code") == "github-copilot-cli")
+        #expect(AssistantClient.sameSubscriptionAgent(clientName: "zed") == nil)
+        #expect(AssistantClient.sameSubscriptionAgent(clientName: nil) == nil)
+    }
+
+    @Test func hintOnlyWhenTheOwnAgentIsInstalledAndShowsDefaults() {
+        var c = Config()
+        #expect(AssistantClient.hint(clientName: "claude-code", agents: ["mistral-vibe"], config: c) == nil)
+        c.setAgent("claude-acp", model: "haiku", effort: "low")
+        let hint = AssistantClient.hint(clientName: "claude-code", agents: ["claude-acp"], config: c)
+        #expect(hint?.contains("`claude-acp` runs on the same subscription as you") == true)
+        #expect(hint?.contains("(the user's default: haiku, low)") == true)
+
+        let agent = InstalledAgent(id: "claude-acp", name: "Claude Agent", version: "1", executable: "/x", args: [],
+                                   env: [:], installedAt: Date())
+        #expect(AgentCatalog.describe(installed: [agent], config: c, checks: [:], clientName: "claude-code")
+            .contains("same subscription as you: only with a cheaper model"))
+        #expect(!AgentCatalog.describe(installed: [agent], config: c, checks: [:], clientName: "codex-mcp-client")
+            .contains("same subscription"))
+    }
+}

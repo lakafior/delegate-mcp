@@ -47,6 +47,9 @@ final class AppModel {
     private(set) var instructionsInstalled = false
     private(set) var instructionsOutdated = false
     private(set) var swarmSkillState: SwarmSkill.State = .notInstalled
+    /// Podpięcie serwera w innych klientach MCP (Cursor, VS Code, Gemini CLI, Antigravity, Zed).
+    private(set) var clientStates: [MCPClient: IntegrationState] = [:]
+    private(set) var codexState: IntegrationState = .notInstalled
     var integrationMessage: String?
 
     private var saved = Config()
@@ -560,6 +563,44 @@ final class AppModel {
         instructionsInstalled = ClaudeIntegration.hasInstructions(text)
         instructionsOutdated = instructionsInstalled && !ClaudeIntegration.instructionsUpToDate(text)
         swarmSkillState = SwarmSkill.state(of: try? String(contentsOf: SwarmSkill.url, encoding: .utf8))
+        codexState = state(for: CodexMCPConfig.registeredCommand(
+            in: (try? String(contentsOf: CodexMCPConfig.configURL, encoding: .utf8)) ?? ""))
+        for client in MCPClient.allCases {
+            clientStates[client] = state(for: MCPClientConfig.registeredCommand(in: try? Data(contentsOf: client.configURL), for: client))
+        }
+    }
+
+    /// Dopisuje albo usuwa serwer `delegate` w konfiguracji innego klienta MCP; reszta pliku zostaje.
+    func installClient(_ client: MCPClient, _ install: Bool) {
+        let url = client.configURL
+        do {
+            let updated = try MCPClientConfig.updating(try? Data(contentsOf: url), for: client,
+                                                       command: install ? helperURL.path : nil)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try updated.write(to: url, options: .atomic)
+            integrationMessage = install
+                ? "Added delegate to \(client.title) (\((url.path as NSString).abbreviatingWithTildeInPath)). Restart \(client.title) to load it."
+                : "Removed delegate from \(client.title)."
+        } catch {
+            integrationMessage = "\(client.title): \(error)"
+        }
+        refreshIntegrations()
+    }
+
+    /// Codex trzyma serwery w TOML; `CodexMCPConfig` podmienia tylko tabelę `delegate`, reszta pliku zostaje.
+    func installCodex(_ install: Bool) {
+        let url = CodexMCPConfig.configURL
+        do {
+            let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            let updated = CodexMCPConfig.updating(text, command: install ? helperURL.path : nil)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try updated.write(to: url, atomically: true, encoding: .utf8)
+            integrationMessage = install ? "Added delegate to Codex (~/.codex/config.toml). Restart Codex to load it."
+                                         : "Removed delegate from Codex."
+        } catch {
+            integrationMessage = "Codex: \(error)"
+        }
+        refreshIntegrations()
     }
 
     func installSwarmSkill(_ install: Bool) {

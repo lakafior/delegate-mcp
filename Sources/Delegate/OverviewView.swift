@@ -11,6 +11,7 @@ struct OverviewView: View {
         Form {
             Section { summary }
             claude
+            otherClients
             if let report = model.diagnostics {
                 Section("System") {
                     ForEach(report.checks.filter { $0.group == .system }) { checkRow($0) }
@@ -149,6 +150,26 @@ struct OverviewView: View {
             Text("Claude")
         } footer: {
             Text("Connecting Desktop or Code is enough. After provider changes, restart Claude so it loads the new instructions.")
+        }
+    }
+
+    // MARK: inni klienci MCP
+
+    private var otherClients: some View {
+        Section {
+            IntegrationRow(
+                title: "Codex", state: model.codexState, enabled: model.helperExists,
+                install: { model.installCodex(true) }, remove: { model.installCodex(false) })
+            ForEach(MCPClient.allCases, id: \.self) { client in
+                IntegrationRow(
+                    title: client.title, state: model.clientStates[client] ?? .notInstalled, enabled: model.helperExists,
+                    install: { model.installClient(client, true) },
+                    remove: { model.installClient(client, false) })
+            }
+        } header: {
+            Text("Other assistants")
+        } footer: {
+            Text("The server works in any MCP client. Connecting writes the delegate entry into that app's MCP config and keeps the rest of the file; restart the app afterwards. Zed settings with comments must be edited by hand.")
         }
     }
 

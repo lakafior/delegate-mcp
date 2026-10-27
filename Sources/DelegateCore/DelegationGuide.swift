@@ -99,7 +99,7 @@ public struct DelegationGuide: Sendable {
             return "The `delegate` server has no usable models (no enabled provider with a key). Don't call `delegate`."
         }
         var out = """
-        `delegate` hands work to cheaper models to save the user's Claude usage limits. \(modeIntro) \
+        `delegate` hands work to cheaper models to save the usage limits of the assistant you are running on. \(modeIntro) \
         The model has no tools and sees only `prompt` and `files`, but the server does the file I/O:
         - `files`: absolute paths the server reads. Don't read or retype big files just to pass them on.
         - `output_file`: the server writes the reply there and you get a preview. Use it whenever the result \
@@ -165,7 +165,7 @@ public struct DelegationGuide: Sendable {
     public var toolDescription: String {
         candidates.isEmpty
             ? "Send a task to a cheaper model. No models are available right now."
-            : "Send a task to a cheaper model (saves the user's Claude limits); files in via `files`, out via `output_file`, parallel via `background`. See the server instructions for when and which model."
+            : "Send a task to a cheaper model (saves your usage limits); files in via `files`, out via `output_file`, parallel via `background`. See the server instructions for when and which model."
     }
 
     public var modelParameterDescription: String {

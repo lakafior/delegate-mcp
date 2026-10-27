@@ -62,11 +62,14 @@ Claude (albo inny asystent) jako dyrygent: rozbija pracę na zadania, oddaje je 
   skillem; które zadania się opłacają, a które kończą się poprawkami.
 
 ### F. Zgodność z innymi narzędziami AI
+F1 i F2 zrobione pierwszym `/swarm` (27.10.2026): Codex → `MCPClients.swift` (Cursor, VS Code, Gemini CLI,
+Antigravity, Zed), Mistral Vibe → `CodexMCPConfig.swift` (po nieudanej próbie Antigravity), Claude Agent (haiku)
+→ teksty F2; UI i scalanie zrobił dyrygent.
 Serwer to zwykły serwer MCP, więc działa w każdym kliencie MCP (Codex, Cursor, Zed, VS Code, Antigravity). Brakuje:
-- [ ] **F1.** Przycisków podpięcia w Overview dla innych klientów: Codex (`~/.codex/config.toml`), Cursor
+- [x] **F1.** Przycisków podpięcia w Overview dla innych klientów: Codex (`~/.codex/config.toml`), Cursor
   (`~/.cursor/mcp.json`), Zed (`context_servers`), VS Code, Gemini/Antigravity (`~/.gemini/settings.json`).
-- [ ] **F2.** Uogólnienia tekstów pisanych pod Claude'a („save the user's Claude usage limits”).
-- [ ] **F3.** Użycia nazwy klienta z `initialize` (`clientInfo`): serwer wie, kto jest dyrygentem, i może podpowiedzieć,
+- [x] **F2.** Uogólnienia tekstów pisanych pod Claude'a („save the user's Claude usage limits”).
+- [x] **F3.** Użycia nazwy klienta z `initialize` (`clientInfo`): serwer wie, kto jest dyrygentem, i może podpowiedzieć,
   że agent na tej samej subskrypcji (Claude Code → Claude Agent, Codex → Codex) ma sens tylko z tańszym modelem.
 
 ### G. Inne modele w Claude Agent („model backend”) — opcjonalnie

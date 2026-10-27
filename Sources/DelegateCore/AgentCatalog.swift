@@ -52,6 +52,30 @@ extension DelegateHome {
     public var agentChecksURL: URL { agentsURL.appendingPathComponent("checks.json") }
 }
 
+/// Kto jest dyrygentem: nazwa klienta MCP z `initialize` (`clientInfo.name`, np. `claude-code`, `codex-mcp-client`).
+public enum AssistantClient {
+    /// Agent, który działa na tej samej subskrypcji co klient (Claude Code → Claude Agent, Codex → Codex…).
+    /// Oddanie mu zadania ma sens tylko z tańszym modelem albo niższym wysiłkiem: inaczej płaci ta sama pula.
+    public static func sameSubscriptionAgent(clientName: String?) -> String? {
+        guard let name = clientName?.lowercased(), !name.isEmpty else { return nil }
+        let table: [(String, String)] = [
+            ("claude", "claude-acp"), ("codex", "codex-acp"), ("antigravity", "antigravity-acp"),
+            ("gemini", "gemini"), ("copilot", "github-copilot-cli"), ("visual studio code", "github-copilot-cli"),
+            ("cursor", "cursor"), ("junie", "junie"), ("jetbrains", "junie"), ("vibe", "mistral-vibe"),
+            ("mistral", "mistral-vibe"),
+        ]
+        return table.first { name.contains($0.0) }?.1
+    }
+
+    /// Podpowiedź dla dyrygenta (opis `delegate_agent`), gdy jego własny agent jest zainstalowany.
+    public static func hint(clientName: String?, agents: [String], config: Config) -> String? {
+        guard let id = sameSubscriptionAgent(clientName: clientName), agents.contains(id) else { return nil }
+        let defaults = config.agentSettings(id).map { [$0.model, $0.effort].compactMap { $0 } } ?? []
+        let suffix = defaults.isEmpty ? "" : " (the user's default: \(defaults.joined(separator: ", ")))"
+        return "`\(id)` runs on the same subscription as you: delegate to it only with a cheaper model or lower effort\(suffix), never with your own model."
+    }
+}
+
 /// Opis agentów dla dyrygenta (sekcja `list_models`): kto jest dostępny, gdzie idą dane, jakie modele i wysiłek.
 public enum AgentCatalog {
     /// Bez `default` (to „brak wyboru”) i bez powtórzeń (Copilot ogłasza `auto` dwa razy).
@@ -60,7 +84,9 @@ public enum AgentCatalog {
         return values.filter { $0 != "default" && seen.insert($0).inserted }
     }
 
-    public static func describe(installed: [InstalledAgent], config: Config, checks: [String: AgentCheckRecord]) -> String {
+    public static func describe(installed: [InstalledAgent], config: Config, checks: [String: AgentCheckRecord],
+                                clientName: String? = nil) -> String {
+        let shared = AssistantClient.sameSubscriptionAgent(clientName: clientName)
         guard !installed.isEmpty else { return "" }
         var out = "\n## Agents (delegate_agent)\n\n"
         for agent in installed.sorted(by: { $0.id < $1.id }) {
@@ -72,6 +98,7 @@ public enum AgentCatalog {
                 continue
             }
             let check = checks[agent.id]
+            if agent.id == shared { line += " · same subscription as you: only with a cheaper model" }
             switch check?.status {
             case "needsSignIn": line += " · NOT signed in (the user must sign in in the Delegate app)"
             case "failed": line += " · last check failed"

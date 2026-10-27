@@ -169,6 +169,13 @@ SwiftPM w piaskownicy wymaga `--disable-sandbox` (mówi to polecenie dla agenta)
 poprzedniego agenta zamiast z `HEAD`.
 **Skill `/swarm`** (`SwarmSkill`): procedura dyrygenta dla Claude Code w `~/.claude/skills/swarm/SKILL.md`, instalowana
 z Overview (rozpoznawana po znaczniku `<!-- delegate-mcp swarm skill -->`; cudzego skilla o tej nazwie nie nadpisujemy).
+Inni klienci MCP (sekcja „Other assistants” w Overview): `MCPClients.swift` (`MCPClient`, `MCPClientConfig`: Cursor
+`~/.cursor/mcp.json`, VS Code `…/Code/User/mcp.json` z `servers` + `type: stdio`, Gemini CLI `~/.gemini/settings.json`,
+Antigravity `~/.gemini/config/mcp_config.json`, Zed `context_servers` — plik z komentarzami trzeba edytować ręcznie)
+i `CodexMCPConfig.swift` (tekstowa podmiana tabeli `[mcp_servers.delegate]` w `~/.codex/config.toml`).
+Dyrygent: serwer zapamiętuje `clientInfo.name` z `initialize` (`initializeHook`); `AssistantClient` wskazuje agenta na tej
+samej subskrypcji (Claude Code → `claude-acp`, Codex → `codex-acp`…), a opis `delegate_agent` i `list_models` dopisują,
+że ma sens tylko z tańszym modelem. Instrukcje serwera są stałe (powstają przed `initialize`), więc tam tego nie ma.
 Testy na atrapie agenta (Python) w `ACPTests.swift` i `AgentRunTests.swift`.
 
 ## Ważne
