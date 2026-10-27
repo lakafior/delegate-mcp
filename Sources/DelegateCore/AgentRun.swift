@@ -42,7 +42,7 @@ public enum AgentRegions {
     public static func region(for agentID: String) -> PrivacyRegion {
         switch agentID {
         case "mistral-vibe": .eu
-        case "gemini", "antigravity-acp", "opencode", "opencode-v2", "goose", "amp-acp", "cursor", "github-copilot-cli": .us
+        case "gemini", "antigravity-acp", "claude-acp", "codex-acp", "opencode", "opencode-v2", "goose", "amp-acp", "cursor", "github-copilot-cli": .us
         case "kimi", "qwen-code", "glm-acp-agent", "minimax-code": .cn
         default: .other
         }
@@ -107,8 +107,9 @@ public struct AgentRunner: Sendable {
         defer { snapshot.remove() }
 
         let homeDir = userHome
-        let state = AgentSandbox.stateDirectories(forAgent: agent.id, home: homeDir)
-        for dir in state { try? fm.createDirectory(at: dir, withIntermediateDirectories: true) }
+        let state = AgentSandbox.stateDirectories(forAgent: agent.id, kind: agent.kind, home: homeDir)
+        // Katalogi (bez kropki w nazwie pliku, jak `.claude.json`) zakładamy, żeby agent miał gdzie pisać.
+        for dir in state where dir.pathExtension.isEmpty { try? fm.createDirectory(at: dir, withIntermediateDirectories: true) }
         var executable = URL(fileURLWithPath: agent.executable)
         var arguments = agent.args
         if useSandbox {
@@ -170,14 +171,26 @@ public struct AgentRunner: Sendable {
             await conn.close()
             // Po udanym zadaniu katalog (profil, log agenta) nie jest potrzebny; po błędzie zostaje do diagnozy.
             defer { try? fm.removeItem(at: jobDir) }
-            return await collector.report(agent: hello.name ?? agent.name, model: usedModel,
+            var report = await collector.report(agent: hello.name ?? agent.name, model: usedModel,
                                           seconds: Date().timeIntervalSince(started),
                                           stopReason: result["stopReason"]?.stringValue,
                                           includesUncommitted: snapshot.includesUncommitted)
+            // Kopia repo znika po zadaniu: ścieżki do niej (np. linki `file://` w raporcie) zamieniamy na oryginał.
+            for copy in Set([Self.realPath(snapshot.path.path), snapshot.path.path]).sorted(by: { $0.count > $1.count }) {
+                report.text = report.text.replacingOccurrences(of: copy, with: snapshot.repo.path)
+            }
+            return report
         } catch {
             await conn.close()
             throw error
         }
+    }
+
+    /// Ścieżka po rozwinięciu linków tak, jak widzi ją proces (`/var` → `/private/var`); Foundation obcina `/private`.
+    static func realPath(_ path: String) -> String {
+        guard let resolved = realpath(path, nil) else { return path }
+        defer { free(resolved) }
+        return String(cString: resolved)
     }
 
     /// Rodzaje narzędzi ACP, które zmieniają pliki: zawsze odmowa.

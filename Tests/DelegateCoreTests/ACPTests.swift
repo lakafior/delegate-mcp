@@ -74,6 +74,7 @@ while True:
                 open(os.path.join(os.environ.get("TMPDIR", "/nonexistent"), "t.txt"), "w").write("t"); out.append("tmp:ok")
             except Exception: out.append("tmp:blocked")
             out.append("model:" + model)
+            out.append("cwd:" + os.getcwd())
             chunk(" ".join(out) + " ")
             send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
                 "sessionUpdate": "tool_call", "toolCallId": "t1", "title": "grep notes", "kind": "search", "status": "completed"}}})
@@ -262,7 +263,7 @@ let registryFixture = #"""
         }
         #expect(t.cmd == "./vibe-acp")
         #expect(t.sha256 == (ACPRegistry.platformKey == "darwin-aarch64" ? "abc" : "def"))
-        #expect(r.agent("gemini")?.installKind == .needsRuntime("Node.js"))
+        #expect(r.agent("gemini")?.installKind == .npm(.init(package: "@google/gemini-cli@0.65.0", args: ["--acp"], env: nil)))
         #expect(r.agent("py")?.installKind == .needsRuntime("uv"))
         #expect(r.agent("linux-only")?.installKind == .unavailable)
     }
@@ -382,7 +383,9 @@ final class DataTransport: HTTPTransport, @unchecked Sendable {
     @Test func refusesNonBinaryAgents() async throws {
         let r = try ACPRegistry.parse(Data(registryFixture.utf8))
         let installer = AgentInstaller(directory: try tempDir("agents"), transport: DataTransport(Data()))
-        await #expect(throws: DelegateError.self) { try await installer.install(r.agent("gemini")!) }
+        // Agent z npm bez Node: czytelny błąd, bez prób instalacji.
+        await #expect(throws: DelegateError.self) { try await installer.install(r.agent("gemini")!, node: nil) }
+        await #expect(throws: DelegateError.self) { try await installer.install(r.agent("py")!, node: nil) }
     }
 
     @Test func commandPathRules() throws {
@@ -391,5 +394,85 @@ final class DataTransport: HTTPTransport, @unchecked Sendable {
         #expect(throws: DelegateError.self) { try AgentInstaller.commandPath("/usr/bin/env") }
         #expect(throws: DelegateError.self) { try AgentInstaller.commandPath("a/../../x") }
         #expect(AgentInstaller.safeComponent("../evil/1.0") == "_evil_1.0")
+    }
+}
+
+// MARK: agenci z npm
+
+/// Minimalny agent ACP w JavaScripcie (tylko `initialize` i `session/new`), jako paczka npm z polem `bin`.
+let fakeNodeAgentJS = #"""
+#!/usr/bin/env node
+const rl = require("readline").createInterface({ input: process.stdin });
+const send = (m) => process.stdout.write(JSON.stringify(m) + "\n");
+rl.on("line", (line) => {
+  const m = JSON.parse(line);
+  if (m.method === "initialize") send({ jsonrpc: "2.0", id: m.id, result: { protocolVersion: 1, authMethods: [],
+    agentInfo: { name: "node-fake", title: "Node Fake", version: "2.0.0" }, argv: process.argv.slice(2), path: process.env.PATH } });
+  else if (m.method === "session/new") send({ jsonrpc: "2.0", id: m.id, result: { sessionId: "n1" } });
+  else if (m.id !== undefined) send({ jsonrpc: "2.0", id: m.id, error: { code: -32601, message: "unknown" } });
+});
+"""#
+
+let nodeRuntime = NodeRuntime.find()
+
+@Suite(.enabled(if: nodeRuntime != nil)) struct NpmAgentTests {
+    /// `npm pack` lokalnej paczki: instalacja bez sieci.
+    private func tarball() async throws -> URL {
+        let src = try tempDir("npm-src")
+        try #"{"name": "node-fake-acp", "version": "2.0.0", "bin": {"node-fake-acp": "bin/agent.js", "other": "bin/other.js"}}"#
+            .write(to: src.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: src.appendingPathComponent("bin"), withIntermediateDirectories: true)
+        try fakeNodeAgentJS.write(to: src.appendingPathComponent("bin/agent.js"), atomically: true, encoding: .utf8)
+        try "process.exit(1)".write(to: src.appendingPathComponent("bin/other.js"), atomically: true, encoding: .utf8)
+        let out = try tempDir("npm-pack")
+        let node = try #require(nodeRuntime)
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = node.path
+        let (status, output) = try await runProcess(node.npm, ["pack", "--pack-destination", out.path, src.path], environment: env)
+        #expect(status == 0, "\(output)")
+        let file = try #require(try FileManager.default.contentsOfDirectory(atPath: out.path).first { $0.hasSuffix(".tgz") })
+        return out.appendingPathComponent(file)
+    }
+
+    private func entry(_ package: String) -> ACPRegistry.Agent {
+        ACPRegistry.Agent(id: "node-fake-acp", name: "Node Fake", version: "2.0.0", description: nil, repository: nil,
+                          website: nil, authors: nil, license: nil, icon: nil,
+                          distribution: .init(binary: nil, npx: .init(package: package, args: ["--acp"], env: ["X": "1"]), uvx: nil))
+    }
+
+    @Test func installsPackageAndRunsItWithSystemNode() async throws {
+        let tgz = try await tarball()
+        let dir = try tempDir("agents")
+        let installer = AgentInstaller(directory: dir, transport: DataTransport(Data()))
+        let installed = try await installer.install(entry(tgz.path), node: nodeRuntime)
+        #expect(installed.kind == "npm")
+        #expect(installed.executable == nodeRuntime?.node.path)
+        #expect(installed.args.first?.hasSuffix("node_modules/node-fake-acp/bin/agent.js") == true)
+        #expect(installed.args.dropFirst() == ["--acp"])
+        #expect(installed.env["X"] == "1")
+        #expect(installed.installDir == dir.appendingPathComponent("node-fake-acp/2.0.0").path)
+        #expect(installer.installed().map(\.id) == ["node-fake-acp"])
+
+        // Uruchomienie bez PATH z terminala: node podany wprost, PATH ze środowiska agenta.
+        let conn = try ACPConnection.launch(executable: URL(fileURLWithPath: installed.executable),
+                                            arguments: installed.args, environment: installed.env)
+        let raw = try await conn.request("initialize", ["protocolVersion": 1, "clientCapabilities": [:]], timeout: .seconds(20))
+        #expect(raw["agentInfo"]?["title"]?.stringValue == "Node Fake")
+        #expect(raw["argv"]?.arrayValue == ["--acp"])
+        await conn.close()
+
+        // Usunięty katalog = agent nie jest już zainstalowany.
+        try FileManager.default.removeItem(atPath: try #require(installed.installDir))
+        #expect(installer.installed().isEmpty)
+    }
+
+    @Test func npmFailureIsReported() async throws {
+        let installer = AgentInstaller(directory: try tempDir("agents"), transport: DataTransport(Data()))
+        do {
+            _ = try await installer.install(entry("/nonexistent/package.tgz"), node: nodeRuntime)
+            Issue.record("expected npm failure")
+        } catch let e as DelegateError {
+            #expect(e.description.contains("npm install failed"))
+        }
     }
 }

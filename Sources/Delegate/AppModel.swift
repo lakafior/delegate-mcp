@@ -291,6 +291,8 @@ final class AppModel {
     private(set) var agentRegistry: ACPRegistry?
     private(set) var installedAgents: [InstalledAgent] = []
     private(set) var loadingAgentRegistry = false
+    /// Systemowy Node.js dla agentów z npm (`nil`: brak).
+    private(set) var nodeRuntime: NodeRuntime?
     /// Wynik ostatniego sprawdzenia logowania (próbna sesja agenta).
     private(set) var agentChecks: [String: AgentAccount.Check] = [:]
     /// Co się teraz dzieje z agentem („Installing…”, „Checking…”, „Waiting for sign-in…”).
@@ -302,6 +304,7 @@ final class AppModel {
     /// Wczytuje rejestr (z cache albo sieci) i listę zainstalowanych; przy pierwszym wejściu sprawdza logowanie.
     func loadAgents(forceRefresh: Bool = false) async {
         installedAgents = agentInstaller.installed()
+        nodeRuntime = await Task.detached { NodeRuntime.find() }.value
         loadingAgentRegistry = true
         defer { loadingAgentRegistry = false }
         if let registry = await ACPRegistryStore(cacheURL: home.agentRegistryURL).load(forceRefresh: forceRefresh) {
@@ -319,9 +322,10 @@ final class AppModel {
         agentActivity[agent.id] = agentInstaller.installed(agent.id) == nil ? "Installing…" : "Updating…"
         agentError = nil
         let installer = agentInstaller
+        let node = nodeRuntime
         Task {
             do {
-                try await installer.install(agent)
+                try await installer.install(agent, node: node)
                 installedAgents = installer.installed()
                 agentActivity[agent.id] = nil
                 checkAgent(agent.id)
@@ -346,7 +350,7 @@ final class AppModel {
         guard let agent = installedAgents.first(where: { $0.id == id }), agentActivity[id] == nil else { return }
         agentActivity[id] = "Checking…"
         Task {
-            agentChecks[id] = await AgentAccount.check(agent)
+            agentChecks[id] = await AgentAccount.check(agent, sandboxFor: home)
             agentActivity[id] = nil
         }
     }

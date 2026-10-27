@@ -110,15 +110,23 @@ public struct AgentSandbox: Sendable {
     }
 
     /// Katalogi stanu znanych agentów (tam trzymają logowanie i cache). Nieznani: `~/.<id>`.
-    public static func stateDirectories(forAgent id: String, home: URL) -> [URL] {
+    /// Agenci z npm dostają jeszcze cache npm (niektórzy doinstalowują zależności przy starcie).
+    public static func stateDirectories(forAgent id: String, kind: String? = nil, home: URL) -> [URL] {
         let known: [String: [String]] = [
             "mistral-vibe": [".vibe"],
             "gemini": [".gemini"],
+            "antigravity-acp": [".gemini/antigravity-acp", ".gemini/antigravity"],
             "opencode": [".local/share/opencode", ".config/opencode", ".cache/opencode"],
             "goose": [".config/goose", ".local/share/goose"],
             "kimi": [".kimi"],
+            "github-copilot-cli": [".copilot", ".config/github-copilot"],
+            "claude-acp": [".claude", ".claude.json"],
+            "codex-acp": [".codex"],
+            "qwen-code": [".qwen"],
+            "kilo": [".kilocode", ".config/kilo", ".local/share/kilo"],
         ]
-        return (known[id] ?? [".\(id)"]).map { home.appendingPathComponent($0, isDirectory: true) }
+        let dirs = (known[id] ?? [".\(id)"]) + (kind == "npm" ? [".npm"] : [])
+        return dirs.map { home.appendingPathComponent($0) }
     }
 
     /// Co zawsze ukrywamy przed agentem.

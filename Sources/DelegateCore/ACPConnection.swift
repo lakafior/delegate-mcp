@@ -174,7 +174,7 @@ public actor ACPConnection {
                 let onRequest = self.onRequest
                 Task {
                     let result = await onRequest(method, params)
-                    await self.respond(id: id, result: result)
+                    self.respond(id: id, result: result)
                 }
             } else {
                 // Powiadomienia po kolei: kolejność fragmentów odpowiedzi ma znaczenie.

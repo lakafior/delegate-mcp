@@ -98,6 +98,16 @@ Zrobione w `DelegateCore` (bez zmian w serwerze MCP i apce):
 - Apka: zakładka Agents w pasku bocznym (`--select=agents`): zainstalowani (kropka stanu, wersja, region, modele,
   Zaloguj / Aktualizuj / menu: sprawdź, zaloguj ponownie, usuń), dostępni z rejestru z wyszukiwarką; agenci bez
   sumy SHA-256 albo wymagający Node/uv pokazani z powodem zamiast przycisku.
+- Agenci z npm (`InstallKind.npm`): `NodeRuntime` szuka systemowego Node (PATH, Homebrew, Volta, fnm, nvm);
+  `npm install --prefix <katalog wersji> --ignore-scripts --omit=dev`, skrypt z pola `bin`, uruchamiany przez
+  `node` z PATH w środowisku agenta. W piaskownicy dodatkowo zapis do `~/.npm`. Copilot (`github-copilot-cli`)
+  zainstalowany w 5,5 s (188 MB), status „signed in”.
+- Test na żywo, oba naraz w piaskownicy: **Antigravity** (gemini-3.8-flash) — raport trafny, 77 s, 7 kroków, bez
+  danych o tokenach (nie wysyła `usage_update`). **Copilot** — „not signed in”: poza piaskownicą loguje się tokenem
+  GitHub CLI (`~/.config/gh`), który piaskownica ukrywa. Wnioski wdrożone: `AgentAccount.check` działa w tej samej
+  piaskownicy co zadania (status = czy zadziała naprawdę); ścieżki kopii repo w raporcie (np. linki `file://`
+  Antigravity) zamieniane na ścieżki oryginału. Copilot potrzebuje własnego logowania (przycisk Sign in), a nie
+  odsłonięcia tokenu `gh` z dostępem do wszystkich repo.
 - Nie zrobione: ustawienia per agent (region, domyślny model, włączony) w `delegate.toml` — region dalej z tabeli
   `AgentRegions`, model wybiera Claude parametrem `model`. Do zrobienia, jeśli okaże się potrzebne.
 

@@ -62,17 +62,18 @@ public struct ACPRegistry: Codable, Sendable, Equatable {
 }
 
 extension ACPRegistry.Agent {
-    /// Jak da się zainstalować agenta na tym Macu. W pierwszej wersji obsługujemy tylko `binary`.
+    /// Jak da się zainstalować agenta na tym Macu: binarka, paczka npm (systemowy Node) albo jeszcze nie.
     public enum InstallKind: Sendable, Equatable {
         case binary(ACPRegistry.BinaryTarget)
-        /// Wymaga narzędzia, którego jeszcze nie obsługujemy (`node` dla npx, `uv` dla uvx).
+        case npm(ACPRegistry.PackageTarget)
+        /// Wymaga narzędzia, którego jeszcze nie obsługujemy (`uv` dla uvx).
         case needsRuntime(String)
         case unavailable
     }
 
     public var installKind: InstallKind {
         if let target = distribution.binary?[ACPRegistry.platformKey] { return .binary(target) }
-        if distribution.npx != nil { return .needsRuntime("Node.js") }
+        if let npx = distribution.npx { return .npm(npx) }
         if distribution.uvx != nil { return .needsRuntime("uv") }
         return .unavailable
     }

@@ -41,6 +41,8 @@ func makeRepo() throws -> URL {
         #expect(text.contains("secret:blocked"))     // oryginalne repo niewidoczne
         #expect(text.contains("tmp:ok"))             // katalog tymczasowy zadania zapisywalny
         #expect(text.contains("model:m2"))
+        #expect(text.contains("cwd:" + (try RepoSnapshot.git(["rev-parse", "--show-toplevel"], in: repo))))   // ścieżki kopii zamienione na oryginał
+        #expect(!text.contains("agent-jobs") && !text.contains("/repo "))
         #expect(text.contains("got: Check things"))
         #expect(text.contains("permission: reject"))
         #expect(report.rejected.count == 1)

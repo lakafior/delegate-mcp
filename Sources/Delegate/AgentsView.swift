@@ -66,7 +66,7 @@ struct AgentsView: View {
             .filter { !installed.contains($0.id) }
             .filter { query.isEmpty || $0.name.lowercased().contains(query) || ($0.description ?? "").lowercased().contains(query) }
             .sorted { a, b in
-                let ia = a.installBlocker == nil, ib = b.installBlocker == nil
+                let ia = a.installBlocker(node: model.nodeRuntime) == nil, ib = b.installBlocker(node: model.nodeRuntime) == nil
                 return ia != ib ? ia : a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
             }
     }
@@ -88,7 +88,7 @@ struct AgentsView: View {
         } header: {
             Text("Available from the ACP registry")
         } footer: {
-            Text("The same registry Zed and JetBrains IDEs use. For now only standalone Mac builds with a published checksum can be installed; agents that need Node.js or uv come later.")
+            Text("The same registry Zed and JetBrains IDEs use. Standalone Mac builds need a published checksum; npm agents are installed once with your Node.js into Delegate's folder (install scripts disabled) and run without npx. Agents that need uv come later.")
         }
     }
 }
@@ -193,6 +193,15 @@ private struct AvailableAgentRow: View {
     let model: AppModel
     let agent: ACPRegistry.Agent
 
+    private var sourceLine: String {
+        var s = "data: \(AgentRegions.region(for: agent.id).title)"
+        if case .npm(let p) = agent.installKind {
+            s += " · npm \(p.package)"
+            if let node = model.nodeRuntime { s += " (Node \(node.version))" }
+        }
+        return s
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
@@ -203,7 +212,7 @@ private struct AvailableAgentRow: View {
                 if let d = agent.description {
                     Text(d).font(.callout).foregroundStyle(.secondary).lineLimit(2)
                 }
-                Text("data: \(AgentRegions.region(for: agent.id).title)").font(.caption).foregroundStyle(.secondary)
+                Text(sourceLine).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
             if let activity = model.agentActivity[agent.id] {
@@ -211,7 +220,7 @@ private struct AvailableAgentRow: View {
                     ProgressView().controlSize(.small)
                     Text(activity).font(.callout).foregroundStyle(.secondary)
                 }
-            } else if let blocker = agent.installBlocker {
+            } else if let blocker = agent.installBlocker(node: model.nodeRuntime) {
                 Text(blocker).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
             } else {
                 Button("Install") { model.installAgent(agent) }
@@ -242,10 +251,12 @@ struct AgentStatusDot: View {
 
 extension ACPRegistry.Agent {
     /// Dlaczego nie da się zainstalować (do pokazania zamiast przycisku); `nil` = można.
-    var installBlocker: String? {
+    func installBlocker(node: NodeRuntime?) -> String? {
         switch installKind {
         case .binary(let target):
             return (target.sha256 ?? "").isEmpty ? "No checksum in the registry" : nil
+        case .npm:
+            return node == nil ? "Needs Node.js" : nil
         case .needsRuntime(let tool):
             return "Needs \(tool)"
         case .unavailable:

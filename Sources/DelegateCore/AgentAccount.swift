@@ -18,14 +18,28 @@ public enum AgentAccount {
     }
 
     /// Uruchamia agenta w pustym katalogu tymczasowym: `initialize` + `session/new`. Nic nie wysyła modelowi.
-    public static func check(_ agent: InstalledAgent) async -> Check {
+    /// Z `sandboxFor` sprawdzenie idzie w tej samej piaskownicy co zadania: agent, który loguje się czymś,
+    /// czego piaskownica nie pokazuje (np. Copilot tokenem z `gh`), wyjdzie jako niezalogowany, a nie „działa”.
+    public static func check(_ agent: InstalledAgent, sandboxFor delegateHome: DelegateHome? = nil,
+                             userHome: URL = FileManager.default.homeDirectoryForCurrentUser) async -> Check {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("delegate-agent-check-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let conn: ACPConnection
         do {
-            conn = try ACPConnection.launch(executable: URL(fileURLWithPath: agent.executable), arguments: agent.args,
-                                            environment: agent.env, workingDirectory: dir)
+            var executable = URL(fileURLWithPath: agent.executable)
+            var arguments = agent.args
+            if let delegateHome, AgentSandbox.isAvailable {
+                let state = AgentSandbox.stateDirectories(forAgent: agent.id, kind: agent.kind, home: userHome)
+                let sandbox = AgentSandbox(home: userHome, writable: state + [dir], readOnly: [],
+                                           hidden: AgentSandbox.defaultHidden(home: userHome, delegateHome: delegateHome))
+                let profile = dir.appendingPathComponent("sandbox.sb")
+                try sandbox.profile().write(to: profile, atomically: true, encoding: .utf8)
+                (executable, arguments) = sandbox.command(profileURL: profile, executable: executable, arguments: arguments)
+            }
+            conn = try ACPConnection.launch(executable: executable, arguments: arguments,
+                                            environment: agent.env.merging(["TMPDIR": dir.path + "/"]) { _, new in new },
+                                            workingDirectory: dir)
         } catch {
             return Check(signIn: .failed("Can't start \(agent.name): \(error)"), models: [], defaultModel: nil, authMethods: [])
         }

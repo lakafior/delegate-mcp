@@ -11,6 +11,23 @@ public struct InstalledAgent: Codable, Sendable, Equatable, Identifiable {
     public var args: [String]
     public var env: [String: String]
     public var installedAt: Date
+    /// `binary` albo `npm` (wtedy `executable` to systemowy `node`, a skrypt agenta jest w `args`).
+    public var kind: String?
+    /// Katalog instalacji; jego brak = agent usunięty ręcznie.
+    public var installDir: String?
+
+    public init(id: String, name: String, version: String, executable: String, args: [String],
+                env: [String: String], installedAt: Date, kind: String? = nil, installDir: String? = nil) {
+        self.id = id
+        self.name = name
+        self.version = version
+        self.executable = executable
+        self.args = args
+        self.env = env
+        self.installedAt = installedAt
+        self.kind = kind
+        self.installDir = installDir
+    }
 }
 
 /// Instaluje agentów z rejestru ACP do własnego katalogu (`Delegate/agents/<id>/<wersja>/`), jak Zed:
@@ -34,22 +51,36 @@ public struct AgentInstaller: Sendable {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let all = (try? decoder.decode([InstalledAgent].self, from: data)) ?? []
-        // Wpis bez pliku (ktoś skasował katalog ręcznie) nie jest zainstalowany.
-        return all.filter { FileManager.default.isExecutableFile(atPath: $0.executable) }
+        // Wpis bez pliku (ktoś skasował katalog ręcznie albo odinstalował Node) nie jest zainstalowany.
+        return all.filter {
+            FileManager.default.isExecutableFile(atPath: $0.executable)
+                && ($0.installDir.map { FileManager.default.fileExists(atPath: $0) } ?? true)
+        }
     }
 
     public func installed(_ id: String) -> InstalledAgent? { installed().first { $0.id == id } }
 
     // MARK: instalacja
 
+    /// `node`: systemowy Node.js dla agentów z npm (`NodeRuntime.find()`); bez niego takie agenty odpadają.
     @discardableResult
-    public func install(_ agent: ACPRegistry.Agent) async throws -> InstalledAgent {
-        guard case .binary(let target) = agent.installKind else {
-            if case .needsRuntime(let tool) = agent.installKind {
-                throw DelegateError(description: "\(agent.name) needs \(tool); only standalone binaries are supported for now.")
+    public func install(_ agent: ACPRegistry.Agent, node: NodeRuntime? = NodeRuntime.find()) async throws -> InstalledAgent {
+        switch agent.installKind {
+        case .binary(let target):
+            return try await installBinary(agent, target)
+        case .npm(let target):
+            guard let node else {
+                throw DelegateError(description: "\(agent.name) needs Node.js; install it (e.g. brew install node) and try again.")
             }
+            return try await installNpm(agent, target, node: node)
+        case .needsRuntime(let tool):
+            throw DelegateError(description: "\(agent.name) needs \(tool), which isn't supported yet.")
+        case .unavailable:
             throw DelegateError(description: "\(agent.name) has no build for this Mac.")
         }
+    }
+
+    private func installBinary(_ agent: ACPRegistry.Agent, _ target: ACPRegistry.BinaryTarget) async throws -> InstalledAgent {
         guard let expected = target.sha256?.lowercased(), !expected.isEmpty else {
             throw DelegateError(description: "\(agent.name): the registry gives no SHA-256 checksum, refusing to install.")
         }
@@ -92,20 +123,93 @@ public struct AgentInstaller: Sendable {
         }
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stagedExecutable.path)
 
+        let final = try promote(content, agent: agent, agentDir: agentDir)
+        return try record(InstalledAgent(id: agent.id, name: agent.name, version: agent.version,
+                                         executable: final.appendingPathComponent(relative).path,
+                                         args: target.args ?? [], env: target.env ?? [:], installedAt: Date(),
+                                         kind: "binary", installDir: final.path), agentDir: agentDir, keep: final)
+    }
+
+    /// Paczka npm instalowana raz (`npm install --prefix`) do katalogu agenta; uruchamiana przez systemowy
+    /// `node` bez `npx`, więc bez sieci i bez niespodziewanych aktualizacji przy starcie. Skrypty instalacyjne
+    /// paczek (`postinstall`) są wyłączone: to cudzy kod, który inaczej wykonałby się poza piaskownicą.
+    /// Integralność paczek sprawdza npm (sumy `integrity` z rejestru npm); rejestr ACP sumy nie podaje.
+    private func installNpm(_ agent: ACPRegistry.Agent, _ target: ACPRegistry.PackageTarget, node: NodeRuntime) async throws -> InstalledAgent {
+        let fm = FileManager.default
+        let agentDir = directory.appendingPathComponent(Self.safeComponent(agent.id), isDirectory: true)
+        let staging = agentDir.appendingPathComponent(".staging-\(UUID().uuidString)", isDirectory: true)
+        let content = staging.appendingPathComponent("content", isDirectory: true)
+        try fm.createDirectory(at: content, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: staging) }
+
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = node.path
+        let (status, output) = try await runProcess(node.npm, [
+            "install", "--prefix", content.path, "--no-audit", "--no-fund", "--omit=dev", "--ignore-scripts",
+            target.package,
+        ], environment: env)
+        guard status == 0 else {
+            let tail = output.split(separator: "\n").suffix(6).joined(separator: "\n")
+            throw DelegateError(description: "\(agent.name): npm install failed (exit \(status)).\n\(tail)")
+        }
+        let script = try Self.npmBinScript(in: content, agentID: agent.id)
+        let final = try promote(content, agent: agent, agentDir: agentDir)
+        let finalScript = final.appendingPathComponent(String(script.path.dropFirst(content.path.count + 1)))
+        var agentEnv = target.env ?? [:]
+        agentEnv["PATH"] = node.path
+        return try record(InstalledAgent(id: agent.id, name: agent.name, version: agent.version,
+                                         executable: node.node.path, args: [finalScript.path] + (target.args ?? []),
+                                         env: agentEnv, installedAt: Date(), kind: "npm", installDir: final.path),
+                          agentDir: agentDir, keep: final)
+    }
+
+    /// Skrypt startowy zainstalowanej paczki: nazwa z `package.json` katalogu instalacji, plik z pola `bin`
+    /// (jedyny wpis, albo ten nazwany jak paczka lub agent).
+    static func npmBinScript(in prefix: URL, agentID: String) throws -> URL {
+        func json(_ url: URL) -> [String: Any]? {
+            (try? Data(contentsOf: url)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        }
+        guard let deps = json(prefix.appendingPathComponent("package.json"))?["dependencies"] as? [String: Any],
+              let name = deps.keys.sorted().first else {
+            throw DelegateError(description: "npm installed nothing into \(prefix.lastPathComponent).")
+        }
+        let packageDir = prefix.appendingPathComponent("node_modules").appendingPathComponent(name)
+        let manifest = json(packageDir.appendingPathComponent("package.json")) ?? [:]
+        let bin: String?
+        if let single = manifest["bin"] as? String {
+            bin = single
+        } else if let map = manifest["bin"] as? [String: String] {
+            let short = String(name.split(separator: "/").last ?? "")
+            bin = map.count == 1 ? map.values.first : (map[short] ?? map[agentID] ?? map.keys.sorted().first.flatMap { map[$0] })
+        } else {
+            bin = nil
+        }
+        guard let bin else { throw DelegateError(description: "\(name) declares no executable (package.json \"bin\").") }
+        let script = packageDir.appendingPathComponent(bin).standardizedFileURL
+        guard script.path.hasPrefix(packageDir.standardizedFileURL.path + "/"),
+              FileManager.default.fileExists(atPath: script.path) else {
+            throw DelegateError(description: "\(name): executable \(bin) is missing or outside the package.")
+        }
+        return script
+    }
+
+    /// Przenosi przygotowaną zawartość na miejsce wersji.
+    private func promote(_ content: URL, agent: ACPRegistry.Agent, agentDir: URL) throws -> URL {
+        let fm = FileManager.default
         let final = agentDir.appendingPathComponent(Self.safeComponent(agent.version), isDirectory: true)
         if fm.fileExists(atPath: final.path) { try fm.removeItem(at: final) }
         try fm.moveItem(at: content, to: final)
+        return final
+    }
 
-        let entry = InstalledAgent(id: agent.id, name: agent.name, version: agent.version,
-                                   executable: final.appendingPathComponent(relative).path,
-                                   args: target.args ?? [], env: target.env ?? [:], installedAt: Date())
-        var all = installedIncludingMissing().filter { $0.id != agent.id }
+    /// Zapisuje wpis w `installed.json` i dopiero potem sprząta starsze wersje.
+    private func record(_ entry: InstalledAgent, agentDir: URL, keep final: URL) throws -> InstalledAgent {
+        var all = installedIncludingMissing().filter { $0.id != entry.id }
         all.append(entry)
         try save(all)
-        // Starsze wersje sprzątamy dopiero po zapisaniu nowej.
-        for old in (try? fm.contentsOfDirectory(at: agentDir, includingPropertiesForKeys: nil)) ?? []
+        for old in (try? FileManager.default.contentsOfDirectory(at: agentDir, includingPropertiesForKeys: nil)) ?? []
         where old.lastPathComponent != final.lastPathComponent && !old.lastPathComponent.hasPrefix(".staging-") {
-            try? fm.removeItem(at: old)
+            try? FileManager.default.removeItem(at: old)
         }
         return entry
     }
