@@ -215,6 +215,7 @@ public struct ACPAgentHello: Sendable, Equatable {
         /// `agent` (agent sam robi OAuth) albo `terminal` (interaktywne logowanie z `args`).
         public var type: String
         public var args: [String]
+        public var env: [String: String]
     }
 
     public var name: String?
@@ -231,7 +232,8 @@ public struct ACPAgentHello: Sendable, Equatable {
             guard let id = m["id"]?.stringValue else { return nil }
             return AuthMethod(id: id, name: m["name"]?.stringValue ?? id,
                               type: m["type"]?.stringValue ?? "agent",
-                              args: m["args"]?.arrayValue?.compactMap(\.stringValue) ?? [])
+                              args: m["args"]?.arrayValue?.compactMap(\.stringValue) ?? [],
+                              env: (m["env"]?.objectValue ?? [:]).compactMapValues(\.stringValue))
         }
     }
 }
@@ -249,6 +251,12 @@ extension ACPConnection {
             "clientInfo": ["name": .string(clientName), "version": .string(clientVersion)],
         ], timeout: timeout)
         return ACPAgentHello(result)
+    }
+
+    /// `authenticate` metodą typu `agent`: agent sam otwiera przeglądarkę i czeka na zalogowanie,
+    /// więc limit jest długi.
+    public func authenticate(methodId: String, timeout: Duration = .seconds(300)) async throws {
+        _ = try await request("authenticate", ["methodId": .string(methodId)], timeout: timeout)
     }
 
     /// `session/new` w katalogu `cwd`. Brak logowania = `RemoteError.isAuthRequired`.

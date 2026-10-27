@@ -5,6 +5,7 @@ enum SidebarItem: Hashable {
     case overview
     case provider(String)
     case routing
+    case agents
     case usage
     case settings
 }
@@ -16,6 +17,7 @@ extension SidebarItem {
         switch arg.dropFirst("--select=".count) {
         case "overview", "diagnostics": return .overview
         case "routing": return .routing
+        case "agents": return .agents
         case "usage": return .usage
         case "settings", "general": return .settings
         case let id: return .provider(String(id))
@@ -73,6 +75,7 @@ struct SettingsView: View {
                 }
                 Section("App") {
                     Label("Routing", systemImage: "arrow.triangle.branch").tag(SidebarItem.routing)
+                    Label("Agents", systemImage: "person.2.badge.gearshape").tag(SidebarItem.agents)
                     Label("Usage", systemImage: "chart.bar").tag(SidebarItem.usage)
                     Label("Settings", systemImage: "gearshape").tag(SidebarItem.settings)
                 }
@@ -151,6 +154,7 @@ struct SettingsView: View {
             }
 
         case .routing: RoutingView(model: model)
+        case .agents: AgentsView(model: model)
         case .usage: UsageView(model: model)
         case .settings: GeneralView(model: model)
         case .overview, nil: OverviewView(model: model)

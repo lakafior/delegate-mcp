@@ -42,6 +42,9 @@ while True:
                 "modes": {"currentModeId": "auto", "availableModes": [{"id": "ask"}, {"id": "auto"}]},
                 "configOptions": [{"id": "model", "category": "model", "currentValue": "m1",
                                    "options": [{"value": "m1"}, {"value": "m2"}]}]}})
+    elif method == "authenticate":
+        send({"jsonrpc": "2.0", "id": mid, "result": {}} if m["params"].get("methodId") == "browser-auth"
+             else {"jsonrpc": "2.0", "id": mid, "error": {"code": -32602, "message": "unknown method id"}})
     elif method in ("session/set_config_option", "session/set_mode"):
         p = m["params"]
         if p.get("configId") == "model":

@@ -171,3 +171,46 @@ func makeRepo() throws -> URL {
         #expect(!FileManager.default.fileExists(atPath: old.path))
     }
 }
+
+@Suite(.enabled(if: pythonAvailable)) struct AgentAccountTests {
+    private func agent(_ scenario: String) throws -> InstalledAgent {
+        let exe = try writeFakeAgent(in: try tempDir("bin"))
+        return InstalledAgent(id: "fake", name: "Fake Agent", version: "1", executable: exe.path, args: [],
+                              env: ["FAKE_SCENARIO": scenario], installedAt: Date())
+    }
+
+    @Test func signedInAgentReportsItsModels() async throws {
+        let check = await AgentAccount.check(try agent("ok"))
+        #expect(check.signIn == .signedIn)
+        #expect(check.models == ["m1", "m2"])
+        #expect(check.defaultModel == "m1")
+        #expect(check.authMethods.map(\.id) == ["browser-auth", "setup"])
+    }
+
+    @Test func agentWithoutLoginOffersMethods() async throws {
+        let check = await AgentAccount.check(try agent("auth"))
+        guard case .needsSignIn(let methods) = check.signIn else {
+            Issue.record("expected needsSignIn, got \(check.signIn)"); return
+        }
+        #expect(methods.map(\.type) == ["agent", "terminal"])
+    }
+
+    @Test func brokenAgentIsReportedNotHung() async throws {
+        let check = await AgentAccount.check(try agent("crash"))
+        guard case .failed = check.signIn else { Issue.record("expected failure"); return }
+    }
+
+    @Test func browserSignInCallsAuthenticate() async throws {
+        let a = try agent("auth")
+        let methods = await AgentAccount.check(a).authMethods
+        try await AgentAccount.signIn(a, method: methods[0])
+        await #expect(throws: ACPConnection.RemoteError.self) { try await AgentAccount.signIn(a, method: methods[1]) }
+    }
+
+    @Test func terminalCommandIsQuoted() {
+        let a = InstalledAgent(id: "x", name: "X", version: "1", executable: "/Apps/My Agent/agent", args: ["--acp"],
+                               env: ["A": "it's"], installedAt: Date())
+        let m = ACPAgentHello.AuthMethod(id: "t", name: "T", type: "terminal", args: ["--setup"], env: ["B": "2"])
+        #expect(AgentAccount.terminalCommand(a, method: m) == "A='it'\\''s' B='2' '/Apps/My Agent/agent' '--setup'")
+    }
+}

@@ -286,6 +286,95 @@ final class AppModel {
         return date != nil
     }
 
+    // MARK: agenci ACP
+
+    private(set) var agentRegistry: ACPRegistry?
+    private(set) var installedAgents: [InstalledAgent] = []
+    private(set) var loadingAgentRegistry = false
+    /// Wynik ostatniego sprawdzenia logowania (próbna sesja agenta).
+    private(set) var agentChecks: [String: AgentAccount.Check] = [:]
+    /// Co się teraz dzieje z agentem („Installing…”, „Checking…”, „Waiting for sign-in…”).
+    private(set) var agentActivity: [String: String] = [:]
+    var agentError: String?
+
+    private var agentInstaller: AgentInstaller { AgentInstaller(directory: home.agentsURL) }
+
+    /// Wczytuje rejestr (z cache albo sieci) i listę zainstalowanych; przy pierwszym wejściu sprawdza logowanie.
+    func loadAgents(forceRefresh: Bool = false) async {
+        installedAgents = agentInstaller.installed()
+        loadingAgentRegistry = true
+        defer { loadingAgentRegistry = false }
+        if let registry = await ACPRegistryStore(cacheURL: home.agentRegistryURL).load(forceRefresh: forceRefresh) {
+            agentRegistry = registry
+        } else if agentRegistry == nil {
+            agentError = "Can't load the ACP agent registry (offline?)."
+        }
+        for agent in installedAgents where agentChecks[agent.id] == nil && agentActivity[agent.id] == nil {
+            checkAgent(agent.id)
+        }
+    }
+
+    func installAgent(_ agent: ACPRegistry.Agent) {
+        guard agentActivity[agent.id] == nil else { return }
+        agentActivity[agent.id] = agentInstaller.installed(agent.id) == nil ? "Installing…" : "Updating…"
+        agentError = nil
+        let installer = agentInstaller
+        Task {
+            do {
+                try await installer.install(agent)
+                installedAgents = installer.installed()
+                agentActivity[agent.id] = nil
+                checkAgent(agent.id)
+            } catch {
+                agentActivity[agent.id] = nil
+                agentError = "\(error)"
+            }
+        }
+    }
+
+    func uninstallAgent(_ id: String) {
+        do {
+            try agentInstaller.uninstall(id)
+            installedAgents = agentInstaller.installed()
+            agentChecks[id] = nil
+        } catch {
+            agentError = "Couldn't remove \(id): \(error)"
+        }
+    }
+
+    func checkAgent(_ id: String) {
+        guard let agent = installedAgents.first(where: { $0.id == id }), agentActivity[id] == nil else { return }
+        agentActivity[id] = "Checking…"
+        Task {
+            agentChecks[id] = await AgentAccount.check(agent)
+            agentActivity[id] = nil
+        }
+    }
+
+    /// Logowanie: typ `agent` przez ACP (agent otwiera przeglądarkę), typ `terminal` w Terminalu.
+    func signInAgent(_ id: String, method: ACPAgentHello.AuthMethod) {
+        guard let agent = installedAgents.first(where: { $0.id == id }), agentActivity[id] == nil else { return }
+        agentError = nil
+        if method.type == "terminal" {
+            do {
+                try AgentAccount.openTerminalSignIn(agent, method: method)
+            } catch {
+                agentError = "Couldn't open Terminal: \(error)"
+            }
+            return
+        }
+        agentActivity[id] = "Waiting for sign-in in the browser…"
+        Task {
+            do {
+                try await AgentAccount.signIn(agent, method: method)
+            } catch {
+                agentError = "Sign-in to \(agent.name) didn't finish: \(error)"
+            }
+            agentActivity[id] = nil
+            checkAgent(id)
+        }
+    }
+
     // MARK: edycja listy dostawców
 
     func addProvider(from preset: ProviderPreset) -> String {

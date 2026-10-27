@@ -299,8 +299,8 @@ await server.withMethodHandler(CallTool.self) { params in
                                                inputTokens: report.inputTokens, outputTokens: report.outputTokens,
                                                ok: true, ms: Int(report.seconds * 1000)))
                     guard let reportFile else { return report.formatted }
-                    let header = report.formatted.components(separatedBy: "\n").first ?? ""
-                    return header + "\n\n" + (try OutputFile.write(report.formatted, to: reportFile))
+                    // Podgląd zaczyna się od nagłówka raportu, więc go nie powtarzamy.
+                    return try OutputFile.write(report.formatted, to: reportFile)
                 } catch {
                     usageLog.append(UsageEntry(provider: "agent:\(agentID)", model: model ?? "default", task: "agent",
                                                ok: false, error: "\(error)", ms: Int(Date().timeIntervalSince(started) * 1000)))

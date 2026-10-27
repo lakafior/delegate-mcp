@@ -42,7 +42,7 @@ public enum AgentRegions {
     public static func region(for agentID: String) -> PrivacyRegion {
         switch agentID {
         case "mistral-vibe": .eu
-        case "gemini", "opencode", "opencode-v2", "goose", "amp-acp", "cursor", "github-copilot-cli": .us
+        case "gemini", "antigravity-acp", "opencode", "opencode-v2", "goose", "amp-acp", "cursor", "github-copilot-cli": .us
         case "kimi", "qwen-code", "glm-acp-agent", "minimax-code": .cn
         default: .other
         }

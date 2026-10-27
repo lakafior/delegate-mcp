@@ -90,7 +90,16 @@ Zrobione w `DelegateCore` (bez zmian w serwerze MCP i apce):
   flagi `--agents`, `--install-agent <id>`. Użycie agentów w `delegate_usage.jsonl` jako `agent:<id>`, bez kosztu
   (subskrypcja nie liczy się do dziennego budżetu).
 
-Następny: etap 3 (zakładka Agents w apce: instalacja, logowanie, ustawienia per agent, w tym region i model).
+## Stan etapu 3
+
+- `ACPConnection.authenticate`, `AuthMethod.env`; `AgentAccount` (`check`: `initialize` + `session/new` w pustym
+  katalogu → zalogowany / wymaga logowania / błąd, plus modele z sesji; `signIn` dla typu `agent`; `.command`
+  w Terminalu dla typu `terminal`).
+- Apka: zakładka Agents w pasku bocznym (`--select=agents`): zainstalowani (kropka stanu, wersja, region, modele,
+  Zaloguj / Aktualizuj / menu: sprawdź, zaloguj ponownie, usuń), dostępni z rejestru z wyszukiwarką; agenci bez
+  sumy SHA-256 albo wymagający Node/uv pokazani z powodem zamiast przycisku.
+- Nie zrobione: ustawienia per agent (region, domyślny model, włączony) w `delegate.toml` — region dalej z tabeli
+  `AgentRegions`, model wybiera Claude parametrem `model`. Do zrobienia, jeśli okaże się potrzebne.
 
 ## Podział ról
 
