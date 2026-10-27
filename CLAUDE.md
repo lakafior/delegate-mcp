@@ -136,7 +136,7 @@ i podgląd w zakładce Routing):
   odpadają; nieznana cena liczy się jako płatna, lokalne i `free` zawsze przechodzą.
 - **Przerwy** (`ModelCooldowns`): model, który odmówił, jest pomijany przez jakiś czas, zamiast zjadać limit czasu:
   429 z `limit: 0` → doba, 429 z „retry in …” → tyle, ile podał dostawca, inny 429 → 60 s, 402 → godzina,
-  503/502/504/529 i timeout (tylko przy pełnym, nieprzyciętym limicie) → 5 min, 500 → 2 min, 404 i 400 „only supports…”
+  503/502/504/529 i timeout (gdy model miał pełny limit albo co najmniej 25 s) → 5 min, 500 → 2 min, 404 i 400 „only supports…”
   → tydzień. Sukces zdejmuje przerwę; w Routingu przycisk „Resume paused models” zdejmuje wszystkie.
 - **Tryb** (`delegation_mode`: `conservative`/`balanced`/`aggressive`) zmienia ton i próg słów w instrukcjach serwera.
 

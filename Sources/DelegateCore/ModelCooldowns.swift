@@ -36,7 +36,7 @@ public struct ModelCooldowns: Sendable {
     // MARK: klasyfikacja błędów
 
     /// Jak długo omijać model po tym błędzie; `nil` = błąd nie mówi nic trwałego o modelu.
-    /// `fullTimeout`: próba dostała pełny czas (nie przyciętą resztkę z limitu wywołania synchronicznego).
+    /// `fullTimeout`: próba dostała uczciwą szansę: pełny czas albo co najmniej `fairTimeout`.
     public static func cooldown(for error: Error, fullTimeout: Bool = true) -> (seconds: TimeInterval, reason: String)? {
         guard let e = error as? ProviderError else { return nil }
         switch e {
@@ -70,6 +70,10 @@ public struct ModelCooldowns: Sendable {
             return nil
         }
     }
+
+    /// Tyle milczenia wystarczy, żeby uznać model za zawieszony, nawet gdy limit wywołania synchronicznego
+    /// przyciął mu czas (inaczej zawieszony model w wywołaniach synchronicznych nigdy nie dostałby przerwy).
+    public static let fairTimeout: TimeInterval = 25
 
     static let day: TimeInterval = 24 * 3600
     static let week: TimeInterval = 7 * day

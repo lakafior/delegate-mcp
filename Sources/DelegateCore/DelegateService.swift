@@ -418,7 +418,7 @@ public struct DelegateService: Sendable {
                 usage.append(UsageEntry(provider: c.provider.id, model: c.model.id, task: request.task,
                                         ok: false, error: String(describing: error), ms: ms))
                 failures.append("\(c.ref) → \(error)")
-                if let pause = ModelCooldowns.cooldown(for: error, fullTimeout: timeout >= fullTimeout) {
+                if let pause = ModelCooldowns.cooldown(for: error, fullTimeout: timeout >= min(fullTimeout, ModelCooldowns.fairTimeout)) {
                     cooldowns.set(c.ref, ModelCooldown(until: Date().addingTimeInterval(pause.seconds), reason: pause.reason))
                 }
                 if !request.allowFallback { break }
