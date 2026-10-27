@@ -563,6 +563,9 @@ extension PriceCatalogTests {
         let later = svc.routingPlan(for: .init(prompt: "x"), config: cfg, now: Date().addingTimeInterval(301))
         #expect(later.candidates.map(\.ref).contains("mistral/mistral-small-latest"))
         #expect(try svc.listModels().contains("PAUSED until"))
+        // Kolejne wywołanie omija model na przerwie i mówi o tym w nagłówku.
+        let second = try await svc.delegate(.init(prompt: "x", model: "mistral/mistral-small-latest"))
+        #expect(second.contains("skipped (paused): mistral/mistral-small-latest"))
 
         await #expect(throws: DelegateError.self) {
             try await svc.delegate(.init(prompt: "x", model: "mistral/mistral-small-latest", allowFallback: false))

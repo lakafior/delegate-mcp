@@ -275,7 +275,7 @@ public struct DelegateService: Sendable {
             let time = DateFormatter()
             time.dateFormat = "HH:mm"
             excluded += all.compactMap { c in
-                cooling[c.ref].map { RoutingExclusion(ref: c.ref, reason: "paused until \(time.string(from: $0.until)): \($0.reason)") }
+                cooling[c.ref].map { RoutingExclusion(ref: c.ref, reason: "\(RoutingExclusion.pausePrefix) \(time.string(from: $0.until)): \($0.reason)") }
             }
             all = all.filter { cooling[$0.ref] == nil }
         }
@@ -400,6 +400,11 @@ public struct DelegateService: Sendable {
                                         costUSD: cost,
                                         ok: true, ms: ms))
                 var h = header(c, reply, ms: ms, cost: cost, failures: failures)
+                let paused = plan.excluded.filter(\.isPause).map(\.ref)
+                if !paused.isEmpty {
+                    h += " · skipped (paused): " + paused.prefix(3).joined(separator: ", ")
+                    if paused.count > 3 { h += " +\(paused.count - 3)" }
+                }
                 if attached.count > 0 { h += " · files: \(attached.count) (\(max(1, attached.bytes / 1024)) KB)" }
                 if let spent = plan.spentToday, let budget = config.dailyBudgetUSD {
                     h += String(format: " · budget today: $%.2f/$%.2f", spent + (cost ?? 0), budget)

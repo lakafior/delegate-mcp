@@ -58,6 +58,10 @@ extension ModelConfig {
 public struct RoutingExclusion: Sendable, Equatable {
     public var ref: String
     public var reason: String
+
+    static let pausePrefix = "paused until"
+    /// Model pominięty, bo ma przerwę po błędzie (`ModelCooldowns`).
+    public var isPause: Bool { reason.hasPrefix(Self.pausePrefix) }
 }
 
 /// Co serwer zrobiłby z zadaniem: kolejność prób i co pominął.
