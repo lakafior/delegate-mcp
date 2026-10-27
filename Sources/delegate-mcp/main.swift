@@ -95,7 +95,8 @@ func prop(_ type: String, _ description: String) -> Value {
 
 /// Config czytany przy każdym wywołaniu; przy błędzie pusty, żeby serwer i tak wystartował.
 func currentGuide() -> DelegationGuide {
-    service.guide(config: (try? service.currentConfig()) ?? Config(), agents: agentInstaller.installed().map(\.id))
+    let config = (try? service.currentConfig()) ?? Config()
+    return service.guide(config: config, agents: agentInstaller.installed().map(\.id))
 }
 
 /// Lista narzędzi budowana na żądanie: opis `delegate` zawiera aktualne modele i tagi.
@@ -110,7 +111,8 @@ func agentTool(_ guide: DelegationGuide) -> Tool {
             "agent": .object(["type": .string("string"), "enum": .array(guide.agents.map { .string($0) })]),
             "repo": prop("string", "Absolute path inside the git repository."),
             "task": prop("string", "What to find out; the agent sees the repo, not this conversation. Say what the report should contain."),
-            "model": prop("string", "Agent's model option (optional; an error lists the valid ones)."),
+            "model": prop("string", "Agent's model option; default from the user's settings, else the agent's own (an error lists the valid ones)."),
+            "effort": prop("string", "Agent's effort/thinking level (e.g. low); default from the user's settings."),
             "sensitivity": .object([
                 "type": .string("string"),
                 "enum": .array(Sensitivity.allCases.map { .string($0.rawValue) }),
@@ -290,11 +292,13 @@ await server.withMethodHandler(CallTool.self) { params in
                 return .init(content: [reply("Not sent: \(why).")], isError: true)
             }
             let reportFile = try a["report_file"]?.stringValue.map(OutputFile.validate)
-            let model = a["model"]?.stringValue
+            let settings = ((try? service.currentConfig()) ?? Config()).agentSettings(agentID)
+            let model = a["model"]?.stringValue ?? settings?.model
+            let effort = a["effort"]?.stringValue ?? settings?.effort
             let id = await jobs.start(label: "\(agentID): " + DelegateJobs.shortLabel(task)) {
                 let started = Date()
                 do {
-                    let report = try await agentRunner.run(agent: agent, repo: repoURL, task: task, model: model)
+                    let report = try await agentRunner.run(agent: agent, repo: repoURL, task: task, model: model, effort: effort)
                     usageLog.append(UsageEntry(provider: "agent:\(agentID)", model: report.model ?? "default", task: "agent",
                                                inputTokens: report.inputTokens, outputTokens: report.outputTokens,
                                                ok: true, ms: Int(report.seconds * 1000)))

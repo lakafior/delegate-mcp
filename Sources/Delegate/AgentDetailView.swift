@@ -24,6 +24,7 @@ struct AgentDetailView: View {
                 }
             }
             statusSection
+            defaultsSection
             detailsSection
             Section {
                 Button("Remove \(agent.name)…", role: .destructive) { confirmRemove = true }
@@ -94,6 +95,51 @@ struct AgentDetailView: View {
             }
             .fixedSize()
         }
+    }
+
+    // MARK: domyślne opcje
+
+    private var settings: AgentSettings? { model.config.agentSettings(agent.id) }
+
+    private func binding(_ keyPath: KeyPath<AgentSettings, String?>) -> Binding<String> {
+        Binding(
+            get: { settings?[keyPath: keyPath] ?? "" },
+            set: { value in
+                var modelValue = settings?.model, effortValue = settings?.effort
+                if keyPath == \AgentSettings.model { modelValue = value } else { effortValue = value }
+                model.config.setAgent(agent.id, model: modelValue, effort: effortValue)
+            })
+    }
+
+    @ViewBuilder
+    private var defaultsSection: some View {
+        if let check, !check.models.isEmpty || !check.efforts.isEmpty {
+            Section {
+                if !check.models.isEmpty {
+                    Picker("Model", selection: binding(\.model)) {
+                        Text("Agent's default\(check.defaultModel.map { " (\($0))" } ?? "")").tag("")
+                        ForEach(options(check.models, current: settings?.model), id: \.self) { Text($0).tag($0) }
+                    }
+                }
+                if !check.efforts.isEmpty {
+                    Picker("Effort", selection: binding(\.effort)) {
+                        Text("Agent's default\(check.defaultEffort.map { " (\($0))" } ?? "")").tag("")
+                        ForEach(options(check.efforts, current: settings?.effort), id: \.self) { Text($0).tag($0) }
+                    }
+                }
+            } header: {
+                Text("Defaults for delegated tasks")
+            } footer: {
+                Text("Used when the assistant doesn't pick a model or effort itself. A cheaper model saves your plan's limits: for example Claude Agent on haiku with low effort costs a fraction of what the assistant's own model would.")
+            }
+        }
+    }
+
+    /// Wartości od agenta; zapisana wartość, której agent już nie ogłasza, zostaje na liście, żeby jej nie zgubić.
+    private func options(_ values: [String], current: String?) -> [String] {
+        let real = values.filter { $0 != "default" }
+        guard let current, !current.isEmpty, !real.contains(current) else { return real }
+        return real + [current]
     }
 
     // MARK: szczegóły

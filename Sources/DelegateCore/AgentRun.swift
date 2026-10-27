@@ -10,6 +10,7 @@ public struct AgentReport: Sendable {
 
     public var agent: String
     public var model: String?
+    public var effort: String?
     public var text: String
     public var toolCalls: [ToolCall]
     /// Odrzucone prośby o zgodę (próby zapisu albo poleceń, na które agent pytał).
@@ -24,6 +25,7 @@ public struct AgentReport: Sendable {
     public var formatted: String {
         var h = "[delegate_agent] agent: \(agent)"
         if let model { h += " · model: \(model)" }
+        if let effort { h += " · effort: \(effort)" }
         h += " · tokens: \(inputTokens.map(String.init) ?? "?") in / \(outputTokens.map(String.init) ?? "?") out"
         h += String(format: " · %.0f s", seconds)
         h += " · steps: \(toolCalls.count)"
@@ -81,18 +83,22 @@ public struct AgentRunner: Sendable {
     }
 
     /// Zasady doklejane przed zadaniem. Piaskownica i tak blokuje zapis; to oszczędza agentowi prób.
-    static func readOnlyPrompt(task: String, cwd: URL) -> String {
-        """
+    static func readOnlyPrompt(task: String, cwd: URL, includesUncommitted: Bool = false) -> String {
+        // `git stash create` robi z niezacommitowanych zmian dwa techniczne commity; bez tej uwagi agent bierze je za historię.
+        let snapshotNote = includesUncommitted
+            ? " The top commit (\"WIP on …\", with \"index on …\" below it) is a snapshot of the user's uncommitted changes, not real history; real commits start below them."
+            : ""
+        return """
         You are working in a read-only copy of a git repository at \(cwd.path). Do not modify, create or delete \
         any files: writes are blocked by the sandbox and will fail. Use read-only commands (ls, cat, grep, git log, \
-        git diff) only. Answer with a concise Markdown report and cite file:line for concrete claims.
+        git diff) only. Answer with a concise Markdown report and cite file:line for concrete claims.\(snapshotNote)
 
         Task:
         \(task)
         """
     }
 
-    public func run(agent: InstalledAgent, repo: URL, task: String, model: String? = nil,
+    public func run(agent: InstalledAgent, repo: URL, task: String, model: String? = nil, effort: String? = nil,
                     timeout: Duration = .seconds(600), jobID: String = UUID().uuidString) async throws -> AgentReport {
         if useSandbox && !AgentSandbox.isAvailable {
             throw DelegateError(description: "sandbox-exec is missing on this Mac; agents won't run without a sandbox.")
@@ -113,8 +119,10 @@ public struct AgentRunner: Sendable {
         var executable = URL(fileURLWithPath: agent.executable)
         var arguments = agent.args
         if useSandbox {
-            let sandbox = AgentSandbox(home: homeDir, writable: state + [tmp], readOnly: [snapshot.path],
+            var sandbox = AgentSandbox(home: homeDir, writable: state + [tmp], readOnly: [snapshot.path],
                                        hidden: AgentSandbox.defaultHidden(home: homeDir, delegateHome: home) + [snapshot.repo])
+            sandbox.readableExceptions = [snapshot.gitDirectory]
+            sandbox.metadataExceptions = [snapshot.repo]
             let profileURL = jobDir.appendingPathComponent("sandbox.sb")
             try sandbox.profile().write(to: profileURL, atomically: true, encoding: .utf8)
             (executable, arguments) = sandbox.command(profileURL: profileURL, executable: executable, arguments: arguments)
@@ -124,7 +132,7 @@ public struct AgentRunner: Sendable {
         let started = Date()
         let conn = try ACPConnection.launch(
             executable: executable, arguments: arguments,
-            environment: agent.env.merging(["TMPDIR": tmp.path + "/"]) { _, new in new },
+            environment: agent.env.merging(AgentSandbox.temporaryEnvironment(tmp)) { _, new in new },
             workingDirectory: snapshot.path,
             stderrLog: jobDir.appendingPathComponent("agent.log"),
             onRequest: { [useSandbox] method, params in
@@ -153,10 +161,22 @@ public struct AgentRunner: Sendable {
                 }
                 usedModel = model
             } else {
-                usedModel = session.configOptions.first { $0.category == "model" || $0.id == "model" }?.current
+                usedModel = session.modelOption?.current
+            }
+            var usedEffort: String?
+            if let effort, !effort.isEmpty {
+                guard let option = session.effortOption else {
+                    throw DelegateError(description: "\(agent.name) doesn't offer an effort setting.")
+                }
+                guard try await conn.setOption(session, option.id, effort) else {
+                    throw DelegateError(description: "\(agent.name) has no effort \"\(effort)\"; available: \(option.values.joined(separator: ", ")).")
+                }
+                usedEffort = effort
+            } else {
+                usedEffort = session.effortOption?.current
             }
 
-            let prompt = Self.readOnlyPrompt(task: task, cwd: snapshot.path)
+            let prompt = Self.readOnlyPrompt(task: task, cwd: snapshot.path, includesUncommitted: snapshot.includesUncommitted)
             let result: JSONValue
             do {
                 result = try await conn.request("session/prompt", [
@@ -171,7 +191,7 @@ public struct AgentRunner: Sendable {
             await conn.close()
             // Po udanym zadaniu katalog (profil, log agenta) nie jest potrzebny; po błędzie zostaje do diagnozy.
             defer { try? fm.removeItem(at: jobDir) }
-            var report = await collector.report(agent: hello.name ?? agent.name, model: usedModel,
+            var report = await collector.report(agent: hello.name ?? agent.name, model: usedModel, effort: usedEffort,
                                           seconds: Date().timeIntervalSince(started),
                                           stopReason: result["stopReason"]?.stringValue,
                                           includesUncommitted: snapshot.includesUncommitted)
@@ -261,8 +281,8 @@ actor AgentCollector {
         return toolCall["toolCallId"]?.stringValue.flatMap { calls[$0]?.kind }
     }
 
-    func report(agent: String, model: String?, seconds: Double, stopReason: String?, includesUncommitted: Bool) -> AgentReport {
-        AgentReport(agent: agent, model: model, text: text, toolCalls: order.compactMap { calls[$0] },
+    func report(agent: String, model: String?, effort: String?, seconds: Double, stopReason: String?, includesUncommitted: Bool) -> AgentReport {
+        AgentReport(agent: agent, model: model, effort: effort, text: text, toolCalls: order.compactMap { calls[$0] },
                     rejected: rejected, inputTokens: inputTokens, outputTokens: outputTokens,
                     seconds: seconds, stopReason: stopReason, includesUncommitted: includesUncommitted)
     }

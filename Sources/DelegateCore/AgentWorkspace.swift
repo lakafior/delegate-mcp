@@ -9,6 +9,8 @@ public struct RepoSnapshot: Sendable {
     public let path: URL
     public let commit: String
     public let includesUncommitted: Bool
+    /// Wspólny katalog `.git` oryginalnego repo (obiekty i metadane worktree).
+    public let gitDirectory: URL
 
     public static func create(repo: URL, at path: URL) throws -> RepoSnapshot {
         let top: String
@@ -31,7 +33,9 @@ public struct RepoSnapshot: Sendable {
         }
         try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
         _ = try git(["worktree", "add", "--detach", path.path, commit], in: root)
-        return RepoSnapshot(repo: root, path: path, commit: commit, includesUncommitted: !stash.isEmpty)
+        let common = (try? git(["rev-parse", "--path-format=absolute", "--git-common-dir"], in: root))
+            .map { URL(fileURLWithPath: $0) } ?? root.appendingPathComponent(".git")
+        return RepoSnapshot(repo: root, path: path, commit: commit, includesUncommitted: !stash.isEmpty, gitDirectory: common)
     }
 
     /// Usuwa kopię i jej wpis w `.git/worktrees`.
@@ -73,6 +77,11 @@ public struct AgentSandbox: Sendable {
     public var readOnly: [URL]
     /// Niewidoczne dla agenta (klucze, tokeny, oryginalne repo z plikami spoza gita).
     public var hidden: [URL]
+    /// Wyjątki od `hidden` tylko do odczytu, np. `.git` oryginalnego repo: worktree trzyma tam swoje metadane,
+    /// więc bez tego `git log` w kopii nie działa. Pliki spoza gita (np. `.env`) zostają ukryte.
+    public var readableExceptions: [URL] = []
+    /// Katalogi, których same metadane (`stat`) są widoczne, choć zawartość nie (git sprawdza ścieżkę oryginalnego repo).
+    public var metadataExceptions: [URL] = []
 
     public static let executable = URL(fileURLWithPath: "/usr/bin/sandbox-exec")
     public static var isAvailable: Bool { FileManager.default.isExecutableFile(atPath: executable.path) }
@@ -101,6 +110,11 @@ public struct AgentSandbox: Sendable {
         if !writable.isEmpty { lines.append("(allow file-write* \(rules(writable)))") }
         if !readOnly.isEmpty { lines.append("(deny file-write* \(rules(readOnly)))") }
         if !hidden.isEmpty { lines.append("(deny file-read* file-write* \(rules(hidden)))") }
+        if !readableExceptions.isEmpty { lines.append("(allow file-read* \(rules(readableExceptions)))") }
+        if !metadataExceptions.isEmpty {
+            let literals = metadataExceptions.map { "(literal \"\(Self.escape(Self.realPath($0)))\")" }.joined(separator: " ")
+            lines.append("(allow file-read-metadata \(literals))")
+        }
         return lines.joined(separator: "\n") + "\n"
     }
 
@@ -127,6 +141,13 @@ public struct AgentSandbox: Sendable {
         ]
         let dirs = (known[id] ?? [".\(id)"]) + (kind == "npm" ? [".npm"] : [])
         return dirs.map { home.appendingPathComponent($0) }
+    }
+
+    /// Zmienne kierujące pliki tymczasowe agenta do katalogu zadania (jedyne zapisywalne `tmp` w piaskownicy).
+    /// Claude Code (Claude Agent) trzyma pliki powłoki w osobnym katalogu, nie w `TMPDIR`; bez tego jego Bash nie startuje.
+    public static func temporaryEnvironment(_ dir: URL) -> [String: String] {
+        let path = dir.path.hasSuffix("/") ? dir.path : dir.path + "/"
+        return ["TMPDIR": path, "CLAUDE_CODE_TMPDIR": path]
     }
 
     /// Co zawsze ukrywamy przed agentem.

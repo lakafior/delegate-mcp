@@ -152,6 +152,8 @@ albo z podpisem Developer ID (`CodeSignature`), niepodpisane tylko za zgodą (`U
 uruchamiane `node <skrypt>` bez npx), z terminala `delegate-mcp --install-agent <id>` / `--agents`. W apce: zainstalowani agenci w pasku bocznym ze stronami
 (`AgentDetailView`), rejestr pod „Browse agents” (`AgentsView`), sekcja Agents w Overview; stan logowania (`AgentAccount.check`: próbna sesja w pustym katalogu) i logowanie
 (`agent` → ACP `authenticate`, agent otwiera przeglądarkę; `terminal` → plik `.command` w Terminalu).
+Domyślne opcje agenta w `delegate.toml` (`[[agent]] id/model/effort`, `AgentSettings`, wybór na stronie agenta):
+używane, gdy dyrygent nie poda `model`/`effort` w `delegate_agent`; wysiłek to opcja sesji `thought_level`/`effort`/`thinking`.
 Testy na atrapie agenta (Python) w `ACPTests.swift` i `AgentRunTests.swift`.
 
 ## Ważne

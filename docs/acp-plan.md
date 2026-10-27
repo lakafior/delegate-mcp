@@ -123,6 +123,11 @@ Zrobione w `DelegateCore` (bez zmian w serwerze MCP i apce):
   w piaskownicy, logowanie, wersja/aktualizacja, region, weryfikacja, modele, polecenie, katalogi zapisu, usuwanie);
   rejestr pod „Browse agents” i w menu „+”; Overview ma sekcję Agents (Node, piaskownica, stan każdego agenta,
   wliczone w podsumowanie). `--select=agent:<id>`.
+- A1: domyślny model i wysiłek per agent (`[[agent]]` w `delegate.toml`, pickery na stronie agenta, parametr
+  `effort` w `delegate_agent`). Na żywo: Claude Agent z `haiku`/`low` — trafny raport w 22–30 s. Przy okazji:
+  `CLAUDE_CODE_TMPDIR` na katalog zadania (bez tego powłoka Claude Code nie startowała w piaskownicy), odczyt `.git`
+  i metadanych katalogu oryginalnego repo (bez tego `git log` w kopii nie działał; zawartość repo dalej ukryta),
+  uwaga w poleceniu o technicznych commitach „WIP on …” z migawki.
 - Nie zrobione: ustawienia per agent (region, domyślny model, włączony) w `delegate.toml` — region dalej z tabeli
   `AgentRegions`, model wybiera Claude parametrem `model`. Do zrobienia, jeśli okaże się potrzebne.
 

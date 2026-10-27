@@ -40,6 +40,12 @@ enum ConfigWriter {
                 if let n = m.note, !n.isEmpty { out += "note = \(string(n, multiline: true))\n" }
             }
         }
+        for a in config.agents where !a.isEmpty {
+            out += "\n[[agent]]\n"
+            out += "id = \(string(a.id))\n"
+            if let m = a.model { out += "model = \(string(m))\n" }
+            if let e = a.effort { out += "effort = \(string(e))\n" }
+        }
         return out
     }
 

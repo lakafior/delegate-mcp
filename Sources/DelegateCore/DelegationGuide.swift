@@ -20,9 +20,20 @@ public struct DelegationGuide: Sendable {
 
     /// Zainstalowani agenci ACP (`delegate_agent`); pusta lista = bez wzmianki w instrukcjach.
     public let agents: [String]
+    /// Domyślne opcje agentów z configu, pokazywane przy nazwie (np. `claude-acp: haiku, low`).
+    let agentSettings: [AgentSettings]
+
+    var agentList: String {
+        agents.map { id in
+            guard let s = agentSettings.first(where: { $0.id == id }) else { return id }
+            let parts = [s.model, s.effort].compactMap { $0 }
+            return parts.isEmpty ? id : "\(id): \(parts.joined(separator: ", "))"
+        }.joined(separator: "; ")
+    }
 
     public init(config: Config, agents: [String] = [], isReady: (ProviderConfig) -> Bool) {
         self.agents = agents
+        self.agentSettings = config.agents
         let ready = config.providers.filter(isReady)
         mode = config.delegationMode
         personalRegions = config.personalRegions
@@ -114,7 +125,7 @@ public struct DelegationGuide: Sendable {
         }
         out += "\n\nCatalog (provider · data region · cost per 1M in/out): \n" + catalog
         if !agents.isEmpty {
-            out += "\n\n`delegate_agent` runs a coding agent (\(agents.joined(separator: ", "))) on a read-only snapshot of a git "
+            out += "\n\n`delegate_agent` runs a coding agent (\(agentList)) on a read-only snapshot of a git "
                 + "repo in the background: hand it repo-wide searches and analysis (where X is used, what must change, a module "
                 + "review) instead of reading many files yourself, then spot-check its file:line claims. Results via `delegate_result`."
         }

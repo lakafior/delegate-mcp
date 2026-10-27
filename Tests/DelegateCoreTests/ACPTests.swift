@@ -13,6 +13,7 @@ let fakeAgentScript = #"""
 import json, os, sys
 scenario = os.environ.get("FAKE_SCENARIO", "ok")
 model = "m1"
+effort = "default"
 
 def send(m):
     sys.stdout.write(json.dumps(m) + "\n"); sys.stdout.flush()
@@ -42,7 +43,9 @@ while True:
             send({"jsonrpc": "2.0", "id": mid, "result": {"sessionId": "s-" + os.path.basename(m["params"]["cwd"]),
                 "modes": {"currentModeId": "auto", "availableModes": [{"id": "ask"}, {"id": "auto"}]},
                 "configOptions": [{"id": "model", "category": "model", "currentValue": "m1",
-                                   "options": [{"value": "m1"}, {"value": "m2"}]}]}})
+                                   "options": [{"value": "m1"}, {"value": "m2"}]},
+                                  {"id": "effort", "category": "thought_level", "currentValue": "default",
+                                   "options": [{"value": "default"}, {"value": "low"}, {"value": "high"}]}]}})
     elif method == "authenticate":
         send({"jsonrpc": "2.0", "id": mid, "result": {}} if m["params"].get("methodId") == "browser-auth"
              else {"jsonrpc": "2.0", "id": mid, "error": {"code": -32602, "message": "unknown method id"}})
@@ -50,6 +53,8 @@ while True:
         p = m["params"]
         if p.get("configId") == "model":
             model = p["value"]
+        if p.get("configId") == "effort":
+            effort = p["value"]
         send({"jsonrpc": "2.0", "id": mid, "result": {}})
     elif method == "session/prompt":
         if scenario == "hang":
@@ -75,7 +80,11 @@ while True:
                 open(os.path.join(os.environ.get("TMPDIR", "/nonexistent"), "t.txt"), "w").write("t"); out.append("tmp:ok")
             except Exception: out.append("tmp:blocked")
             out.append("model:" + model)
+            out.append("effort:" + effort)
             out.append("cwd:" + os.getcwd())
+            import subprocess
+            g = subprocess.run(["/usr/bin/git", "log", "--oneline", "-1"], capture_output=True, text=True)
+            out.append("git:" + ("ok" if g.returncode == 0 and "init" in g.stdout else "fail[" + g.stderr.strip().replace(" ", "_")[:300] + "]"))
             chunk(" ".join(out) + " ")
             send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
                 "sessionUpdate": "tool_call", "toolCallId": "t1", "title": "grep notes", "kind": "search", "status": "completed"}}})

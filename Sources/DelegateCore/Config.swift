@@ -144,6 +144,24 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
     }
 }
 
+/// Ustawienia agenta ACP (`[[agent]]`): domyślne opcje sesji dla `delegate_agent`, gdy dyrygent ich nie poda.
+/// Przykład: Claude Agent z `model = "haiku"` i `effort = "low"` zużywa dużo mniej limitu subskrypcji.
+public struct AgentSettings: Codable, Sendable, Equatable {
+    public var id: String
+    /// Wartość opcji modelu ogłoszonej przez agenta w sesji (np. `haiku`); `nil` = domyślny agenta.
+    public var model: String?
+    /// Wartość opcji wysiłku/myślenia (np. `low`); `nil` = domyślny agenta.
+    public var effort: String?
+
+    public init(id: String, model: String? = nil, effort: String? = nil) {
+        self.id = id
+        self.model = model
+        self.effort = effort
+    }
+
+    var isEmpty: Bool { model == nil && effort == nil }
+}
+
 /// Zawartość `delegate.toml`. Kolejność `providers` to priorytet fallbacku.
 public struct Config: Codable, Sendable, Equatable {
     public static let defaultPersonalRegions: [PrivacyRegion] = [.local, .eu, .us]
@@ -157,10 +175,13 @@ public struct Config: Codable, Sendable, Equatable {
     /// Dzienny limit wydatków na płatne modele w USD; po jego przekroczeniu serwer ich nie używa.
     public var dailyBudgetUSD: Double?
     public var providers: [ProviderConfig]
+    /// Ustawienia agentów ACP; brak wpisu = domyślne opcje agenta.
+    public var agents: [AgentSettings]
 
     public init(routingGuidance: String = "", timeoutSeconds: Double = 120, delegationMode: DelegationMode = .balanced,
                 personalRegions: [PrivacyRegion] = Config.defaultPersonalRegions, dailyBudgetUSD: Double? = nil,
-                providers: [ProviderConfig] = []) {
+                providers: [ProviderConfig] = [], agents: [AgentSettings] = []) {
+        self.agents = agents
         self.routingGuidance = routingGuidance
         self.timeoutSeconds = timeoutSeconds
         self.delegationMode = delegationMode
@@ -176,6 +197,7 @@ public struct Config: Codable, Sendable, Equatable {
         case personalRegions = "personal_regions"
         case dailyBudgetUSD = "daily_budget_usd"
         case providers = "provider"
+        case agents = "agent"
     }
 
     public init(from decoder: Decoder) throws {
@@ -189,6 +211,20 @@ public struct Config: Codable, Sendable, Equatable {
             .compactMap(PrivacyRegion.init(rawValue:)) ?? Config.defaultPersonalRegions
         dailyBudgetUSD = try c.decodeNumberIfPresent(forKey: .dailyBudgetUSD)
         providers = try c.decodeIfPresent([ProviderConfig].self, forKey: .providers) ?? []
+        agents = try c.decodeIfPresent([AgentSettings].self, forKey: .agents) ?? []
+    }
+
+    public func agentSettings(_ id: String) -> AgentSettings? { agents.first { $0.id == id } }
+
+    /// Ustawia domyślne opcje agenta; puste wartości usuwają wpis.
+    public mutating func setAgent(_ id: String, model: String?, effort: String?) {
+        let clean = { (s: String?) in s.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 } }
+        let entry = AgentSettings(id: id, model: clean(model), effort: clean(effort))
+        if let i = agents.firstIndex(where: { $0.id == id }) {
+            if entry.isEmpty { agents.remove(at: i) } else { agents[i] = entry }
+        } else if !entry.isEmpty {
+            agents.append(entry)
+        }
     }
 
     public static func parse(_ toml: String) throws -> Config {
@@ -222,6 +258,15 @@ public struct Config: Codable, Sendable, Equatable {
         var order = ids(mine) != ids(base) ? ids(mine) : ids(theirs)
         for id in ids(mine) + ids(theirs) where !order.contains(id) { order.append(id) }
         out.providers = order.compactMap { id in m[id] != b[id] ? m[id] : t[id] }
+
+        // Agenci jak dostawcy: per ID wygrywa strona, która zmieniła wpis.
+        func agentsByID(_ c: Config) -> [String: AgentSettings] {
+            Dictionary(c.agents.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        }
+        let ab = agentsByID(base), am = agentsByID(mine), at = agentsByID(theirs)
+        var agentOrder: [String] = []
+        for id in mine.agents.map(\.id) + theirs.agents.map(\.id) where !agentOrder.contains(id) { agentOrder.append(id) }
+        out.agents = agentOrder.compactMap { id in am[id] != ab[id] ? am[id] : at[id] }
         return out
     }
 

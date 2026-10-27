@@ -335,5 +335,11 @@ public struct ACPSession: Sendable, Equatable {
     }
 
     /// Wartości opcji modelu (puste, gdy agent nie pozwala wybrać).
-    public var models: [String] { configOptions.first { $0.category == "model" || $0.id == "model" }?.values ?? [] }
+    public var models: [String] { modelOption?.values ?? [] }
+    public var modelOption: ConfigOption? { configOptions.first { $0.category == "model" || $0.id == "model" } }
+
+    /// Opcja wysiłku/myślenia: różnie nazywana (Claude Agent: `effort`/`thought_level`, Vibe: `thinking`).
+    public var effortOption: ConfigOption? {
+        configOptions.first { $0.category == "thought_level" || ["effort", "thinking", "thought_level", "reasoning"].contains($0.id) }
+    }
 }

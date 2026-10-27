@@ -33,14 +33,17 @@ func makeRepo() throws -> URL {
         let repo = try makeRepo()
         let secret = repo.appendingPathComponent(".env").path
         let report = try await runner().run(agent: try agent("probe", env: ["FAKE_SECRET": secret]),
-                                            repo: repo, task: "Check things", model: "m2")
+                                            repo: repo, task: "Check things", model: "m2", effort: "low")
         let text = report.text
         #expect(text.contains("read:uncommitted"))   // kopia ma niezacommitowane zmiany
         #expect(text.contains("write:blocked"))      // kopia repo tylko do odczytu
         #expect(text.contains("env:no"))             // pliki nieśledzone nie trafiają do kopii
-        #expect(text.contains("secret:blocked"))     // oryginalne repo niewidoczne
+        #expect(text.contains("secret:blocked"))     // oryginalne repo niewidoczne…
+        #expect(text.contains("git:ok"))             // …poza jego .git, z którego korzysta kopia
         #expect(text.contains("tmp:ok"))             // katalog tymczasowy zadania zapisywalny
         #expect(text.contains("model:m2"))
+        #expect(text.contains("effort:low"))
+        #expect(report.effort == "low")
         #expect(text.contains("cwd:" + (try RepoSnapshot.git(["rev-parse", "--show-toplevel"], in: repo))))   // ścieżki kopii zamienione na oryginał
         #expect(!text.contains("agent-jobs") && !text.contains("/repo "))
         #expect(text.contains("got: Check things"))
@@ -51,7 +54,7 @@ func makeRepo() throws -> URL {
         #expect(report.outputTokens == 7)
         #expect(report.model == "m2")
         #expect(report.includesUncommitted)
-        #expect(report.formatted.hasPrefix("[delegate_agent] agent: Fake Agent · model: m2 · tokens: 100 in / 7 out"))
+        #expect(report.formatted.hasPrefix("[delegate_agent] agent: Fake Agent · model: m2 · effort: low · tokens: 100 in / 7 out"))
         #expect(report.formatted.contains("Blocked (read-only):"))
 
         // Oryginał nietknięty, kopia posprzątana.
@@ -86,6 +89,15 @@ func makeRepo() throws -> URL {
             Issue.record("expected error")
         } catch let e as DelegateError {
             #expect(e.description.contains("available: m1, m2"))
+        }
+    }
+
+    @Test func unknownEffortListsTheValidOnes() async throws {
+        do {
+            _ = try await runner().run(agent: try agent("ok"), repo: try makeRepo(), task: "x", effort: "turbo")
+            Issue.record("expected error")
+        } catch let e as DelegateError {
+            #expect(e.description.contains("available: default, low, high"))
         }
     }
 
@@ -132,6 +144,32 @@ func makeRepo() throws -> URL {
         #expect(AgentRegions.refusal(agentID: "kimi", sensitivity: .personal, config: config) != nil)
         #expect(AgentRegions.refusal(agentID: "unknown", sensitivity: .personal, config: config) != nil)
         #expect(AgentRegions.refusal(agentID: "mistral-vibe", sensitivity: .private, config: config) != nil)
+    }
+
+    @Test func agentSettingsRoundTripMergeAndShowInInstructions() throws {
+        var config = try Config.parse(sampleConfigToml)
+        config.setAgent("claude-acp", model: "haiku", effort: "low")
+        config.setAgent("mistral-vibe", model: " ", effort: nil)   // puste = brak wpisu
+        #expect(config.agents == [AgentSettings(id: "claude-acp", model: "haiku", effort: "low")])
+        let toml = try config.serialized()
+        #expect(toml.contains("[[agent]]\nid = \"claude-acp\"\nmodel = \"haiku\"\neffort = \"low\""))
+        #expect(try Config.parse(toml).agents == config.agents)
+
+        // Scalanie: GUI zmienia agenta, z zewnątrz ktoś zmienia dostawcę — zostają obie zmiany.
+        var mine = config, theirs = config
+        mine.setAgent("claude-acp", model: "sonnet", effort: "low")
+        theirs.timeoutSeconds = 90
+        let merged = Config.merge(base: config, mine: mine, theirs: theirs)
+        #expect(merged.agentSettings("claude-acp")?.model == "sonnet")
+        #expect(merged.timeoutSeconds == 90)
+
+        config.setAgent("claude-acp", model: nil, effort: nil)
+        #expect(config.agents.isEmpty)
+
+        var withDefaults = try Config.parse(sampleConfigToml)
+        withDefaults.setAgent("claude-acp", model: "haiku", effort: "low")
+        let text = DelegationGuide(config: withDefaults, agents: ["mistral-vibe", "claude-acp"]) { _ in true }.serverInstructions
+        #expect(text.contains("(mistral-vibe; claude-acp: haiku, low)"))
     }
 
     @Test func instructionsMentionAgentsOnlyWhenInstalled() throws {
@@ -186,6 +224,8 @@ func makeRepo() throws -> URL {
         #expect(check.signIn == .signedIn)
         #expect(check.models == ["m1", "m2"])
         #expect(check.defaultModel == "m1")
+        #expect(check.efforts == ["default", "low", "high"])
+        #expect(check.defaultEffort == "default")
         #expect(check.authMethods.map(\.id) == ["browser-auth", "setup", "legacy"])
     }
 
