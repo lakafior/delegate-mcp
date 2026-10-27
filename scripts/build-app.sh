@@ -14,6 +14,12 @@ fi
 
 echo "Tożsamość podpisu: $SIGN_ID"
 
+# Jedno źródło wersji: `let version` w serwerze; numer kompilacji = liczba commitów.
+VERSION="$(sed -nE 's/^let version = "([^"]+)"/\1/p' Sources/delegate-mcp/main.swift)"
+[[ -n "$VERSION" ]] || { echo "Nie znalazłem wersji w Sources/delegate-mcp/main.swift" >&2; exit 1; }
+BUILD="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
+echo "Wersja: $VERSION ($BUILD)"
+
 swift build -c "$CONFIG" --product Delegate
 swift build -c "$CONFIG" --product delegate-mcp
 BIN="$(swift build -c "$CONFIG" --show-bin-path)"
@@ -46,8 +52,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleIconName</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0</string>
-  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
+  <key>CFBundleVersion</key><string>$BUILD</string>
   <key>LSMinimumSystemVersion</key><string>26.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>

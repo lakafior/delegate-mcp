@@ -59,7 +59,14 @@ Ikona: `Assets/AppIcon.icon` (Icon Composer), kompilowana przez `actool` w `buil
   `/Applications`. Stabilny podpis zespołu (zamiast ad-hoc) sprawia, że zgoda „Zawsze zezwalaj” na
   Keychain przeżywa przebudowania. Tożsamości: `security find-identity -v -p codesigning`.
 - **Dla innych ludzi:** podpis „Developer ID Application” → `./scripts/build-app.sh` →
-  `./scripts/notarize.sh` (profil `notarytool store-credentials`) → `./scripts/make-dmg.sh`.
+  `./scripts/notarize.sh` (profil `notarytool store-credentials`) → `./scripts/make-dmg.sh` → `./scripts/notarize.sh dist/Delegate.dmg`.
+- **Wydanie na GitHubie** (`.github/workflows/release.yml`): podbij `let version` w `Sources/delegate-mcp/main.swift`
+  (jedyne źródło wersji; `build-app.sh` wpisuje ją do Info.plist, numer kompilacji = liczba commitów), commit,
+  `git tag v<wersja> && git push origin v<wersja>`. Workflow sprawdza zgodność taga z wersją, puszcza testy, podpisuje,
+  notaryzuje apkę i DMG i publikuje release z `Delegate-<wersja>.dmg` + `.sha256`. Sekrety repo:
+  `DEVELOPER_ID_P12_BASE64` / `DEVELOPER_ID_P12_PASSWORD` (certyfikat „Developer ID Application” z kluczem, `base64 -i cert.p12`),
+  `NOTARY_KEY_P8_BASE64` / `NOTARY_KEY_ID` / `NOTARY_ISSUER_ID` (klucz API App Store Connect, rola Developer).
+  `notarize.sh` w CI używa klucza API (`NOTARY_KEY_PATH`), lokalnie profilu z Keychain.
 
 ## Pliki użytkownika
 
