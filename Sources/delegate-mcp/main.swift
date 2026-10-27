@@ -100,7 +100,7 @@ func makeTools(_ guide: DelegationGuide) -> [Tool] { [
             "fallback": prop("boolean", "Default true; false = only the given model."),
             "allow_secrets": prop("boolean", "Default false; true only if detected keys/tokens are intentional."),
             "output_file": prop("string", "Absolute path; the server writes the reply there and returns only a short preview."),
-            "background": prop("boolean", "Return a job ID at once; collect with delegate_result. Start several in one turn to run them in parallel."),
+            "background": prop("boolean", "Return a job ID at once; collect with delegate_result. Required for anything that may take over ~40 s (whole files, long output): sync calls are cut off at \(Int(DelegateRequest.syncDeadlineSeconds)) s."),
         ], required: ["prompt"])
     ),
     Tool(
@@ -192,7 +192,9 @@ await server.withMethodHandler(CallTool.self) { params in
                 let id = await jobs.start(request)
                 return .init(content: [reply("Started background job \(id). Keep working; collect with delegate_result.")], isError: false)
             }
-            return .init(content: [reply(try await service.delegate(request))], isError: false)
+            var sync = request
+            sync.deadlineSeconds = DelegateRequest.syncDeadlineSeconds
+            return .init(content: [reply(try await service.delegate(sync))], isError: false)
 
         case "delegate_result":
             let ids = a["ids"]?.arrayValue?.compactMap(\.stringValue) ?? []

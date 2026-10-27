@@ -90,7 +90,8 @@ public struct DelegationGuide: Sendable {
         - `output_file`: the server writes the reply there and you get a preview. Use it whenever the result \
         is a file; then check it with `git diff`.
         - `background: true`: returns a job ID at once. Start several independent jobs in one turn, keep \
-        working, collect them with `delegate_result`.
+        working, collect them with `delegate_result`. Use it for anything that may take over ~40 s (whole files, \
+        long output): sync calls are cut off at \(Int(DelegateRequest.syncDeadlineSeconds)) s.
 
         Good fits: translating or extending locale files; docs, README, changelog, commit message drafts; test \
         data and fixtures; boilerplate modelled on an example file; mechanical rewrites of one file; summaries \

@@ -17,8 +17,9 @@ public actor DelegateJobs {
         public var state: State
     }
 
-    /// Górna granica czekania w jednym wywołaniu `delegate_result`, żeby nie wpaść w timeout klienta MCP.
-    public static let maxWaitSeconds = 120.0
+    /// Górna granica czekania w jednym wywołaniu `delegate_result`. Claude zrywa wywołanie narzędzia po ok. 60 s,
+    /// a po takim zerwaniu restartuje serwer, więc zadania w pamięci by przepadły.
+    public static let maxWaitSeconds = 40.0
 
     private let run: @Sendable (DelegateRequest) async throws -> String
     private var jobs: [String: Job] = [:]

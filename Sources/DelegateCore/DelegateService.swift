@@ -20,11 +20,16 @@ public struct DelegateRequest: Sendable {
     public var files: [String]
     /// Ścieżka, pod którą serwer zapisuje odpowiedź (`OutputFile`); Claude dostaje wtedy tylko podgląd.
     public var outputFile: String?
+    /// Łączny limit czasu na wszystkie próby (z fallbackami); `nil` = bez limitu (zadania w tle).
+    public var deadlineSeconds: TimeInterval?
+
+    /// Wywołania synchroniczne muszą się zmieścić przed ok. 60 s, po których Claude zrywa wywołanie narzędzia.
+    public static let syncDeadlineSeconds: TimeInterval = 50
 
     public init(prompt: String, system: String? = nil, model: String? = nil, task: String? = nil,
                 temperature: Double? = nil, maxTokens: Int? = nil, allowFallback: Bool = true,
                 allowSecrets: Bool = false, jsonMode: Bool = false, sensitivity: Sensitivity = .public,
-                files: [String] = [], outputFile: String? = nil) {
+                files: [String] = [], outputFile: String? = nil, deadlineSeconds: TimeInterval? = nil) {
         self.prompt = prompt
         self.system = system
         self.model = model
@@ -37,6 +42,7 @@ public struct DelegateRequest: Sendable {
         self.sensitivity = sensitivity
         self.files = files
         self.outputFile = outputFile
+        self.deadlineSeconds = deadlineSeconds
     }
 }
 
@@ -156,6 +162,9 @@ public struct DelegateService: Sendable {
             priceCatalog: PriceCatalogStore(cacheURL: home.priceCatalogURL, transport: transport)
         )
     }
+
+    /// Poniżej tego nie ma sensu zaczynać kolejnej próby w ramach limitu wywołania synchronicznego.
+    static let minAttemptSeconds: TimeInterval = 3
 
     /// Wylicza adaptacyjny timeout: uwzględnia bazowy timeout dostawcy/configu, długość promptu oraz limit tokenów.
     public static func computeTimeout(for request: DelegateRequest, provider: ProviderConfig, config: Config) -> TimeInterval {
@@ -340,9 +349,20 @@ public struct DelegateService: Sendable {
                                temperature: request.temperature, maxTokens: request.maxTokens,
                                jsonMode: request.jsonMode)
         var failures: [String] = []
+        let deadline = request.deadlineSeconds.map { Date().addingTimeInterval($0) }
 
-        for c in list {
-            let timeout = Self.computeTimeout(for: request, provider: c.provider, config: config)
+        for (i, c) in list.enumerated() {
+            var timeout = Self.computeTimeout(for: request, provider: c.provider, config: config)
+            if let deadline {
+                let left = deadline.timeIntervalSinceNow
+                guard left >= Self.minAttemptSeconds else {
+                    failures.append("\(c.ref) → skipped: out of time (sync calls get \(Int(request.deadlineSeconds ?? 0)) s; use background: true)")
+                    break
+                }
+                // Zawieszony model nie może zjeść całego limitu: zostaw czas na fallback.
+                let more = request.allowFallback && i < list.count - 1
+                timeout = min(timeout, more ? left * 0.6 : left)
+            }
             let client = ProviderClient(transport: transport, timeout: timeout)
             let key = secrets.secret(for: c.provider.apiKeyEnv) ?? ""
             let started = Date()

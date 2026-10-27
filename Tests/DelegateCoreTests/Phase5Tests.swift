@@ -454,6 +454,26 @@ extension PriceCatalogTests {
         #expect(t.calls.isEmpty)
     }
 
+    @Test func syncDeadlineStopsAttemptsAndPointsToBackground() async throws {
+        let t = MockTransport(["api.mistral.ai": .init(status: 200, body: openAIBody)])
+        let (svc, _) = try makeService(t, keys: ["MISTRAL_API_KEY": "m"])
+        do {
+            _ = try await svc.delegate(.init(prompt: "x", deadlineSeconds: 1))
+            Issue.record("should have run out of time")
+        } catch {
+            #expect("\(error)".contains("use background: true"))
+        }
+        #expect(t.calls.isEmpty)
+        // Z zapasem czasu wywołanie przechodzi normalnie.
+        #expect(try await svc.delegate(.init(prompt: "x", deadlineSeconds: 50)).contains("cześć"))
+    }
+
+    @Test func instructionsSendLongTasksToBackground() throws {
+        let text = DelegationGuide(config: try Config.parse(sampleConfigToml)) { _ in true }.serverInstructions
+        #expect(text.contains("cut off at 50 s"))
+        #expect(DelegateJobs.maxWaitSeconds < 60)
+    }
+
     @Test func fenceIsKeptWhenNotWrappingEverything() {
         let text = "```swift\na\n```\nmore\n```\nb\n```"
         #expect(OutputFile.stripFence(text).stripped == false)

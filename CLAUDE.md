@@ -24,7 +24,7 @@ urządzeniu (Apple Foundation Models, `type = "foundation"`): bez klucza, offlin
 |---|---|
 | `list_models` | Lista dostawców i modeli wg priorytetu, z tagami, kosztami, statusem klucza i zasadami routingu |
 | `delegate` | Wysyła zadanie: `model` (`provider/model`), `task` (tag) albo automatycznie wg priorytetu; opcjonalnie `system`, `temperature`, `max_tokens`, `fallback=false`, `sensitivity` (`public`/`personal`/`private`), `files` (ścieżki plików tekstowych, które serwer czyta sam), `output_file` (serwer zapisuje odpowiedź na dysk, Claude dostaje podgląd), `background` (od razu zwraca ID zadania) |
-| `delegate_result` | Status i wyniki zadań w tle (`ids`, `wait` do 120 s); zadania żyją w pamięci procesu serwera, czyli tyle co sesja |
+| `delegate_result` | Status i wyniki zadań w tle (`ids`, `wait` do 40 s); zadania żyją w pamięci procesu serwera, czyli tyle co sesja. Claude zrywa wywołanie narzędzia po ok. 60 s (i restartuje serwer), więc wywołania synchroniczne mają łączny limit 50 s (`DelegateRequest.syncDeadlineSeconds`), a pierwsza próba bierze najwyżej 60% pozostałego czasu, żeby zostało na fallback |
 | `list_remote_models` | Pyta API dostawcy o aktualne ID modeli, z sugerowanymi tagami, kontekstem i cenami (jeśli API je podaje) |
 | `update_models` | Zapisuje tagi i koszt modeli w `delegate.toml` (upsert, bez kluczy). Koszt: kategoria (`free`/`cheap`/`paid`/`varies`) albo `price_in`/`price_out` w USD za 1M tokenów |
 | `usage_summary` | Podsumowanie wywołań i tokenów z lokalnego logu |
