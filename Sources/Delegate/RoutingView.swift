@@ -1,3 +1,4 @@
+import AppKit
 import DelegateCore
 import SwiftUI
 
@@ -11,6 +12,7 @@ struct RoutingView: View {
         Form {
             modeSection
             privacySection
+            RepoRulesSection(model: model)
             budgetSection
             previewSection
             Section {
@@ -157,5 +159,58 @@ struct RoutingView: View {
         var seen = Set<String>()
         return model.config.providers.flatMap { $0.models.flatMap(\.tags) }.map { $0.lowercased() }
             .filter { seen.insert($0).inserted }
+    }
+}
+
+/// Reguły repozytoriów (`[[repo]]`): do których agentów może trafić kod danego repo albo katalogu z repo.
+struct RepoRulesSection: View {
+    @Bindable var model: AppModel
+
+    var body: some View {
+        Section {
+            ForEach($model.config.repos) { $rule in
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text((rule.path as NSString).abbreviatingWithTildeInPath).font(.body.monospaced())
+                        Spacer()
+                        Button(role: .destructive) {
+                            model.config.repos.removeAll { $0.path == rule.path }
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Remove rule")
+                    }
+                    if model.installedAgents.isEmpty {
+                        Text("No agents installed.").font(.callout).foregroundStyle(.secondary)
+                    }
+                    ForEach(model.installedAgents) { agent in
+                        Toggle(agent.name, isOn: Binding(
+                            get: { rule.agents.contains(agent.id) },
+                            set: { on in
+                                if on { rule.agents.append(agent.id) } else { rule.agents.removeAll { $0 == agent.id } }
+                            }))
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+            Button("Add folder…") { addFolder() }
+        } header: {
+            Text("Repositories and agents")
+        } footer: {
+            Text("Without a rule, any agent may analyse a repository. A rule on a folder covers every repository inside it; the most specific rule wins. Example: a rule on your work folder with no agents ticked keeps company code away from all agents.")
+        }
+    }
+
+    private func addFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Add rule"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let path = (url.standardizedFileURL.path as NSString).abbreviatingWithTildeInPath
+        guard !model.config.repos.contains(where: { $0.path == path }) else { return }
+        model.config.repos.append(RepoRule(path: path, agents: []))
     }
 }

@@ -94,9 +94,15 @@ func prop(_ type: String, _ description: String) -> Value {
 }
 
 /// Config czytany przy każdym wywołaniu; przy błędzie pusty, żeby serwer i tak wystartował.
+/// Agenci, których dyrygent może użyć: zainstalowani i niewyłączeni w apce. Liczone przy każdym wywołaniu,
+/// więc nowy agent działa bez restartu klienta (który dostaje też `tools/list_changed`).
+func usableAgents(_ config: Config) -> [InstalledAgent] {
+    agentInstaller.installed().filter { config.agentSettings($0.id)?.isEnabled != false }
+}
+
 func currentGuide() -> DelegationGuide {
     let config = (try? service.currentConfig()) ?? Config()
-    return service.guide(config: config, agents: agentInstaller.installed().map(\.id))
+    return service.guide(config: config, agents: usableAgents(config).map(\.id))
 }
 
 /// Lista narzędzi budowana na żądanie: opis `delegate` zawiera aktualne modele i tagi.
@@ -108,7 +114,7 @@ func agentTool(_ guide: DelegationGuide) -> Tool {
         name: "delegate_agent",
         description: "Run a coding agent on a read-only snapshot of a git repo (HEAD + uncommitted changes of tracked files) in the background; it reads files and runs read-only commands itself and returns a report. Returns a job ID; collect with delegate_result (jobs take minutes).",
         inputSchema: schema([
-            "agent": .object(["type": .string("string"), "enum": .array(guide.agents.map { .string($0) })]),
+            "agent": prop("string", "Agent ID: \(guide.agents.joined(separator: ", ")). Models and effort per agent: list_models."),
             "repo": prop("string", "Absolute path inside the git repository."),
             "task": prop("string", "What to find out; the agent sees the repo, not this conversation. Say what the report should contain."),
             "model": prop("string", "Agent's model option; default from the user's settings, else the agent's own (an error lists the valid ones)."),
@@ -209,7 +215,7 @@ let server = Server(
     name: "delegate",
     version: version,
     instructions: currentGuide().serverInstructions,
-    capabilities: .init(tools: .init(listChanged: false))
+    capabilities: .init(tools: .init(listChanged: true))
 )
 
 await server.withMethodHandler(ListTools.self) { _ in .init(tools: makeTools(currentGuide())) }
@@ -219,7 +225,10 @@ await server.withMethodHandler(CallTool.self) { params in
     do {
         switch params.name {
         case "list_models":
-            return .init(content: [reply(try service.listModels())], isError: false)
+            let config = (try? service.currentConfig()) ?? Config()
+            let agents = AgentCatalog.describe(installed: agentInstaller.installed(), config: config,
+                                               checks: AgentCheckCache(url: home.agentChecksURL).load())
+            return .init(content: [reply(try service.listModels() + agents)], isError: false)
 
         case "delegate":
             guard let prompt = a["prompt"]?.stringValue, !prompt.isEmpty else {
@@ -279,20 +288,22 @@ await server.withMethodHandler(CallTool.self) { params in
                   let task = a["task"]?.stringValue, !task.isEmpty else {
                 return .init(content: [reply("Required: agent, repo, task.")], isError: true)
             }
+            let agentConfig = (try? service.currentConfig()) ?? Config()
             guard let agent = agentInstaller.installed(agentID) else {
-                let ids = agentInstaller.installed().map(\.id)
-                return .init(content: [reply("Agent \"\(agentID)\" isn't installed. Installed: \(ids.isEmpty ? "none" : ids.joined(separator: ", ")).")], isError: true)
+                let ids = usableAgents(agentConfig).map(\.id)
+                return .init(content: [reply("Agent \"\(agentID)\" isn't installed. Available: \(ids.isEmpty ? "none" : ids.joined(separator: ", ")).")], isError: true)
             }
             let repoURL = URL(fileURLWithPath: (repo as NSString).expandingTildeInPath)
             guard repo.hasPrefix("/") || repo.hasPrefix("~"), FileManager.default.fileExists(atPath: repoURL.path) else {
                 return .init(content: [reply("repo: give an absolute path to an existing directory.")], isError: true)
             }
             let sensitivity = Sensitivity(rawValue: a["sensitivity"]?.stringValue ?? "public") ?? .personal
-            if let why = AgentRegions.refusal(agentID: agentID, sensitivity: sensitivity, config: (try? service.currentConfig()) ?? Config()) {
+            let repoRoot = RepoSnapshot.toplevel(of: repoURL) ?? repoURL
+            if let why = AgentRegions.refusal(agentID: agentID, sensitivity: sensitivity, config: agentConfig, repo: repoRoot) {
                 return .init(content: [reply("Not sent: \(why).")], isError: true)
             }
             let reportFile = try a["report_file"]?.stringValue.map(OutputFile.validate)
-            let settings = ((try? service.currentConfig()) ?? Config()).agentSettings(agentID)
+            let settings = agentConfig.agentSettings(agentID)
             let model = a["model"]?.stringValue ?? settings?.model
             let effort = a["effort"]?.stringValue ?? settings?.effort
             let id = await jobs.start(label: "\(agentID): " + DelegateJobs.shortLabel(task)) {
@@ -325,4 +336,18 @@ await server.withMethodHandler(CallTool.self) { params in
 }
 
 try await server.start(transport: StdioTransport())
+
+// Zmiana zestawu agentów (instalacja, usunięcie, wyłączenie w apce): klient dostaje `tools/list_changed`
+// i pobiera narzędzia od nowa, z aktualnym opisem `delegate_agent`.
+Task {
+    var last = usableAgents((try? service.currentConfig()) ?? Config()).map(\.id)
+    while true {
+        try? await Task.sleep(for: .seconds(30))
+        let now = usableAgents((try? service.currentConfig()) ?? Config()).map(\.id)
+        if now != last {
+            last = now
+            try? await server.notify(ToolListChangedNotification.message())
+        }
+    }
+}
 await server.waitUntilCompleted()

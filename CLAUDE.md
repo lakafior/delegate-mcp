@@ -152,8 +152,12 @@ albo z podpisem Developer ID (`CodeSignature`), niepodpisane tylko za zgodą (`U
 uruchamiane `node <skrypt>` bez npx), z terminala `delegate-mcp --install-agent <id>` / `--agents`. W apce: zainstalowani agenci w pasku bocznym ze stronami
 (`AgentDetailView`), rejestr pod „Browse agents” (`AgentsView`), sekcja Agents w Overview; stan logowania (`AgentAccount.check`: próbna sesja w pustym katalogu) i logowanie
 (`agent` → ACP `authenticate`, agent otwiera przeglądarkę; `terminal` → plik `.command` w Terminalu).
-Domyślne opcje agenta w `delegate.toml` (`[[agent]] id/model/effort`, `AgentSettings`, wybór na stronie agenta):
-używane, gdy dyrygent nie poda `model`/`effort` w `delegate_agent`; wysiłek to opcja sesji `thought_level`/`effort`/`thinking`.
+Ustawienia agenta w `delegate.toml` (`[[agent]] id/model/effort/enabled/privacy`, `AgentSettings`, strona agenta):
+domyślny model i wysiłek (gdy dyrygent ich nie poda), wyłączenie (agent znika z `delegate_agent`), region zamiast
+tabeli `AgentRegions`. Reguły repo `[[repo]] path/agents` (`RepoRule`, sekcja w Routingu): najdłuższa pasująca ścieżka,
+pusta lista = żaden agent; sprawdzane w `AgentRegions.refusal` razem z wrażliwością. Lista agentów liczona przy każdym
+wywołaniu, serwer wysyła `tools/list_changed` po zmianie (co 30 s). `list_models` opisuje agentów z
+`agents/checks.json` (`AgentCheckCache`, zapisuje apka). Tryb sesji: pierwszy dostępny z `plan`, `ask`.
 Testy na atrapie agenta (Python) w `ACPTests.swift` i `AgentRunTests.swift`.
 
 ## Ważne

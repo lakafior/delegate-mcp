@@ -11,6 +11,8 @@ public struct AgentReport: Sendable {
     public var agent: String
     public var model: String?
     public var effort: String?
+    /// Natywny tryb tylko do odczytu, w którym działał agent (np. `plan`); `nil` = tylko piaskownica.
+    public var mode: String?
     public var text: String
     public var toolCalls: [ToolCall]
     /// Odrzucone prośby o zgodę (próby zapisu albo poleceń, na które agent pytał).
@@ -26,6 +28,7 @@ public struct AgentReport: Sendable {
         var h = "[delegate_agent] agent: \(agent)"
         if let model { h += " · model: \(model)" }
         if let effort { h += " · effort: \(effort)" }
+        if let mode { h += " · mode: \(mode)" }
         h += " · tokens: \(inputTokens.map(String.init) ?? "?") in / \(outputTokens.map(String.init) ?? "?") out"
         h += String(format: " · %.0f s", seconds)
         h += " · steps: \(toolCalls.count)"
@@ -39,20 +42,33 @@ public struct AgentReport: Sendable {
     }
 }
 
-/// Gdzie agent wysyła dane (kod z repo idzie do jego dostawcy). Do czasu ustawień per agent: znane z góry.
+/// Gdzie agent wysyła dane (kod z repo idzie do jego dostawcy) i czy zadanie może do niego trafić.
 public enum AgentRegions {
+    /// Region z ustawień agenta, a bez nich z wbudowanej tabeli.
+    public static func region(for agentID: String, config: Config) -> PrivacyRegion {
+        config.agentSettings(agentID)?.privacy ?? region(for: agentID)
+    }
+
+    /// Region z wbudowanej tabeli (znani dostawcy agentów).
     public static func region(for agentID: String) -> PrivacyRegion {
         switch agentID {
         case "mistral-vibe": .eu
-        case "gemini", "antigravity-acp", "claude-acp", "codex-acp", "opencode", "opencode-v2", "goose", "amp-acp", "cursor", "github-copilot-cli": .us
+        case "gemini", "antigravity-acp", "claude-acp", "codex-acp", "opencode", "opencode-v2", "goose", "amp-acp", "cursor", "github-copilot-cli", "junie", "devin": .us
         case "kimi", "qwen-code", "glm-acp-agent", "minimax-code": .cn
         default: .other
         }
     }
 
-    /// Czy zadanie o tej wrażliwości może trafić do agenta; `nil` = może, inaczej powód odmowy.
-    public static func refusal(agentID: String, sensitivity: Sensitivity, config: Config) -> String? {
-        let region = region(for: agentID)
+    /// Czy zadanie może trafić do agenta: włączony, reguła repo, wrażliwość danych. `nil` = może, inaczej powód.
+    public static func refusal(agentID: String, sensitivity: Sensitivity, config: Config, repo: URL? = nil) -> String? {
+        if config.agentSettings(agentID)?.isEnabled == false {
+            return "\(agentID) is turned off in Delegate"
+        }
+        if let repo, let rule = config.repoRule(for: repo), !rule.agents.contains(agentID) {
+            let allowed = rule.agents.isEmpty ? "no agents" : "only " + rule.agents.joined(separator: ", ")
+            return "the user allows \(allowed) for \(rule.path)"
+        }
+        let region = region(for: agentID, config: config)
         switch sensitivity {
         case .private:
             return "private data stays on this Mac, and \(agentID) sends the repository to its cloud model"
@@ -145,14 +161,20 @@ public struct AgentRunner: Sendable {
         do {
             let hello = try await conn.initialize()
             let session: ACPSession
+            var usedMode: String?
             do {
                 session = try await conn.newSession(cwd: snapshot.path)
             } catch let e as ACPConnection.RemoteError where e.isAuthRequired {
                 let how = hello.authMethods.first.map { " (\($0.name))" } ?? ""
                 throw DelegateError(description: "\(agent.name) isn't signed in\(how). Sign in to the agent first, then retry.")
             }
-            // Tryb, w którym agent pyta o zgodę; odpowiadamy odmową. Nie każdy agent go ma — wtedy zostaje piaskownica.
-            _ = try? await conn.setOption(session, "mode", "ask")
+            // Natywny tryb tylko do odczytu, jeśli agent go ma (Claude Agent: `plan`, Vibe: `ask`); piaskownica i tak
+            // blokuje zapis, to druga warstwa. W `plan` Claude dalej używa powłoki (sprawdzone), więc analiza nie traci.
+            usedMode = nil
+            for mode in Self.readOnlyModes where (try? await conn.setOption(session, "mode", mode)) == true {
+                usedMode = mode
+                break
+            }
             var usedModel: String?
             if let model, !model.isEmpty {
                 guard try await conn.setOption(session, "model", model) else {
@@ -191,7 +213,7 @@ public struct AgentRunner: Sendable {
             await conn.close()
             // Po udanym zadaniu katalog (profil, log agenta) nie jest potrzebny; po błędzie zostaje do diagnozy.
             defer { try? fm.removeItem(at: jobDir) }
-            var report = await collector.report(agent: hello.name ?? agent.name, model: usedModel, effort: usedEffort,
+            var report = await collector.report(agent: hello.name ?? agent.name, model: usedModel, effort: usedEffort, mode: usedMode,
                                           seconds: Date().timeIntervalSince(started),
                                           stopReason: result["stopReason"]?.stringValue,
                                           includesUncommitted: snapshot.includesUncommitted)
@@ -212,6 +234,9 @@ public struct AgentRunner: Sendable {
         defer { free(resolved) }
         return String(cString: resolved)
     }
+
+    /// Tryby sesji, które ograniczają agenta do czytania, w kolejności preferencji.
+    static let readOnlyModes = ["plan", "ask", "read-only", "readonly"]
 
     /// Rodzaje narzędzi ACP, które zmieniają pliki: zawsze odmowa.
     static let mutatingKinds: Set<String> = ["edit", "delete", "move"]
@@ -281,8 +306,8 @@ actor AgentCollector {
         return toolCall["toolCallId"]?.stringValue.flatMap { calls[$0]?.kind }
     }
 
-    func report(agent: String, model: String?, effort: String?, seconds: Double, stopReason: String?, includesUncommitted: Bool) -> AgentReport {
-        AgentReport(agent: agent, model: model, effort: effort, text: text, toolCalls: order.compactMap { calls[$0] },
+    func report(agent: String, model: String?, effort: String?, mode: String?, seconds: Double, stopReason: String?, includesUncommitted: Bool) -> AgentReport {
+        AgentReport(agent: agent, model: model, effort: effort, mode: mode, text: text, toolCalls: order.compactMap { calls[$0] },
                     rejected: rejected, inputTokens: inputTokens, outputTokens: outputTokens,
                     seconds: seconds, stopReason: stopReason, includesUncommitted: includesUncommitted)
     }

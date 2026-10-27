@@ -27,11 +27,14 @@ Claude (albo inny asystent) jako dyrygent: rozbija pracę na zadania, oddaje je 
   Claude Agentowi z modelem `haiku` i wysiłkiem `low` — ta sama subskrypcja, ale dużo mniej zużytego limitu
   (jak subagent z tańszym modelem, tylko w tle i w piaskownicy). Claude Agent ogłasza modele `haiku`/`sonnet`/
   `opus`/`fable`, poziomy `low`…`max` i tryb `plan`. Zapis w `delegate.toml` (sekcja `[[agent]]`).
-- [ ] **A2. Region danych i włącz/wyłącz per agent.** Dziś region pochodzi z wbudowanej tabeli.
-- [ ] **A3. Lista agentów sprawdzana na bieżąco po stronie serwera**, żeby nowo zainstalowany agent działał bez
+- [x] **A2. Region danych i włącz/wyłącz per agent.** Dziś region pochodzi z wbudowanej tabeli.
+- [x] **A3. Lista agentów sprawdzana na bieżąco po stronie serwera**, żeby nowo zainstalowany agent działał bez
   restartu Claude'a (dziś schemat `delegate_agent` powstaje przy starcie sesji).
-- [ ] **A4. Zgoda per repo** — „to repo może iść do Copilota, to firmowe nigdzie”. Ważniejsze przed trybem zapisu.
-- [ ] **A5. Natywny tryb tylko do odczytu agenta** (np. `plan` w Claude Agent) jako dodatek do piaskownicy.
+- [x] **A4. Zgoda per repo** — „to repo może iść do Copilota, to firmowe nigdzie”. Ważniejsze przed trybem zapisu.
+- [x] **A5. Natywny tryb tylko do odczytu agenta** (np. `plan` w Claude Agent) jako dodatek do piaskownicy.
+
+- [x] **Dodatek:** `list_models` pokazuje agentów z modelami, poziomami wysiłku, ustawieniami domyślnymi, stanem
+  logowania i regułami repo (z `agents/checks.json`, zapisywanego przez apkę przy sprawdzaniu agentów).
 
 ### B. Tryb zapisu — serce swarmu, największy kawałek pracy
 - [ ] **B1.** Agent dostaje worktree na gałęzi `delegate/<zadanie>`, który może zmieniać; wszystko poza nim nadal

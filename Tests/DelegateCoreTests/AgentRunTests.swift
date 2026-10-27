@@ -54,7 +54,8 @@ func makeRepo() throws -> URL {
         #expect(report.outputTokens == 7)
         #expect(report.model == "m2")
         #expect(report.includesUncommitted)
-        #expect(report.formatted.hasPrefix("[delegate_agent] agent: Fake Agent · model: m2 · effort: low · tokens: 100 in / 7 out"))
+        #expect(report.mode == "ask")   // atrapa ma tryby ask/auto, nie plan
+        #expect(report.formatted.hasPrefix("[delegate_agent] agent: Fake Agent · model: m2 · effort: low · mode: ask · tokens: 100 in / 7 out"))
         #expect(report.formatted.contains("Blocked (read-only):"))
 
         // Oryginał nietknięty, kopia posprzątana.
@@ -257,5 +258,71 @@ func makeRepo() throws -> URL {
         // Osobny program logowania (Copilot: `copilot login`) zamiast samego agenta.
         let legacy = ACPAgentHello.AuthMethod(id: "l", name: "L", type: "terminal", args: ["login"], command: "/opt/copilot")
         #expect(AgentAccount.terminalCommand(a, method: legacy) == "A='it'\\''s' '/opt/copilot' 'login'")
+    }
+}
+
+@Suite struct AgentRulesTests {
+    @Test func settingsRoundTripAndPartialUpdatesKeepOtherFields() throws {
+        var c = Config()
+        c.updateAgent("copilot") { $0.enabled = false; $0.privacy = .eu }
+        c.setAgent("copilot", model: "gpt", effort: nil)
+        #expect(c.agentSettings("copilot") == AgentSettings(id: "copilot", model: "gpt", enabled: false, privacy: .eu))
+        c.repos = [RepoRule(path: "~/Work", agents: []), RepoRule(path: "~/Work/oss", agents: ["mistral-vibe"])]
+        let parsed = try Config.parse(try c.serialized())
+        #expect(parsed.agents == c.agents)
+        #expect(parsed.repos == c.repos)
+        // Włączenie z powrotem to brak pola, a nie `enabled = true`.
+        c.updateAgent("copilot") { $0.enabled = true }
+        #expect(c.agentSettings("copilot")?.enabled == nil)
+    }
+
+    @Test func mostSpecificRepoRuleWins() {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        var c = Config()
+        c.repos = [RepoRule(path: "~/Work", agents: []), RepoRule(path: "~/Work/oss", agents: ["mistral-vibe"])]
+        #expect(c.repoRule(for: home.appendingPathComponent("Work/company/app"))?.path == "~/Work")
+        #expect(c.repoRule(for: home.appendingPathComponent("Work/oss/lib"))?.path == "~/Work/oss")
+        #expect(c.repoRule(for: home.appendingPathComponent("Workshop")) == nil)   // prefiks nazwy to nie przodek
+        #expect(c.repoRule(for: home.appendingPathComponent("Private")) == nil)
+    }
+
+    @Test func refusalCombinesSwitchRepoRuleAndRegion() {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        var c = Config()
+        c.repos = [RepoRule(path: "~/Work", agents: ["mistral-vibe"])]
+        let work = home.appendingPathComponent("Work/app")
+        #expect(AgentRegions.refusal(agentID: "mistral-vibe", sensitivity: .public, config: c, repo: work) == nil)
+        #expect(AgentRegions.refusal(agentID: "github-copilot-cli", sensitivity: .public, config: c, repo: work)?
+            .contains("allows only mistral-vibe for ~/Work") == true)
+        c.updateAgent("mistral-vibe") { $0.enabled = false }
+        #expect(AgentRegions.refusal(agentID: "mistral-vibe", sensitivity: .public, config: c, repo: work)?
+            .contains("turned off") == true)
+        // Region z ustawień zastępuje tabelę: nieznany agent ustawiony na EU przyjmie dane osobiste.
+        #expect(AgentRegions.refusal(agentID: "unknown", sensitivity: .personal, config: c) != nil)
+        c.updateAgent("unknown") { $0.privacy = .eu }
+        #expect(AgentRegions.refusal(agentID: "unknown", sensitivity: .personal, config: c) == nil)
+    }
+
+    @Test func listModelsDescribesAgentsFromTheCheckCache() throws {
+        let cache = AgentCheckCache(url: try tempDir("checks").appendingPathComponent("checks.json"))
+        let check = AgentAccount.Check(signIn: .signedIn, models: ["default", "haiku", "sonnet"], defaultModel: "default",
+                                       authMethods: [], efforts: ["low", "high"], defaultEffort: "high")
+        cache.save("claude-acp", AgentCheckRecord(check))
+        cache.save("vibe", AgentCheckRecord(.init(signIn: .needsSignIn([]), models: [], defaultModel: nil, authMethods: [])))
+        var c = Config()
+        c.setAgent("claude-acp", model: "haiku", effort: nil)
+        c.updateAgent("off") { $0.enabled = false }
+        c.repos = [RepoRule(path: "~/Work", agents: [])]
+        let agents = ["claude-acp", "vibe", "off"].map {
+            InstalledAgent(id: $0, name: $0.uppercased(), version: "1", executable: "/x", args: [], env: [:], installedAt: Date())
+        }
+        let text = AgentCatalog.describe(installed: agents, config: c, checks: cache.load())
+        #expect(text.contains("- `claude-acp` (CLAUDE-ACP) · region us"))
+        #expect(text.contains("models: haiku, sonnet (default: haiku)"))
+        #expect(text.contains("effort: low, high (default: high)"))
+        #expect(text.contains("`vibe` (VIBE) · region other · NOT signed in"))
+        #expect(text.contains("`off` (OFF) · region other · turned off by the user"))
+        #expect(text.contains("Repository rules: ~/Work → no agents"))
+        #expect(AgentCatalog.describe(installed: [], config: c, checks: [:]).isEmpty)
     }
 }

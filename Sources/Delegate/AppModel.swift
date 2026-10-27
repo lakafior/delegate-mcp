@@ -365,6 +365,7 @@ final class AppModel {
             try agentInstaller.uninstall(id)
             installedAgents = agentInstaller.installed()
             agentChecks[id] = nil
+            AgentCheckCache(url: home.agentChecksURL).save(id, nil)
         } catch {
             agentError = "Couldn't remove \(id): \(error)"
         }
@@ -395,7 +396,10 @@ final class AppModel {
         guard let agent = installedAgents.first(where: { $0.id == id }), agentActivity[id] == nil else { return }
         agentActivity[id] = "Checking…"
         Task {
-            agentChecks[id] = await AgentAccount.check(agent, sandboxFor: home)
+            let check = await AgentAccount.check(agent, sandboxFor: home)
+            agentChecks[id] = check
+            // Serwer pokazuje to dyrygentowi w `list_models` (modele, wysiłek, stan logowania).
+            AgentCheckCache(url: home.agentChecksURL).save(id, AgentCheckRecord(check))
             agentActivity[id] = nil
         }
     }

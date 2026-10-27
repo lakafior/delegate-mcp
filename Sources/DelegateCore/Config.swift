@@ -152,14 +152,35 @@ public struct AgentSettings: Codable, Sendable, Equatable {
     public var model: String?
     /// Wartość opcji wysiłku/myślenia (np. `low`); `nil` = domyślny agenta.
     public var effort: String?
+    /// `false` = agent wyłączony (niewidoczny dla dyrygenta); `nil` = włączony.
+    public var enabled: Bool?
+    /// Region danych; `nil` = z wbudowanej tabeli (`AgentRegions`).
+    public var privacy: PrivacyRegion?
 
-    public init(id: String, model: String? = nil, effort: String? = nil) {
+    public init(id: String, model: String? = nil, effort: String? = nil, enabled: Bool? = nil, privacy: PrivacyRegion? = nil) {
         self.id = id
         self.model = model
         self.effort = effort
+        self.enabled = enabled
+        self.privacy = privacy
     }
 
-    var isEmpty: Bool { model == nil && effort == nil }
+    public var isEnabled: Bool { enabled ?? true }
+    var isEmpty: Bool { model == nil && effort == nil && enabled == nil && privacy == nil }
+}
+
+/// Reguła dla repozytorium (`[[repo]]`): do których agentów może trafić jego kod. Repo bez reguły: do wszystkich.
+/// Pasuje najdłuższa ścieżka będąca przodkiem repo, więc reguła na katalog `~/Work` obejmuje wszystkie repo w nim.
+public struct RepoRule: Codable, Sendable, Equatable, Identifiable {
+    public var path: String
+    /// Dozwoleni agenci (ID); pusta lista = żaden.
+    public var agents: [String]
+    public var id: String { path }
+
+    public init(path: String, agents: [String] = []) {
+        self.path = path
+        self.agents = agents
+    }
 }
 
 /// Zawartość `delegate.toml`. Kolejność `providers` to priorytet fallbacku.
@@ -177,11 +198,14 @@ public struct Config: Codable, Sendable, Equatable {
     public var providers: [ProviderConfig]
     /// Ustawienia agentów ACP; brak wpisu = domyślne opcje agenta.
     public var agents: [AgentSettings]
+    /// Reguły repozytoriów dla agentów.
+    public var repos: [RepoRule]
 
     public init(routingGuidance: String = "", timeoutSeconds: Double = 120, delegationMode: DelegationMode = .balanced,
                 personalRegions: [PrivacyRegion] = Config.defaultPersonalRegions, dailyBudgetUSD: Double? = nil,
-                providers: [ProviderConfig] = [], agents: [AgentSettings] = []) {
+                providers: [ProviderConfig] = [], agents: [AgentSettings] = [], repos: [RepoRule] = []) {
         self.agents = agents
+        self.repos = repos
         self.routingGuidance = routingGuidance
         self.timeoutSeconds = timeoutSeconds
         self.delegationMode = delegationMode
@@ -198,6 +222,7 @@ public struct Config: Codable, Sendable, Equatable {
         case dailyBudgetUSD = "daily_budget_usd"
         case providers = "provider"
         case agents = "agent"
+        case repos = "repo"
     }
 
     public init(from decoder: Decoder) throws {
@@ -212,19 +237,43 @@ public struct Config: Codable, Sendable, Equatable {
         dailyBudgetUSD = try c.decodeNumberIfPresent(forKey: .dailyBudgetUSD)
         providers = try c.decodeIfPresent([ProviderConfig].self, forKey: .providers) ?? []
         agents = try c.decodeIfPresent([AgentSettings].self, forKey: .agents) ?? []
+        repos = try c.decodeIfPresent([RepoRule].self, forKey: .repos) ?? []
     }
 
     public func agentSettings(_ id: String) -> AgentSettings? { agents.first { $0.id == id } }
 
-    /// Ustawia domyślne opcje agenta; puste wartości usuwają wpis.
-    public mutating func setAgent(_ id: String, model: String?, effort: String?) {
+    /// Zmienia ustawienia agenta; wpis bez żadnych ustawień znika z configu.
+    public mutating func updateAgent(_ id: String, _ change: (inout AgentSettings) -> Void) {
+        var entry = agentSettings(id) ?? AgentSettings(id: id)
+        change(&entry)
         let clean = { (s: String?) in s.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 } }
-        let entry = AgentSettings(id: id, model: clean(model), effort: clean(effort))
+        entry.model = clean(entry.model)
+        entry.effort = clean(entry.effort)
+        if entry.enabled == true { entry.enabled = nil }
         if let i = agents.firstIndex(where: { $0.id == id }) {
             if entry.isEmpty { agents.remove(at: i) } else { agents[i] = entry }
         } else if !entry.isEmpty {
             agents.append(entry)
         }
+    }
+
+    /// Domyślny model i wysiłek agenta (pozostałe ustawienia bez zmian).
+    public mutating func setAgent(_ id: String, model: String?, effort: String?) {
+        updateAgent(id) {
+            $0.model = model
+            $0.effort = effort
+        }
+    }
+
+    /// Reguła obejmująca repo: najdłuższa ścieżka będąca nim samym albo jego przodkiem.
+    public func repoRule(for repo: URL) -> RepoRule? {
+        let path = repo.standardizedFileURL.path
+        return repos
+            .filter { rule in
+                let p = (rule.path as NSString).expandingTildeInPath
+                return path == p || path.hasPrefix(p.hasSuffix("/") ? p : p + "/")
+            }
+            .max { $0.path.count < $1.path.count }
     }
 
     public static func parse(_ toml: String) throws -> Config {
@@ -267,6 +316,7 @@ public struct Config: Codable, Sendable, Equatable {
         var agentOrder: [String] = []
         for id in mine.agents.map(\.id) + theirs.agents.map(\.id) where !agentOrder.contains(id) { agentOrder.append(id) }
         out.agents = agentOrder.compactMap { id in am[id] != ab[id] ? am[id] : at[id] }
+        out.repos = pick(base.repos, mine.repos, theirs.repos)
         return out
     }
 

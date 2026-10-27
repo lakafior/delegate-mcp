@@ -128,6 +128,10 @@ Zrobione w `DelegateCore` (bez zmian w serwerze MCP i apce):
   `CLAUDE_CODE_TMPDIR` na katalog zadania (bez tego powłoka Claude Code nie startowała w piaskownicy), odczyt `.git`
   i metadanych katalogu oryginalnego repo (bez tego `git log` w kopii nie działał; zawartość repo dalej ukryta),
   uwaga w poleceniu o technicznych commitach „WIP on …” z migawki.
+- A2–A5: włącz/wyłącz i region per agent, reguły `[[repo]]`, lista agentów bez `enum` w schemacie i z
+  `tools/list_changed`, natywny tryb tylko do odczytu (Claude Agent: `plan` — porównane na żywo z `default`: ten sam
+  wynik, powłoka działa, 13,8 s zamiast 7,6 s; Vibe: `ask`). `list_models` z agentami (sprawdzone na żywo: 6 agentów
+  z modelami i domyślnymi).
 - Nie zrobione: ustawienia per agent (region, domyślny model, włączony) w `delegate.toml` — region dalej z tabeli
   `AgentRegions`, model wybiera Claude parametrem `model`. Do zrobienia, jeśli okaże się potrzebne.
 

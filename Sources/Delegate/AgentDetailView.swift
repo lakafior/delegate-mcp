@@ -23,6 +23,13 @@ struct AgentDetailView: View {
                     }
                 }
             }
+            Section {
+                Toggle("Available to the assistant", isOn: Binding(
+                    get: { settings?.isEnabled ?? true },
+                    set: { on in model.config.updateAgent(agent.id) { $0.enabled = on ? nil : false } }))
+            } footer: {
+                Text("When off, the assistant doesn't see this agent in delegate_agent; it stays installed and signed in.")
+            }
             statusSection
             defaultsSection
             detailsSection
@@ -155,13 +162,17 @@ struct AgentDetailView: View {
                     }
                 }
             }
-            LabeledContent("Data region") {
-                Text(AgentRegions.region(for: agent.id).title)
+            Picker("Data region", selection: Binding(
+                get: { settings?.privacy },
+                set: { value in model.config.updateAgent(agent.id) { $0.privacy = value } })) {
+                Text("Built-in (\(AgentRegions.region(for: agent.id).title))").tag(PrivacyRegion?.none)
+                ForEach(PrivacyRegion.allCases.filter { $0 != .local }, id: \.self) { Text($0.title).tag(PrivacyRegion?.some($0)) }
             }
             LabeledContent("Verified by") { Text(verification) }
             if let check, !check.models.isEmpty {
                 LabeledContent("Models") {
-                    Text(check.models.map { $0 == check.defaultModel ? "\($0) (default)" : $0 }.joined(separator: ", "))
+                    Text(Array(NSOrderedSet(array: check.models.filter { $0 != "default" })).compactMap { $0 as? String }
+                        .map { $0 == check.defaultModel ? "\($0) (default)" : $0 }.joined(separator: ", "))
                         .multilineTextAlignment(.trailing)
                 }
             }

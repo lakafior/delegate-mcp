@@ -38,6 +38,11 @@ public struct RepoSnapshot: Sendable {
         return RepoSnapshot(repo: root, path: path, commit: commit, includesUncommitted: !stash.isEmpty, gitDirectory: common)
     }
 
+    /// Katalog główny repo zawierającego `dir` (dla reguł `[[repo]]`); `nil`, gdy to nie repo gita.
+    public static func toplevel(of dir: URL) -> URL? {
+        (try? git(["rev-parse", "--show-toplevel"], in: dir)).map { URL(fileURLWithPath: $0) }
+    }
+
     /// Usuwa kopię i jej wpis w `.git/worktrees`.
     public func remove() {
         _ = try? Self.git(["worktree", "remove", "--force", path.path], in: repo)

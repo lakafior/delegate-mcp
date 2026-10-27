@@ -45,6 +45,13 @@ enum ConfigWriter {
             out += "id = \(string(a.id))\n"
             if let m = a.model { out += "model = \(string(m))\n" }
             if let e = a.effort { out += "effort = \(string(e))\n" }
+            if a.enabled == false { out += "enabled = false\n" }
+            if let r = a.privacy { out += "privacy = \(string(r.rawValue))\n" }
+        }
+        for r in config.repos {
+            out += "\n[[repo]]\n"
+            out += "path = \(string(r.path))\n"
+            out += "agents = [\(r.agents.map { string($0) }.joined(separator: ", "))]\n"
         }
         return out
     }
