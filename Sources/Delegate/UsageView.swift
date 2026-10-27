@@ -109,7 +109,7 @@ struct UsageView: View {
                 Grid(horizontalSpacing: 12, verticalSpacing: 12) {
                     GridRow {
                         StatTile(title: "Tokens delegated", value: totalTokens.formatted(),
-                                 caption: "Didn't count against your Claude limits")
+                                 caption: "Didn't count against your assistant's limits")
                         StatTile(title: "Calls", value: "\(entries.count)",
                                  caption: "Errors: \(entries.filter { !$0.ok }.count)")
                     }

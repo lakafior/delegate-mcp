@@ -168,6 +168,12 @@ struct SettingsView: View {
             Text("Enter a new unique provider identifier.")
         }
         .onChange(of: model.config) { model.configChanged() }
+        .onChange(of: model.requestedPanel, initial: true) {
+            if let panel = model.requestedPanel {
+                selection = panel
+                model.requestedPanel = nil
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             model.reloadIfChangedOnDisk()
             model.refresh()

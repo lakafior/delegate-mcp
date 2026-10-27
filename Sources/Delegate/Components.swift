@@ -56,9 +56,9 @@ extension DelegationMode {
 
     var explanation: String {
         switch self {
-        case .conservative: "Claude delegates only clearly long text tasks (threshold around 400 words)."
-        case .balanced: "Claude delegates actively when a task fits (threshold around 150 words)."
-        case .aggressive: "Claude delegates by default, even short drafts and rewrites (threshold around 50 words)."
+        case .conservative: "The assistant delegates only clearly long text tasks (threshold around 400 words)."
+        case .balanced: "The assistant delegates actively when a task fits (threshold around 150 words)."
+        case .aggressive: "The assistant delegates by default, even short drafts and rewrites (threshold around 50 words)."
         }
     }
 }

@@ -74,7 +74,7 @@ struct OverviewView: View {
                      : errors > 0 ? "There are errors to fix"
                      : warnings > 0 ? "Working, with notes" : "Everything works")
                     .font(.headline)
-                Text("Claude delegated \(stats.callsWeek) tasks in 7 days, \(stats.callsToday) today.")
+                Text("Delegated \(stats.callsWeek) tasks in 7 days, \(stats.callsToday) today.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -200,7 +200,7 @@ struct OverviewView: View {
         } header: {
             Text("Agents")
         } footer: {
-            Text("Each check starts the agent in its sandbox and opens a session, without sending anything to its model. Claude sees only agents installed before its session started; restart Claude after installing one.")
+            Text("Each check starts the agent in its sandbox and opens a session, without sending anything to its model. A newly installed or switched-off agent shows up in the assistant within about 30 seconds, without a restart.")
         }
     }
 

@@ -9,6 +9,7 @@ struct MenuBarView: View {
         VStack(alignment: .leading, spacing: 14) {
             header
             Divider()
+            runningJobs
             recent
             Divider()
             providers
@@ -20,6 +21,7 @@ struct MenuBarView: View {
             model.reloadIfChangedOnDisk()
             model.refresh()
             model.refreshUsage()
+            model.refreshJobs()
         }
         .onChange(of: model.config) { model.configChanged() }
     }
@@ -41,13 +43,37 @@ struct MenuBarView: View {
         }
     }
 
+    // MARK: zadania w tle: agenci pracują minutami, więc widać je bez otwierania okna
+
+    @ViewBuilder
+    private var runningJobs: some View {
+        let count = model.runningJobs
+        if count > 0 {
+            Button {
+                model.requestedPanel = .jobs
+                openWindow(id: SettingsWindow.id)
+                NSApp.activate()
+            } label: {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(count == 1 ? "1 job running" : "\(count) jobs running")
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .font(.callout)
+        }
+    }
+
     // MARK: ostatnie delegacje
 
     @ViewBuilder
     private var recent: some View {
         let entries = model.usageStats.recent
         if entries.isEmpty {
-            Text("Claude hasn't delegated anything this week yet. After changes, restart Claude so it loads the server instructions.")
+            Text("Nothing delegated this week yet. After changes, restart your assistant so it loads the server instructions.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

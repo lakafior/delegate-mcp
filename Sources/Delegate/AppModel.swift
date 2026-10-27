@@ -479,6 +479,9 @@ final class AppModel {
     /// Zadania z `jobs/*.json` (wszystkich sesji serwera), najnowsze pierwsze.
     private(set) var jobs: [JobStore.Stored] = []
 
+    /// Panel, który okno ustawień ma pokazać po otwarciu z paska menu (np. Jobs).
+    var requestedPanel: SidebarItem?
+
     var runningJobs: Int { jobs.filter(\.isActive).count }
 
     func refreshJobs() {

@@ -57,9 +57,9 @@ struct ProviderDetailView: View {
                     prompt: Text("E.g. Good for translations. Never send work data here."), axis: .vertical)
                     .lineLimit(2...5)
             } header: {
-                Text("Guidance for Claude")
+                Text("Guidance for the assistant")
             } footer: {
-                Text("Claude gets this text in the server instructions next to the model list: what this provider is good for, and what not to send it. English works best. Changes take effect after restarting Claude.")
+                Text("The assistant gets this text in the server instructions next to the model list: what this provider is good for, and what not to send it. English works best. Changes take effect after restarting the assistant.")
             }
 
             Section("Note for you") {
@@ -235,7 +235,7 @@ struct ProviderDetailView: View {
         } header: {
             Text("Models")
         } footer: {
-            Text("Separate tags with commas. \"Fill from API\" takes the provider's metadata (capabilities, context, prices if provided) and model IDs. Prices come from the API (OpenRouter, Venice and compatible ones), and when the API doesn't provide them, from the public LiteLLM price list (Mistral, Gemini, DeepSeek, Anthropic, OpenAI and others). Claude can also do this via the update_models tool.")
+            Text("Separate tags with commas. \"Fill from API\" takes the provider's metadata (capabilities, context, prices if provided) and model IDs. Prices come from the API (OpenRouter, Venice and compatible ones), and when the API doesn't provide them, from the public LiteLLM price list (Mistral, Gemini, DeepSeek, Anthropic, OpenAI and others). The assistant can also do this via the update_models tool.")
         }
     }
 

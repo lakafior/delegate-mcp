@@ -22,7 +22,7 @@ struct RoutingView: View {
             } header: {
                 Text("Custom global rules")
             } footer: {
-                Text("Added to the server instructions. The server provides the general delegation rules itself; put rules for a single provider in its \"Guidance for Claude\". English works best.")
+                Text("Added to the server instructions. The server provides the general delegation rules itself; put rules for a single provider in its \"Guidance for the assistant\". English works best.")
             }
             Section("Limits") {
                 Stepper(value: $model.config.timeoutSeconds, in: 10...600, step: 10) {
@@ -46,7 +46,7 @@ struct RoutingView: View {
         } header: {
             Text("How eagerly to delegate")
         } footer: {
-            Text(model.config.delegationMode.explanation + " Changes the tone of the server instructions; takes effect after restarting Claude.")
+            Text(model.config.delegationMode.explanation + " Changes the tone of the server instructions; takes effect after restarting the assistant.")
         }
     }
 
@@ -68,7 +68,7 @@ struct RoutingView: View {
         } header: {
             Text("Personal and work data may go to")
         } footer: {
-            Text("Claude marks each task as public, personal or private, and the server enforces regions: personal tasks only go to the selected ones, private tasks only to local models. Change a provider's region in its settings.")
+            Text("The assistant marks each task as public, personal or private, and the server enforces regions: personal tasks only go to the selected ones, private tasks only to local models. Change a provider's region in its settings.")
         }
     }
 
@@ -151,7 +151,7 @@ struct RoutingView: View {
         } header: {
             Text("Preview: which model would get the task")
         } footer: {
-            Text("Same logic as the server, without sending anything. The mode and instructions affect whether Claude delegates at all; here you see where a task would go.")
+            Text("Same logic as the server, without sending anything. The mode and instructions affect whether the assistant delegates at all; here you see where a task would go.")
         }
     }
 
