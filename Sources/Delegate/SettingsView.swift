@@ -8,12 +8,13 @@ enum SidebarItem: Hashable {
     /// Przeglądanie rejestru ACP.
     case agents
     case agent(String)
+    case jobs
     case usage
     case settings
 }
 
 extension SidebarItem {
-    /// `--select=overview|routing|usage|settings|<id dostawcy>`: do ręcznego sprawdzania widoków.
+    /// `--select=overview|routing|jobs|usage|settings|<id dostawcy>`: do ręcznego sprawdzania widoków.
     static func fromLaunchArguments() -> SidebarItem? {
         guard let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--select=") }) else { return nil }
         switch arg.dropFirst("--select=".count) {
@@ -21,6 +22,7 @@ extension SidebarItem {
         case "routing": return .routing
         case "agents": return .agents
         case let s where s.hasPrefix("agent:"): return .agent(String(s.dropFirst("agent:".count)))
+        case "jobs": return .jobs
         case "usage": return .usage
         case "settings", "general": return .settings
         case let id: return .provider(String(id))
@@ -92,6 +94,21 @@ struct SettingsView: View {
                 }
                 Section("App") {
                     Label("Routing", systemImage: "arrow.triangle.branch").tag(SidebarItem.routing)
+                    Label {
+                        HStack {
+                            Text("Jobs")
+                            Spacer()
+                            if model.runningJobs > 0 {
+                                Text("\(model.runningJobs)")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                                    .help("Jobs running now")
+                            }
+                        }
+                    } icon: {
+                        Image(systemName: "list.bullet.rectangle")
+                    }
+                    .tag(SidebarItem.jobs)
                     Label("Usage", systemImage: "chart.bar").tag(SidebarItem.usage)
                     Label("Settings", systemImage: "gearshape").tag(SidebarItem.settings)
                 }
@@ -193,6 +210,7 @@ struct SettingsView: View {
             } else {
                 ContentUnavailableView("Agent not installed", systemImage: "questionmark.circle")
             }
+        case .jobs: JobsView(model: model)
         case .usage: UsageView(model: model)
         case .settings: GeneralView(model: model)
         case .overview, nil: OverviewView(model: model)

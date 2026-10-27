@@ -11,12 +11,50 @@ public actor DelegateJobs {
         case failed(String)
     }
 
+    /// Co to za zadanie, dla zakładki Jobs w apce. `branch` znamy dopiero po zakończeniu zadania w trybie zapisu.
+    public struct Details: Sendable, Equatable, Codable {
+        public var agent: String?
+        public var model: String?
+        public var repo: String?
+        public var write: Bool?
+        public var branch: String?
+
+        public init(agent: String? = nil, model: String? = nil, repo: String? = nil, write: Bool? = nil, branch: String? = nil) {
+            self.agent = agent
+            self.model = model
+            self.repo = repo
+            self.write = write
+            self.branch = branch
+        }
+    }
+
+    /// Wynik operacji w tle: tekst dla `delegate_result` i gałąź z pracą agenta, jeśli została.
+    public struct Outcome: Sendable {
+        public var text: String
+        public var branch: String?
+
+        public init(text: String, branch: String? = nil) {
+            self.text = text
+            self.branch = branch
+        }
+    }
+
     public struct Job: Sendable {
         public let id: String
         public let label: String
         public let started: Date
         public var finished: Date?
         public var state: State
+        public var details: Details?
+
+        public init(id: String, label: String, started: Date, finished: Date? = nil, state: State, details: Details? = nil) {
+            self.id = id
+            self.label = label
+            self.started = started
+            self.finished = finished
+            self.state = state
+            self.details = details
+        }
     }
 
     /// Górna granica czekania w jednym wywołaniu `delegate_result`. Claude zrywa wywołanie narzędzia po ok. 60 s,
@@ -41,20 +79,29 @@ public actor DelegateJobs {
     /// Uruchamia zadanie `delegate` i od razu zwraca jego ID.
     public func start(_ request: DelegateRequest) -> String {
         let run = self.run
-        return start(label: Self.label(for: request)) { try await run(request) }
+        let details = Details(model: request.model ?? request.task.map { "task: \($0)" })
+        return start(label: Self.label(for: request), details: details) { try await run(request) }
     }
 
     /// Uruchamia dowolną operację w tle.
-    public func start(label: String, operation: @escaping @Sendable () async throws -> String) -> String {
+    public func start(label: String, details: Details? = nil, operation: @escaping @Sendable () async throws -> String) -> String {
+        start(label: label, details: details, outcome: { Outcome(text: try await operation()) })
+    }
+
+    /// Jak wyżej, ale operacja może zgłosić gałąź, na której zostawiła pracę.
+    public func start(label: String, details: Details?, outcome: @escaping @Sendable () async throws -> Outcome) -> String {
         let id = newID()
-        let job = Job(id: id, label: label, started: Date(), state: .running)
+        let job = Job(id: id, label: label, started: Date(), state: .running, details: details)
         jobs[id] = job
         order.append(id)
         store?.save(job)
         Task {
-            let state: State
-            do { state = .done(try await operation()) } catch { state = .failed("\(error)") }
-            self.finish(id, state)
+            do {
+                let result = try await outcome()
+                self.finish(id, .done(result.text), branch: result.branch)
+            } catch {
+                self.finish(id, .failed("\(error)"), branch: nil)
+            }
         }
         return id
     }
@@ -71,9 +118,14 @@ public actor DelegateJobs {
         }
     }
 
-    private func finish(_ id: String, _ state: State) {
+    private func finish(_ id: String, _ state: State, branch: String?) {
         jobs[id]?.state = state
         jobs[id]?.finished = Date()
+        if let branch {
+            var details = jobs[id]?.details ?? Details()
+            details.branch = branch
+            jobs[id]?.details = details
+        }
         if let job = jobs[id] { store?.save(job) }
     }
 
@@ -142,12 +194,19 @@ public struct JobStore: Sendable {
         var state: String
         var text: String?
         var pid: Int32
+        var details: DelegateJobs.Details?
     }
 
-    struct Stored {
-        var job: DelegateJobs.Job
+    public struct Stored: Sendable, Identifiable {
+        public var job: DelegateJobs.Job
         /// Czy proces, który zapisał zadanie, jeszcze żyje.
-        var ownerAlive: Bool
+        public var ownerAlive: Bool
+        public var id: String { job.id }
+
+        /// Zadanie „trwa” na dysku, ale jego serwer już nie żyje.
+        public var interrupted: Bool {
+            if case .running = job.state { !ownerAlive } else { false }
+        }
     }
 
     private func url(_ id: String) -> URL { directory.appendingPathComponent("\(id).json") }
@@ -161,7 +220,7 @@ public struct JobStore: Sendable {
         case .failed(let t): ("failed", t)
         }
         let record = Record(id: job.id, label: job.label, started: job.started, finished: job.finished,
-                            state: state, text: text, pid: ProcessInfo.processInfo.processIdentifier)
+                            state: state, text: text, pid: ProcessInfo.processInfo.processIdentifier, details: job.details)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -180,8 +239,23 @@ public struct JobStore: Sendable {
         case "failed": .failed(r.text ?? "")
         default: .running
         }
-        let job = DelegateJobs.Job(id: r.id, label: r.label, started: r.started, finished: r.finished, state: state)
+        let job = DelegateJobs.Job(id: r.id, label: r.label, started: r.started, finished: r.finished, state: state,
+                                   details: r.details)
         return Stored(job: job, ownerAlive: kill(r.pid, 0) == 0)
+    }
+
+    /// Wszystkie zadania z dysku (każdej sesji), najnowsze pierwsze.
+    public func all() -> [Stored] {
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        return files.filter { $0.pathExtension == "json" }
+            .compactMap { load($0.deletingPathExtension().lastPathComponent) }
+            .sorted { $0.job.started > $1.job.started }
+    }
+
+    /// Usuwa plik zadania (z listy w apce); trwającego zadania nie ruszamy.
+    public func remove(_ id: String) {
+        guard let stored = load(id), !(stored.ownerAlive && stored.job.state == .running) else { return }
+        try? FileManager.default.removeItem(at: url(id))
     }
 
     /// Usuwa pliki zadań starsze niż `maxAge`.

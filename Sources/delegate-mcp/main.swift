@@ -330,7 +330,9 @@ await server.withMethodHandler(CallTool.self) { params in
             if branchFrom != nil && !write {
                 return .init(content: [reply("branch_from works only with mode \"write\".")], isError: true)
             }
-            let id = await jobs.start(label: "\(agentID)\(write ? " (write)" : ""): " + DelegateJobs.shortLabel(task)) {
+            let details = DelegateJobs.Details(agent: agentID, model: model, repo: repoRoot.path, write: write)
+            let id = await jobs.start(label: "\(agentID)\(write ? " (write)" : ""): " + DelegateJobs.shortLabel(task),
+                                      details: details, outcome: {
                 await agentSlots.acquire()
                 let started = Date()
                 defer { Task { await agentSlots.release() } }
@@ -340,15 +342,16 @@ await server.withMethodHandler(CallTool.self) { params in
                     usageLog.append(UsageEntry(provider: "agent:\(agentID)", model: report.model ?? "default", task: "agent",
                                                inputTokens: report.inputTokens, outputTokens: report.outputTokens,
                                                ok: true, ms: Int(report.seconds * 1000)))
-                    guard let reportFile else { return report.formatted }
+                    let branch = report.branch.flatMap { $0.commits > 0 ? $0.branch : nil }
+                    guard let reportFile else { return .init(text: report.formatted, branch: branch) }
                     // Podgląd zaczyna się od nagłówka raportu, więc go nie powtarzamy.
-                    return try OutputFile.write(report.formatted, to: reportFile)
+                    return .init(text: try OutputFile.write(report.formatted, to: reportFile), branch: branch)
                 } catch {
                     usageLog.append(UsageEntry(provider: "agent:\(agentID)", model: model ?? "default", task: "agent",
                                                ok: false, error: "\(error)", ms: Int(Date().timeIntervalSince(started) * 1000)))
                     throw error
                 }
-            }
+            })
             let waiting = await agentSlots.queued
             let queueNote = waiting > 0 ? " \(waiting) job(s) are queued ahead (max \(agentSlots.limit) agents at once)." : ""
             return .init(content: [reply("Started agent job \(id) (\(agent.name), \(write ? "write" : "read") mode). It usually takes a few minutes; keep working and collect with delegate_result.\(queueNote)")], isError: false)

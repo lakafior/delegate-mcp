@@ -54,8 +54,9 @@ Claude (albo inny asystent) jako dyrygent: rozbija pracę na zadania, oddaje je 
   przejrzeć wyniki → scalić dobre, zgłosić resztę. Najpewniej największy efekt najmniejszym kosztem; ma sens po B.
 
 ### D. Podgląd zadań w apce
-- [ ] Zakładka „Jobs”: zadania trwające i zakończone (dane już są w `jobs/*.json`) z agentem, czasem, wynikiem
-  i gałęzią. Przy kilku agentach naraz trzeba widzieć, co się dzieje.
+- [x] Zakładka „Jobs” (`JobsView`): zadania wszystkich sesji z `jobs/*.json` (trwające, zakończone, przerwane)
+  z agentem/modelem, repo, trybem, czasem, wynikiem i gałęzią; polecenia review/merge/discard do skopiowania,
+  „Clear finished”. Szczegóły zadania (`DelegateJobs.Details`) zapisuje serwer, gałąź po zakończeniu trybu zapisu.
 
 ### E. Próba w prawdziwej pracy
 - [ ] Kilka dni normalnej pracy, potem zakładka Usage: czy dyrygent sam sięga po agentów, czy trzeba go popychać

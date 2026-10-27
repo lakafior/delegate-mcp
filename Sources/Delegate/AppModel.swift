@@ -67,9 +67,13 @@ final class AppModel {
         // Log zawiera tylko metadane, ale rośnie bez końca; rok wystarczy do statystyk.
         _ = try? UsageLog(url: home.usageURL).prune(olderThan: 365)
         refreshUsage()
+        refreshJobs()
         // Serwer dopisuje do logu w innym procesie; sprawdzamy datę pliku, a czytamy tylko po zmianie.
         usageTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refreshUsage() }
+            Task { @MainActor in
+                self?.refreshUsage()
+                self?.refreshJobs()
+            }
         }
     }
 
@@ -468,6 +472,29 @@ final class AppModel {
             do { try keychain.remove(p.apiKeyEnv) } catch { saveError = "Keychain: \(error)" }
         }
         refresh()
+    }
+
+    // MARK: zadania w tle
+
+    /// Zadania z `jobs/*.json` (wszystkich sesji serwera), najnowsze pierwsze.
+    private(set) var jobs: [JobStore.Stored] = []
+
+    var runningJobs: Int { jobs.filter(\.isActive).count }
+
+    func refreshJobs() {
+        jobs = JobStore(directory: home.jobsURL).all()
+    }
+
+    func removeJob(_ id: String) {
+        JobStore(directory: home.jobsURL).remove(id)
+        refreshJobs()
+    }
+
+    /// Usuwa z listy zakończone i przerwane zadania (gałęzie agentów zostają w repo).
+    func clearFinishedJobs() {
+        let store = JobStore(directory: home.jobsURL)
+        for stored in jobs where !stored.isActive { store.remove(stored.id) }
+        refreshJobs()
     }
 
     // MARK: użycie

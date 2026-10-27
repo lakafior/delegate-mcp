@@ -203,6 +203,42 @@ func makeRepo() throws -> URL {
         #expect(await jobs.result(ids: ["jdead1"], wait: 0).contains("interrupted"))
     }
 
+    @Test func detailsAndBranchAreStoredForTheApp() async throws {
+        let dir = try tempDir("jobs")
+        let store = JobStore(directory: dir)
+        let jobs = DelegateJobs(run: { _ in "" }, store: store)
+        let details = DelegateJobs.Details(agent: "claude-acp", model: "haiku", repo: "/repo", write: true)
+        let id = await jobs.start(label: "claude-acp (write): add tests", details: details) {
+            .init(text: "report", branch: "delegate/claude-acp-add-tests-abc123")
+        }
+        _ = await jobs.result(ids: [id], wait: 5)
+        let other = await jobs.start(label: "→ notes.md") { "text" }
+        _ = await jobs.result(ids: [other], wait: 5)
+
+        let all = store.all()
+        #expect(all.map(\.id) == [other, id])
+        let stored = try #require(all.last)
+        #expect(stored.job.details == DelegateJobs.Details(agent: "claude-acp", model: "haiku", repo: "/repo", write: true,
+                                                            branch: "delegate/claude-acp-add-tests-abc123"))
+        #expect(stored.job.state == .done("report") && stored.job.finished != nil && !stored.interrupted)
+        #expect(all.first?.job.details == nil)
+
+        store.remove(id)
+        #expect(store.all().map(\.id) == [other])
+    }
+
+    @Test func runningJobOfALiveServerIsNotRemoved() async throws {
+        let dir = try tempDir("jobs")
+        let store = JobStore(directory: dir)
+        let jobs = DelegateJobs(run: { _ in "" }, store: store)
+        let id = await jobs.start(label: "slow") {
+            try await Task.sleep(for: .seconds(5))
+            return "late"
+        }
+        store.remove(id)
+        #expect(store.all().map(\.id) == [id])
+    }
+
     @Test func purgeRemovesOldFiles() throws {
         let dir = try tempDir("jobs")
         let old = dir.appendingPathComponent("jold.json")
