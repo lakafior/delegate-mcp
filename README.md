@@ -7,6 +7,8 @@
 
 > **Delegate** is a native macOS menu bar app and stdio [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that lets your AI assistant (Claude, Codex, Cursor, VS Code, Gemini CLI, Antigravity, Zed) delegate standalone tasks to cheaper, faster, or local AI models with automated fallback, cost tracking, and secret leak prevention.
 
+**Website:** [delegate.smigi.net](https://delegate.smigi.net) · **Download:** [latest release](https://github.com/lakafior/delegate-mcp/releases/latest)
+
 <p align="center">
   <img src="docs/screenshots/jobs.png" alt="Jobs tab: coding agents and models working in the background" width="820">
 </p>

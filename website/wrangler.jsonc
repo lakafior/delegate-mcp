@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "delegate",
+  "compatibility_date": "2026-10-26",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "."
+  },
+  // Deploying attaches the domain (DNS record and certificate included).
+  "routes": [
+    { "pattern": "delegate.smigi.net", "custom_domain": true }
+  ]
+}

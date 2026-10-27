@@ -1,0 +1,30 @@
+name: Website
+
+# delegate.smigi.net: every push to main that touches website/ deploys it.
+# By hand from your Mac: `cd website && wrangler deploy`.
+on:
+  push:
+    branches: [ main ]
+    paths: [ "website/**", ".github/workflows/website.yml" ]
+  workflow_dispatch:
+
+concurrency:
+  group: website
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to Cloudflare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy with wrangler
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: website
+          wranglerVersion: "4.152.0"
+          command: deploy

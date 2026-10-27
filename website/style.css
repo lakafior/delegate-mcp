@@ -1,0 +1,302 @@
+/* No framework, no build step, no JavaScript of our own. Same shape as
+   kickon.smigi.net and dutch.smigi.net, in Delegate's colours: the app icon's
+   navy-to-cyan gradient. */
+
+:root {
+  --cyan: #2fb8d8;     /* the icon's light end */
+  --navy: #16205a;     /* the icon's dark end */
+  --accent-ink: #137a96; /* cyan text that reads on white */
+  --ink: #12152a;
+  --body: #4a5064;
+  --line: #e3e6ee;
+  --bg: #ffffff;
+  --panel: #f5f7fb;
+  --radius: 14px;
+  --wrap: 940px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent-ink: var(--cyan);
+    --ink: #f1f3f9;
+    --body: #a6adc2;
+    --line: #23284a;
+    --bg: #0b1033;
+    --panel: #10163f;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--body);
+  font: 17px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+.wrap {
+  width: 100%;
+  max-width: var(--wrap);
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+h1, h2, h3 { color: var(--ink); line-height: 1.15; margin: 0 0 .5em; }
+h1 { font-size: clamp(2.1rem, 6vw, 3.3rem); letter-spacing: -.02em; font-weight: 700; }
+h2 { font-size: clamp(1.5rem, 3.6vw, 2.1rem); letter-spacing: -.015em; font-weight: 650; }
+h3 { font-size: 1.06rem; font-weight: 650; }
+p { margin: 0 0 1em; }
+a { color: var(--accent-ink); }
+code {
+  font: .88em ui-monospace, "SF Mono", Menlo, monospace;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+
+/* ---- header ---- */
+
+header {
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: var(--mw-bar-h, 0px); /* clears the smigi.net titlebar when present */
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: saturate(160%) blur(12px);
+  z-index: 10;
+}
+
+/* In windowed mode the page scrolls inside the frame, so stick to its top */
+html.mw-windowed header { top: 0; }
+header .wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 62px;
+  flex-wrap: wrap;
+}
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 650;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 1.06rem;
+}
+.logo img { border-radius: 8px; display: block; }
+nav { display: flex; gap: 20px; flex-wrap: wrap; }
+nav a { color: var(--body); text-decoration: none; font-size: .95rem; }
+nav a:hover { color: var(--ink); }
+
+/* ---- hero ---- */
+
+.hero { padding: 76px 0 40px; }
+.hero .wrap {
+  display: grid;
+  grid-template-columns: 1.15fr .85fr;
+  gap: 56px;
+  align-items: center;
+}
+.lede { font-size: 1.2rem; max-width: 38ch; }
+.tag {
+  display: inline-block;
+  font-size: .8rem;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  background: rgba(47, 184, 216, .14);
+  border-radius: 999px;
+  padding: 5px 12px;
+  margin-bottom: 20px;
+}
+
+.cta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 26px; }
+.cta-note { margin-top: 12px; font-size: .9rem; color: var(--body); }
+.btn {
+  display: inline-block;
+  padding: 13px 22px;
+  border-radius: 11px;
+  font-weight: 600;
+  font-size: 1rem;
+  text-decoration: none;
+  border: 1px solid transparent;
+}
+.btn-primary { color: #fff; background: linear-gradient(160deg, var(--cyan), #1f6fae); }
+.btn-secondary { color: var(--ink); border-color: var(--line); background: var(--panel); }
+
+/* The icon is full-bleed artwork; the rounded square is the macOS shape. */
+.hero-icon {
+  display: block;
+  width: 100%;
+  max-width: 250px;
+  height: auto;
+  margin-inline: auto;
+  border-radius: 22.5%;
+  box-shadow: 0 22px 50px rgba(22, 32, 90, .35), 0 0 0 1px rgba(255, 255, 255, .06) inset;
+}
+
+/* ---- showcase: app screenshots, stepped with the arrows ----
+   No JavaScript: one hidden radio per step. The screenshots stack in one grid
+   cell and the one whose radio is checked shows; arrows and dots are labels. */
+
+.showcase { padding-bottom: 72px; }
+.showcase .wrap { max-width: 1080px; }
+.showcase .section-head { margin: 0 auto 28px; text-align: center; }
+
+.shot-radio {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.stage {
+  display: grid;
+  max-width: 900px;
+  margin-inline: auto;
+}
+.stage img {
+  grid-area: 1 / 1;
+  width: 100%;
+  height: auto;
+  opacity: 0;
+  transition: opacity .35s ease;
+  filter: drop-shadow(0 20px 40px rgba(11, 16, 51, .25));
+}
+
+.shot-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  margin-top: 26px;
+}
+.arrow {
+  display: none;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 1.7rem;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+}
+.arrow:hover { border-color: var(--cyan); }
+.dots { display: flex; gap: 10px; }
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--line);
+  cursor: pointer;
+}
+
+.captions { display: grid; max-width: 58ch; margin: 22px auto 0; text-align: center; }
+.caption {
+  grid-area: 1 / 1;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .35s ease;
+}
+.caption p { margin: 0; }
+
+#shot-1:checked ~ .stage .s1, #shot-2:checked ~ .stage .s2,
+#shot-3:checked ~ .stage .s3, #shot-4:checked ~ .stage .s4,
+#shot-5:checked ~ .stage .s5,
+#shot-1:checked ~ .captions .c1, #shot-2:checked ~ .captions .c2,
+#shot-3:checked ~ .captions .c3, #shot-4:checked ~ .captions .c4,
+#shot-5:checked ~ .captions .c5 {
+  opacity: 1;
+  visibility: visible;
+}
+#shot-1:checked ~ .shot-nav :is(.p1, .n1), #shot-2:checked ~ .shot-nav :is(.p2, .n2),
+#shot-3:checked ~ .shot-nav :is(.p3, .n3), #shot-4:checked ~ .shot-nav :is(.p4, .n4),
+#shot-5:checked ~ .shot-nav :is(.p5, .n5) {
+  display: grid;
+}
+#shot-1:checked ~ .shot-nav .d1, #shot-2:checked ~ .shot-nav .d2,
+#shot-3:checked ~ .shot-nav .d3, #shot-4:checked ~ .shot-nav .d4,
+#shot-5:checked ~ .shot-nav .d5 {
+  background: var(--cyan);
+}
+/* Keyboard: the radios take focus; show it on the matching dot. */
+#shot-1:focus-visible ~ .shot-nav .d1, #shot-2:focus-visible ~ .shot-nav .d2,
+#shot-3:focus-visible ~ .shot-nav .d3, #shot-4:focus-visible ~ .shot-nav .d4,
+#shot-5:focus-visible ~ .shot-nav .d5 {
+  outline: 2px solid var(--cyan);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage img, .caption { transition: none; }
+}
+
+@media (max-width: 600px) {
+  .showcase .wrap { padding-inline: 12px; }
+}
+
+/* ---- sections ---- */
+
+section { padding: 64px 0; }
+section.alt { background: var(--panel); border-block: 1px solid var(--line); }
+.section-head { max-width: 58ch; margin-bottom: 36px; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 28px 32px;
+}
+.feature p { margin: 0; font-size: .97rem; }
+.feature h3 { margin-bottom: .35em; }
+
+.split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 48px;
+  align-items: center;
+}
+.split-top { align-items: start; }
+
+.steps { margin: 0; padding-left: 1.3em; }
+.steps li { margin-bottom: .6em; }
+
+.facts { list-style: none; margin: 0; padding: 0; }
+.facts li {
+  padding: 13px 0;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  font-size: .97rem;
+}
+.facts li:last-child { border-bottom: 0; }
+.facts b { color: var(--ink); font-weight: 600; text-align: right; }
+
+/* ---- footer ---- */
+
+footer {
+  border-top: 1px solid var(--line);
+  padding: 34px 0 46px;
+  font-size: .9rem;
+}
+footer .wrap { display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
+footer a { color: var(--body); }
+
+@media (max-width: 760px) {
+  .hero { padding-top: 48px; }
+  .hero .wrap, .split { grid-template-columns: 1fr; gap: 36px; }
+  .hero-icon { max-width: 150px; }
+  .lede { max-width: none; }
+  section { padding: 48px 0; }
+}

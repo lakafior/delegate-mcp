@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Delegate — Hand the grunt work to cheaper models and agents</title>
+  <meta name="description" content="A native macOS menu bar app and MCP server. Your AI assistant hands translations, docs, tests and repo analysis to cheaper or local models and to coding agents in a sandbox, and keeps its own limits for the hard parts.">
+  <meta property="og:title" content="Delegate — Hand the grunt work to cheaper models and agents">
+  <meta property="og:description" content="Your AI assistant conducts: cheaper models and sandboxed coding agents do the long, simple work in the background. For macOS.">
+  <meta property="og:image" content="https://delegate.smigi.net/assets/icon.png">
+  <meta property="og:url" content="https://delegate.smigi.net">
+  <meta name="theme-color" content="#0b1033">
+  <link rel="canonical" href="https://delegate.smigi.net/">
+  <link rel="icon" href="assets/icon.png" type="image/png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <a class="logo" href="/">
+      <img src="assets/icon.png" alt="" width="34" height="34">
+      Delegate
+    </a>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#agents">Agents</a>
+      <a href="#setup">Setup</a>
+      <a href="#privacy">Privacy</a>
+      <a href="https://github.com/lakafior/delegate-mcp">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <div>
+      <span class="tag">macOS 26 · MCP server · Open source</span>
+      <h1>Let your assistant hand off the grunt&nbsp;work.</h1>
+      <p class="lede">Translations, docs, tests and repo-wide searches go to cheaper or local models and to coding agents in a sandbox. Your main assistant keeps its limits for the parts that need it.</p>
+      <div class="cta">
+        <a class="btn btn-primary" href="https://github.com/lakafior/delegate-mcp/releases/latest">Download for Mac</a>
+        <a class="btn btn-secondary" href="https://github.com/lakafior/delegate-mcp">View the source</a>
+      </div>
+      <p class="cta-note">Free. Signed and notarized by Apple. Requires macOS 26.</p>
+    </div>
+    <img class="hero-icon" src="assets/icon.png" width="256" height="256" alt="The Delegate icon: a white branching arrow on a navy-to-cyan gradient.">
+  </div>
+</section>
+
+<section class="showcase" aria-label="The Delegate app">
+  <div class="wrap">
+    <div class="section-head"><h2>See it at work</h2><p>A menu bar app for the settings, a server for your assistant. Use the arrows to look around.</p></div>
+    <!-- No JavaScript: one radio per step; the arrows and dots are labels for them. -->
+    <input class="shot-radio" type="radio" name="shot" id="shot-1" checked aria-label="Jobs">
+    <input class="shot-radio" type="radio" name="shot" id="shot-2" aria-label="Usage">
+    <input class="shot-radio" type="radio" name="shot" id="shot-3" aria-label="Agents">
+    <input class="shot-radio" type="radio" name="shot" id="shot-4" aria-label="Routing">
+    <input class="shot-radio" type="radio" name="shot" id="shot-5" aria-label="Providers">
+    <div class="stage">
+      <img class="s1" src="assets/jobs.png" width="1400" height="974" alt="The Jobs tab: two agents running, a finished agent branch, model jobs and one failure">
+      <img class="s2" src="assets/usage.png" width="1400" height="974" alt="The Usage tab: tokens per day by model, calls, cost and the equivalent API price" loading="lazy">
+      <img class="s3" src="assets/agent.png" width="1400" height="974" alt="An agent page: signed in and working in the sandbox, default model haiku with low effort" loading="lazy">
+      <img class="s4" src="assets/routing.png" width="1400" height="974" alt="The Routing tab: data regions and which agents may work on which repository" loading="lazy">
+      <img class="s5" src="assets/provider.png" width="1400" height="974" alt="Provider settings: data region, connection, key in Keychain and guidance for the assistant" loading="lazy">
+    </div>
+    <div class="shot-nav">
+      <label class="arrow prev p1" for="shot-5" aria-label="Previous">‹</label>
+      <label class="arrow prev p2" for="shot-1" aria-label="Previous">‹</label>
+      <label class="arrow prev p3" for="shot-2" aria-label="Previous">‹</label>
+      <label class="arrow prev p4" for="shot-3" aria-label="Previous">‹</label>
+      <label class="arrow prev p5" for="shot-4" aria-label="Previous">‹</label>
+      <div class="dots">
+        <label class="dot d1" for="shot-1" aria-label="Show: Jobs"></label>
+        <label class="dot d2" for="shot-2" aria-label="Show: Usage"></label>
+        <label class="dot d3" for="shot-3" aria-label="Show: Agents"></label>
+        <label class="dot d4" for="shot-4" aria-label="Show: Routing"></label>
+        <label class="dot d5" for="shot-5" aria-label="Show: Providers"></label>
+      </div>
+      <label class="arrow next n1" for="shot-2" aria-label="Next">›</label>
+      <label class="arrow next n2" for="shot-3" aria-label="Next">›</label>
+      <label class="arrow next n3" for="shot-4" aria-label="Next">›</label>
+      <label class="arrow next n4" for="shot-5" aria-label="Next">›</label>
+      <label class="arrow next n5" for="shot-1" aria-label="Next">›</label>
+    </div>
+    <div class="captions" aria-live="polite">
+      <div class="caption c1"><h3>Jobs</h3><p>Everything running in the background, from every session: which agent or model, how long, the result, and the branch an agent left its changes on.</p></div>
+      <div class="caption c2"><h3>Usage</h3><p>Tokens, calls and cost per model, and what the same work would have cost on a frontier model's API.</p></div>
+      <div class="caption c3"><h3>Agents</h3><p>Each agent signs in with its own account. Delegate checks it in the same sandbox real tasks use, and picks a cheaper default model for it.</p></div>
+      <div class="caption c4"><h3>Routing</h3><p>Where your data may go, region by region, and which agents may work on which repository. Work code can stay off limits to all of them.</p></div>
+      <div class="caption c5"><h3>Providers</h3><p>Mistral, Gemini, OpenRouter, DeepSeek, Anthropic, local Ollama or LM Studio, and Apple's on-device model. Keys live in Keychain.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="features" class="alt">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>What it does</h2>
+      <p>Delegate is an MCP server, so your assistant sees it as a few extra tools. It decides what to hand off; the server does the file work, the routing and the bookkeeping.</p>
+    </div>
+    <div class="grid">
+      <div class="feature">
+        <h3>Short prompt, long answer</h3>
+        <p>Translations, docs, changelogs, fixtures, boilerplate and summaries of long logs go to a cheaper model. The server reads the input files and writes the result to disk, so your assistant doesn't pay to retype them.</p>
+      </div>
+      <div class="feature">
+        <h3>Several jobs at once</h3>
+        <p>Background jobs return an ID straight away. Your assistant starts a few, keeps working, and collects the results when they're ready.</p>
+      </div>
+      <div class="feature">
+        <h3>Fallback that learns</h3>
+        <p>Provider order is your priority list. A model that hits a rate limit, runs out of credit or goes down is paused for a while, from a minute to a week depending on the error, and the next one takes over.</p>
+      </div>
+      <div class="feature">
+        <h3>Free and local first</h3>
+        <p>Free tiers, local models through Ollama or LM Studio, and Apple's on-device model, which works offline and never leaves your Mac.</p>
+      </div>
+      <div class="feature">
+        <h3>A daily budget</h3>
+        <p>Set a limit in dollars. Once today's spend reaches it, paid models drop out and free and local ones carry on.</p>
+      </div>
+      <div class="feature">
+        <h3>Catches secrets</h3>
+        <p>Before a prompt leaves your Mac, a leak detector looks for API keys, bearer tokens and cloud credentials, and stops the request if it finds one.</p>
+      </div>
+      <div class="feature">
+        <h3>Conductor mode</h3>
+        <p>The <code>/swarm</code> skill for Claude Code splits a goal, like a roadmap item, into independent tasks, runs them in parallel on models and agents, then reviews and merges what comes back.</p>
+      </div>
+      <div class="feature">
+        <h3>Works with your assistant</h3>
+        <p>One click to connect Claude Desktop, Claude Code, Codex, Cursor, VS Code, Gemini CLI or Antigravity. Zed takes a short manual edit.</p>
+      </div>
+      <div class="feature">
+        <h3>Native and small</h3>
+        <p>Written in Swift with SwiftUI. No Python, no Electron. The server ships inside the app, and a doctor command checks the whole setup.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="agents">
+  <div class="wrap">
+    <div class="split">
+      <div>
+        <h2>Coding agents, in a sandbox.</h2>
+        <p>
+          Install agents from the ACP registry, the same one Zed uses: Claude Agent,
+          Codex, GitHub Copilot, Mistral Vibe, Google Antigravity and Junie. Each one
+          signs in with its own account, so its work counts against its plan, not
+          your main assistant's.
+        </p>
+        <p>
+          In <b>read mode</b> an agent searches and analyses a snapshot of the repo.
+          In <b>write mode</b> it works on a new <code>delegate/…</code> branch in a
+          worktree; Delegate commits the result and your assistant reviews the diff
+          before anything is merged.
+        </p>
+        <p>
+          A macOS sandbox keeps your original repository, your API keys and
+          everything outside the task out of the agent's reach.
+        </p>
+      </div>
+      <ul class="facts">
+        <li><span>Modes</span> <b>read, write on a branch</b></li>
+        <li><span>Sandbox</span> <b>macOS sandbox-exec</b></li>
+        <li><span>Your repo and keys</span> <b>hidden from agents</b></li>
+        <li><span>Per agent</span> <b>model, effort, region, on/off</b></li>
+        <li><span>Per repository</span> <b>which agents may touch it</b></li>
+        <li><span>At once</span> <b>3 agents by default</b></li>
+        <li><span>Installs verified by</span> <b>SHA-256 or Developer ID</b></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="setup" class="alt">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Set up in a few minutes</h2>
+      <p>The app writes the config for you. Restart your assistant afterwards so it loads the server's instructions.</p>
+    </div>
+    <div class="split split-top">
+      <div>
+        <h3>Install</h3>
+        <ol class="steps">
+          <li>Download <b>Delegate.dmg</b> from <a href="https://github.com/lakafior/delegate-mcp/releases/latest">GitHub Releases</a> and drag it to Applications.</li>
+          <li>Open it from the menu bar and go to <b>Overview</b>.</li>
+          <li>Click <b>Install</b> next to your assistant: Claude Desktop, Claude Code, or one of the <b>Other assistants</b>.</li>
+        </ol>
+      </div>
+      <div>
+        <h3>Add models and agents</h3>
+        <ol class="steps">
+          <li>Press <b>+</b> and pick a provider: Mistral, Gemini, OpenRouter, DeepSeek, Anthropic, Ollama or LM Studio. Paste its key.</li>
+          <li>Optionally, open <b>Browse agents</b> and install one, then sign in.</li>
+          <li>Ask your assistant to translate a file or review a module, and watch it in <b>Jobs</b>.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="privacy">
+  <div class="wrap">
+    <div class="split">
+      <div>
+        <h2>Your data goes where you say.</h2>
+        <p>
+          Every provider and agent has a data region: on this Mac, EU, US, China or
+          unknown. Your assistant marks each task as public, personal or private, and
+          the server enforces it: personal work only goes to the regions you allow,
+          private work never leaves your Mac.
+        </p>
+        <p>
+          Delegate has no account, no server of its own and no analytics. The usage
+          log stays on your Mac and holds only counts and timings, never prompts.
+        </p>
+      </div>
+      <ul class="facts">
+        <li><span>Accounts</span> <b>none</b></li>
+        <li><span>Servers of its own</span> <b>none</b></li>
+        <li><span>Analytics</span> <b>none</b></li>
+        <li><span>API keys</span> <b>macOS Keychain</b></li>
+        <li><span>Usage log</span> <b>local, no prompt text</b></li>
+        <li><span>Private tasks</span> <b>on-device models only</b></li>
+        <li><span>Requires</span> <b>macOS 26</b></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 Smigi · Delegate is open source ·
+      Not affiliated with Anthropic, OpenAI, Google or Mistral</span>
+    <span>
+      <a href="https://github.com/lakafior/delegate-mcp">GitHub</a> ·
+      <a href="https://github.com/lakafior/delegate-mcp/releases">Releases</a> ·
+      <a href="https://github.com/lakafior/delegate-mcp/issues">Issues</a>
+    </span>
+  </div>
+</footer>
+
+<!-- smigi.net window chrome: traffic lights + minimize-to-dock.
+     Loads from localhost during development, smigi.net in production. -->
+<script>
+  (function () {
+    var local = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+    var s = document.createElement("script");
+    s.src = (local ? "" : "https://smigi.net") + "/os/chrome.js";
+    s.dataset.app = "delegate";
+    s.dataset.title = "Delegate";
+    document.head.appendChild(s);
+  })();
+</script>
+
+</body>
+</html>
