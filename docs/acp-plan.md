@@ -119,6 +119,10 @@ Zrobione w `DelegateCore` (bez zmian w serwerze MCP i apce):
   Junie (JetBrains s.r.o.) i Devin (Exafunction) przechodzą podpisem; Cursor nie — jego główny program
   `cursor-agent-sea` jest niepodpisany, choć pozostałe pliki paczki podpisuje Anysphere. Antigravity (Google)
   i Copilot (GitHub) też są podpisane; Vibe ma tylko podpis ad-hoc, chroni go suma z rejestru.
+- UI: zainstalowani agenci w pasku bocznym (sekcja Agents, kropki stanu) ze stronami `AgentDetailView` (stan
+  w piaskownicy, logowanie, wersja/aktualizacja, region, weryfikacja, modele, polecenie, katalogi zapisu, usuwanie);
+  rejestr pod „Browse agents” i w menu „+”; Overview ma sekcję Agents (Node, piaskownica, stan każdego agenta,
+  wliczone w podsumowanie). `--select=agent:<id>`.
 - Nie zrobione: ustawienia per agent (region, domyślny model, włączony) w `delegate.toml` — region dalej z tabeli
   `AgentRegions`, model wybiera Claude parametrem `model`. Do zrobienia, jeśli okaże się potrzebne.
 

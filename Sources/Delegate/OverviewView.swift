@@ -19,6 +19,7 @@ struct OverviewView: View {
                     ForEach(report.providers) { providerRow($0) }
                 }
             }
+            if !model.installedAgents.isEmpty { agentsSection }
         }
         .formStyle(.grouped)
         .navigationTitle("Overview")
@@ -35,7 +36,10 @@ struct OverviewView: View {
                         }
                     }
                 }
-                Button("Check again", systemImage: "arrow.clockwise") { model.runDiagnostics() }
+                Button("Check again", systemImage: "arrow.clockwise") {
+                    model.runDiagnostics()
+                    model.checkAllAgents()
+                }
                     .disabled(model.diagnosing)
             }
         }
@@ -49,6 +53,7 @@ struct OverviewView: View {
 
     private var summary: some View {
         let severities = (model.diagnostics?.checks.map(\.severity) ?? []) + (model.diagnostics?.providers.map(\.severity) ?? [])
+            + model.agentSeverities
         let errors = severities.filter { $0 == .error }.count
         let warnings = severities.filter { $0 == .warning }.count
         let stats = model.usageStats
@@ -130,6 +135,67 @@ struct OverviewView: View {
         guard let check = model.diagnostics?.checks.first(where: { $0.fix == .authorizeKeys || $0.name == "Server access to keys" })
         else { return "When macOS asks for a password while the server uses keys." }
         return check.message
+    }
+
+    // MARK: agenci
+
+    private var agentsSection: some View {
+        Section {
+            if !AgentSandbox.isAvailable {
+                checkRow(DiagnosticCheck(name: "Sandbox", severity: .error,
+                                         message: "sandbox-exec is missing, so agents can't run."))
+            }
+            if model.installedAgents.contains(where: { $0.kind == "npm" }) {
+                if let node = model.nodeRuntime {
+                    checkRow(DiagnosticCheck(name: "Node.js", severity: .ok,
+                                             message: "\(node.version) at \(node.node.path)"))
+                } else {
+                    checkRow(DiagnosticCheck(name: "Node.js", severity: .error,
+                                             message: "Not found; npm agents won't start. Install it (brew install node)."))
+                }
+            }
+            ForEach(model.installedAgents) { agent in agentRow(agent) }
+        } header: {
+            Text("Agents")
+        } footer: {
+            Text("Each check starts the agent in its sandbox and opens a session, without sending anything to its model. Claude sees only agents installed before its session started; restart Claude after installing one.")
+        }
+    }
+
+    private func agentRow(_ agent: InstalledAgent) -> some View {
+        let check = model.agentChecks[agent.id]
+        let activity = model.agentActivity[agent.id]
+        return HStack(alignment: .firstTextBaseline, spacing: 10) {
+            switch check?.signIn {
+            case .signedIn: SeverityIcon(severity: .ok)
+            case .needsSignIn: SeverityIcon(severity: .warning)
+            case .failed: SeverityIcon(severity: .error)
+            case nil: ProgressView().controlSize(.mini)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(agent.name)
+                Group {
+                    if let activity {
+                        Text(activity)
+                    } else {
+                        switch check?.signIn {
+                        case .signedIn: Text("Signed in, works in the sandbox · v\(agent.version)")
+                        case .needsSignIn: Text("Not signed in")
+                        case .failed(let why): Text(why).foregroundStyle(.red)
+                        case nil: Text("Checking…")
+                        }
+                    }
+                }
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .lineLimit(3)
+            }
+            Spacer()
+            if activity == nil, case .needsSignIn(let methods) = check?.signIn, let m = methods.first {
+                Button(m.type == "terminal" ? "Sign in (Terminal)" : "Sign in") { model.signInAgent(agent.id, method: m) }
+                    .controlSize(.small)
+            }
+        }
     }
 
     // MARK: wiersze diagnostyki

@@ -370,6 +370,27 @@ final class AppModel {
         }
     }
 
+    /// Sprawdza wszystkich zainstalowanych agentów (Overview → Check again).
+    func checkAllAgents() {
+        for agent in installedAgents { checkAgent(agent.id) }
+    }
+
+    /// Problemy agentów jak w diagnostyce: brak piaskownicy albo Node to błąd systemu, niezalogowany agent to uwaga.
+    var agentSeverities: [DiagnosticSeverity] {
+        var out: [DiagnosticSeverity] = []
+        if !installedAgents.isEmpty && !AgentSandbox.isAvailable { out.append(.error) }
+        if installedAgents.contains(where: { $0.kind == "npm" }) && nodeRuntime == nil { out.append(.error) }
+        for agent in installedAgents {
+            switch agentChecks[agent.id]?.signIn {
+            case .signedIn: out.append(.ok)
+            case .needsSignIn: out.append(.warning)
+            case .failed: out.append(.error)
+            case nil: break
+            }
+        }
+        return out
+    }
+
     func checkAgent(_ id: String) {
         guard let agent = installedAgents.first(where: { $0.id == id }), agentActivity[id] == nil else { return }
         agentActivity[id] = "Checking…"

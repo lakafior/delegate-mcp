@@ -5,7 +5,9 @@ enum SidebarItem: Hashable {
     case overview
     case provider(String)
     case routing
+    /// Przeglądanie rejestru ACP.
     case agents
+    case agent(String)
     case usage
     case settings
 }
@@ -18,6 +20,7 @@ extension SidebarItem {
         case "overview", "diagnostics": return .overview
         case "routing": return .routing
         case "agents": return .agents
+        case let s where s.hasPrefix("agent:"): return .agent(String(s.dropFirst("agent:".count)))
         case "usage": return .usage
         case "settings", "general": return .settings
         case let id: return .provider(String(id))
@@ -73,9 +76,22 @@ struct SettingsView: View {
                     }
                     .onMove { model.config.providers.move(fromOffsets: $0, toOffset: $1) }
                 }
+                Section("Agents") {
+                    ForEach(model.installedAgents) { agent in
+                        Label {
+                            Text(agent.name)
+                        } icon: {
+                            AgentStatusDot(signIn: model.agentChecks[agent.id]?.signIn, busy: model.agentActivity[agent.id] != nil)
+                        }
+                        .tag(SidebarItem.agent(agent.id))
+                        .contextMenu {
+                            Button("Check again", systemImage: "arrow.clockwise") { model.checkAgent(agent.id) }
+                        }
+                    }
+                    Label("Browse agents", systemImage: "square.grid.2x2").tag(SidebarItem.agents)
+                }
                 Section("App") {
                     Label("Routing", systemImage: "arrow.triangle.branch").tag(SidebarItem.routing)
-                    Label("Agents", systemImage: "person.2.badge.gearshape").tag(SidebarItem.agents)
                     Label("Usage", systemImage: "chart.bar").tag(SidebarItem.usage)
                     Label("Settings", systemImage: "gearshape").tag(SidebarItem.settings)
                 }
@@ -91,6 +107,8 @@ struct SettingsView: View {
                                 Label(preset.title, systemImage: preset.kind.symbol)
                             }
                         }
+                        Divider()
+                        Button("Browse agents…", systemImage: "square.grid.2x2") { selection = .agents }
                     }
                 }
             }
@@ -138,6 +156,19 @@ struct SettingsView: View {
             model.refresh()
         }
         .safeAreaInset(edge: .bottom) { errorBar }
+        .task { await model.loadAgents() }
+        .confirmationDialog(
+            "Install \(model.unverifiedAgent?.agent.name ?? "agent") without verification?",
+            isPresented: Binding(get: { model.unverifiedAgent != nil }, set: { if !$0 { model.unverifiedAgent = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Install anyway", role: .destructive) { model.installAgentAnyway() }
+            Button("Cancel", role: .cancel) { model.unverifiedAgent = nil }
+        } message: {
+            if let pending = model.unverifiedAgent {
+                Text("The registry publishes no checksum for it and the program isn't signed by a known developer\(pending.error.signer.map { " (signature: \($0))" } ?? ""). It will still run only in the sandbox. Download SHA-256: \(pending.error.sha256.prefix(16))…; a different file for the same version will be refused later.")
+            }
+        }
     }
 
     @ViewBuilder
@@ -155,6 +186,13 @@ struct SettingsView: View {
 
         case .routing: RoutingView(model: model)
         case .agents: AgentsView(model: model)
+        case .agent(let id):
+            if let agent = model.installedAgents.first(where: { $0.id == id }) {
+                AgentDetailView(model: model, agent: agent, onRemoved: { selection = .agents })
+                    .id(id)
+            } else {
+                ContentUnavailableView("Agent not installed", systemImage: "questionmark.circle")
+            }
         case .usage: UsageView(model: model)
         case .settings: GeneralView(model: model)
         case .overview, nil: OverviewView(model: model)

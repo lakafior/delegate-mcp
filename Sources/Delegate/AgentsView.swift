@@ -1,7 +1,7 @@
 import DelegateCore
 import SwiftUI
 
-/// Agenci ACP: zainstalowani (stan logowania, aktualizacja, usuwanie) i dostępni z rejestru ACP.
+/// Rejestr agentów ACP: dostępni do instalacji. Zainstalowani mają swoje strony w pasku bocznym (`AgentDetailView`).
 struct AgentsView: View {
     @Bindable var model: AppModel
     @State private var search = ""
@@ -18,11 +18,10 @@ struct AgentsView: View {
                     }
                 }
             }
-            installedSection
             availableSection
         }
         .formStyle(.grouped)
-        .navigationTitle("Agents")
+        .navigationTitle("Browse agents")
         .toolbar {
             ToolbarItem {
                 Button {
@@ -35,38 +34,6 @@ struct AgentsView: View {
             }
         }
         .task { await model.loadAgents() }
-        .confirmationDialog(
-            "Install \(model.unverifiedAgent?.agent.name ?? "agent") without verification?",
-            isPresented: Binding(get: { model.unverifiedAgent != nil }, set: { if !$0 { model.unverifiedAgent = nil } }),
-            titleVisibility: .visible
-        ) {
-            Button("Install anyway", role: .destructive) { model.installAgentAnyway() }
-            Button("Cancel", role: .cancel) { model.unverifiedAgent = nil }
-        } message: {
-            if let pending = model.unverifiedAgent {
-                Text("The registry publishes no checksum for it and the program isn't signed by a known developer\(pending.error.signer.map { " (signature: \($0))" } ?? ""). It will still run only in the sandbox. Download SHA-256: \(pending.error.sha256.prefix(16))…; a different file for the same version will be refused later.")
-            }
-        }
-    }
-
-    // MARK: zainstalowani
-
-    @ViewBuilder
-    private var installedSection: some View {
-        Section {
-            if model.installedAgents.isEmpty {
-                Text("No agents installed. Install one below; Claude then gets the delegate_agent tool after a restart.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            ForEach(model.installedAgents) { agent in
-                InstalledAgentRow(model: model, agent: agent, latest: model.agentRegistry?.agent(agent.id))
-            }
-        } header: {
-            Text("Installed")
-        } footer: {
-            Text("Agents analyse a read-only copy of a git repository in a macOS sandbox: they can't change your files or see your keys. The repository's tracked files are sent to the agent's cloud model, so its data region matters.")
-        }
     }
 
     // MARK: dostępni
@@ -100,111 +67,12 @@ struct AgentsView: View {
         } header: {
             Text("Available from the ACP registry")
         } footer: {
-            Text("The same registry Zed and JetBrains IDEs use. Mac builds are verified by the registry's checksum or, without one, by the developer's code signature (unsigned ones only with your approval); npm agents are installed once with your Node.js into Delegate's folder (install scripts disabled) and run without npx. Agents that need uv come later.")
+            Text("Installed agents appear in the sidebar. Agents analyse a read-only copy of a git repository in a macOS sandbox; the repository's tracked files go to the agent's cloud model, so its data region matters. This is the same registry Zed and JetBrains IDEs use. Mac builds are verified by the registry's checksum or, without one, by the developer's code signature (unsigned ones only with your approval); npm agents are installed once with your Node.js into Delegate's folder (install scripts disabled) and run without npx. Agents that need uv come later.")
         }
     }
 }
 
 // MARK: wiersze
-
-private struct InstalledAgentRow: View {
-    let model: AppModel
-    let agent: InstalledAgent
-    let latest: ACPRegistry.Agent?
-
-    private var check: AgentAccount.Check? { model.agentChecks[agent.id] }
-    private var activity: String? { model.agentActivity[agent.id] }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            AgentStatusDot(signIn: check?.signIn, busy: activity != nil)
-                .padding(.top, 5)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(agent.name).font(.headline)
-                Text(details).font(.callout).foregroundStyle(.secondary)
-                if let activity {
-                    Text(activity).font(.callout).foregroundStyle(.secondary)
-                } else if case .failed(let why) = check?.signIn {
-                    Text(why).font(.callout).foregroundStyle(.red).lineLimit(3)
-                }
-            }
-            Spacer()
-            if activity != nil {
-                ProgressView().controlSize(.small)
-            } else {
-                actions
-            }
-        }
-        .padding(.vertical, 2)
-        .contextMenu {
-            Button("Check again", systemImage: "arrow.clockwise") { model.checkAgent(agent.id) }
-            Button("Remove", systemImage: "trash", role: .destructive) { model.uninstallAgent(agent.id) }
-        }
-    }
-
-    private var details: String {
-        var parts = ["v\(agent.version)", "data: \(AgentRegions.region(for: agent.id).title)"]
-        switch agent.verifiedBy {
-        case "signature": parts.append("signed by \(agent.signer ?? "a known developer")")
-        case "trusted": parts.append("unverified, installed with your approval")
-        default: break
-        }
-        switch check?.signIn {
-        case .signedIn: parts.append("signed in")
-        case .needsSignIn: parts.append("not signed in")
-        case .failed: parts.append("check failed")
-        case nil: break
-        }
-        if let check, !check.models.isEmpty {
-            parts.append("models: " + check.models.joined(separator: ", "))
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    @ViewBuilder
-    private var actions: some View {
-        HStack {
-            if case .needsSignIn(let methods) = check?.signIn {
-                signInButton(methods)
-            }
-            if let latest, latest.version != agent.version {
-                Button("Update to \(latest.version)") { model.installAgent(latest) }
-            }
-            Menu {
-                Button("Check again", systemImage: "arrow.clockwise") { model.checkAgent(agent.id) }
-                if let methods = check?.authMethods, !methods.isEmpty, check?.signIn == .signedIn {
-                    Menu("Sign in again") {
-                        ForEach(methods, id: \.id) { m in
-                            Button(m.name) { model.signInAgent(agent.id, method: m) }
-                        }
-                    }
-                }
-                Divider()
-                Button("Remove", systemImage: "trash", role: .destructive) { model.uninstallAgent(agent.id) }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-        }
-    }
-
-    @ViewBuilder
-    private func signInButton(_ methods: [ACPAgentHello.AuthMethod]) -> some View {
-        if methods.count == 1, let m = methods.first {
-            Button(m.type == "terminal" ? "Sign in (Terminal)" : "Sign in") { model.signInAgent(agent.id, method: m) }
-                .buttonStyle(.borderedProminent)
-                .help(m.name)
-        } else if !methods.isEmpty {
-            Menu("Sign in") {
-                ForEach(methods, id: \.id) { m in
-                    Button(m.type == "terminal" ? "\(m.name) (Terminal)" : m.name) { model.signInAgent(agent.id, method: m) }
-                }
-            }
-            .fixedSize()
-        }
-    }
-}
 
 private struct AvailableAgentRow: View {
     let model: AppModel

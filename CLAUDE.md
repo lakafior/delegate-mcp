@@ -43,7 +43,7 @@ Wymaga Xcode z Swift 6.2+ i macOS 26+. Zależności (swift-sdk, TOMLKit) pobiera
 
 Aplikacja: `./scripts/build-app.sh` składa `dist/Delegate.app` (serwer w `Contents/Helpers/delegate-mcp`,
 podpis ad-hoc; `SIGN_ID="Developer ID Application: …"` do dystrybucji). Flagi aplikacji do ręcznego
-sprawdzania widoków: `--settings` otwiera okno przy starcie, `--select=overview|routing|agents|usage|settings|<id dostawcy>`
+sprawdzania widoków: `--settings` otwiera okno przy starcie, `--select=overview|routing|agents|agent:<id>|usage|settings|<id dostawcy>`
 wybiera panel. `DELEGATE_HOME=/tmp/x` odcina od prawdziwego configu.
 
 Binarki z `swift build` mają podpis ad-hoc, którego ACL wpisów w Keychain nie zna, więc odczyt klucza
@@ -149,8 +149,8 @@ stanu agenta i `tmp` zadania, oryginalne repo i klucze niewidoczne), tryb tylko 
 polecenia, odmowa dla edycji, usuwania i przenoszenia plików). Wynik przez `delegate_result`; zadania w tle zapisywane w `jobs/<id>.json` (`JobStore`), więc przeżywają
 restart serwera. Instalacja: `agents/<id>/<wersja>/` + `agents/installed.json` (`AgentInstaller`: binarki z SHA-256 z rejestru
 albo z podpisem Developer ID (`CodeSignature`), niepodpisane tylko za zgodą (`UnverifiedAgentError`, `--allow-unverified`); paczki npm instalowane raz przez systemowy Node, `NodeRuntime`, `npm install --prefix --ignore-scripts`,
-uruchamiane `node <skrypt>` bez npx), z terminala `delegate-mcp --install-agent <id>` / `--agents`. W apce zakładka **Agents** (`AgentsView`): lista z rejestru,
-instalacja/aktualizacja/usuwanie, stan logowania (`AgentAccount.check`: próbna sesja w pustym katalogu) i logowanie
+uruchamiane `node <skrypt>` bez npx), z terminala `delegate-mcp --install-agent <id>` / `--agents`. W apce: zainstalowani agenci w pasku bocznym ze stronami
+(`AgentDetailView`), rejestr pod „Browse agents” (`AgentsView`), sekcja Agents w Overview; stan logowania (`AgentAccount.check`: próbna sesja w pustym katalogu) i logowanie
 (`agent` → ACP `authenticate`, agent otwiera przeglądarkę; `terminal` → plik `.command` w Terminalu).
 Testy na atrapie agenta (Python) w `ACPTests.swift` i `AgentRunTests.swift`.
 
