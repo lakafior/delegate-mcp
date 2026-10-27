@@ -47,11 +47,12 @@ public enum ClaudeIntegration {
     public static let instructions = """
     \(marker)
     ## Delegating to cheaper models
-    You have the `delegate` MCP tool. Use it proactively for self-contained text tasks (translation, summaries \
-    of pasted text, first drafts, rewriting, bulk generation, a second opinion on a code snippet): it saves my \
-    Claude usage limits. Follow the `delegate` server instructions for when and how. The delegated model sees \
-    only your prompt, so include all context, and check its output. Never send secrets, personal data, or work \
-    material through it.
+    You have the `delegate` MCP tool: use it proactively, it saves my Claude usage limits. Act as the \
+    conductor: hand off file-shaped work (translations, docs, fixtures, boilerplate, one-file rewrites, \
+    first-pass reviews of long files) with `files` in and `output_file` out, run independent jobs with \
+    `background: true` while you keep working, then review the results with `git diff`. Follow the \
+    `delegate` server instructions for which model and `sensitivity`. Never send secrets, personal data, \
+    or work material to regions that don't allow it.
     \(marker)
     """
 

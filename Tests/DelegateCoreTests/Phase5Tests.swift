@@ -108,6 +108,8 @@ import Testing
         #expect(text.contains("User's rules: Deleguj"))
         #expect(!text.contains("deepseek"))
         #expect(text.contains("`files`"))
+        #expect(text.contains("`output_file`"))
+        #expect(text.contains("`background: true`"))
         #expect(g.tags.first == "general")
     }
 
@@ -431,6 +433,32 @@ extension PriceCatalogTests {
         #expect(body.contains("# Notatki"))
     }
 
+    @Test func replyGoesToOutputFileWithPreviewOnly() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("out-\(UUID())")
+        let out = dir.appendingPathComponent("sub/pt-BR.json")
+        let body = #"{"choices":[{"message":{"content":"```json\n{\"hello\": \"olá\"}\n```"}}],"usage":{"prompt_tokens":10,"completion_tokens":3}}"#
+        let t = MockTransport(["api.mistral.ai": .init(status: 200, body: body)])
+        let (svc, _) = try makeService(t, keys: ["MISTRAL_API_KEY": "m"])
+        let text = try await svc.delegate(.init(prompt: "Translate", model: "mistral/mistral-small-latest", outputFile: out.path))
+        #expect(try String(contentsOf: out, encoding: .utf8) == "{\"hello\": \"olá\"}\n")
+        #expect(text.contains("Wrote \(out.path)"))
+        #expect(text.contains("code fence removed"))
+    }
+
+    @Test func badOutputPathFailsBeforeCallingTheModel() async throws {
+        let t = MockTransport(["api.mistral.ai": .init(status: 200, body: openAIBody)])
+        let (svc, _) = try makeService(t, keys: ["MISTRAL_API_KEY": "m"])
+        #expect(throws: DelegateError.self) { try svc.preflight(.init(prompt: "x", outputFile: "relative.txt")) }
+        let dir = FileManager.default.temporaryDirectory.path
+        await #expect(throws: DelegateError.self) { try await svc.delegate(.init(prompt: "x", outputFile: dir)) }
+        #expect(t.calls.isEmpty)
+    }
+
+    @Test func fenceIsKeptWhenNotWrappingEverything() {
+        let text = "```swift\na\n```\nmore\n```\nb\n```"
+        #expect(OutputFile.stripFence(text).stripped == false)
+    }
+
     @Test func fallbackPrefersModelsSimilarToTheChosenOne() throws {
         let (svc, _) = try makeService(MockTransport([:]), keys: ["MISTRAL_API_KEY": "m", "GEMINI_API_KEY": "g", "DEEPSEEK_API_KEY": "d"])
         let cfg = try Config.parse(sampleConfigToml)
@@ -448,5 +476,34 @@ extension PriceCatalogTests {
         let text = DelegationGuide(config: c) { _ in true }.serverInstructions
         // Idą w każdym zapytaniu: pilnujemy rozmiaru (ok. 4 znaki na token).
         #expect(text.count < 2600, "instrukcje mają \(text.count) znaków")
+    }
+}
+
+@Suite struct BackgroundJobTests {
+    @Test func jobsRunInParallelAndReportResults() async throws {
+        let jobs = DelegateJobs { r in
+            try await Task.sleep(for: .milliseconds(100))
+            if r.prompt == "fail" { throw DelegateError(description: "boom") }
+            return "result of \(r.prompt)"
+        }
+        let a = await jobs.start(.init(prompt: "first"))
+        let b = await jobs.start(.init(prompt: "fail"))
+        let c = await jobs.start(.init(prompt: "third", outputFile: "/tmp/x/pt.json"))
+        #expect([a, b, c] == ["j1", "j2", "j3"])
+
+        let early = await jobs.result(ids: [a], wait: 0)
+        #expect(early.contains("j1 (first): running"))
+
+        let started = Date()
+        let all = await jobs.result(ids: [], wait: 5)
+        #expect(Date().timeIntervalSince(started) < 2)   // równolegle, nie 3 × 100 ms w kolejce do limitu
+        #expect(all.contains("## j1 (first): done\nresult of first"))
+        #expect(all.contains("## j2 (fail): failed\nboom"))
+        #expect(all.contains("## j3 (→ pt.json): done"))
+        #expect(await jobs.result(ids: ["j9"], wait: 0).contains("unknown job"))
+    }
+
+    @Test func noJobsYet() async {
+        #expect(await DelegateJobs { _ in "" }.result(ids: [], wait: 1) == "No background jobs.")
     }
 }

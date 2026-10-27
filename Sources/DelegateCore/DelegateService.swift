@@ -18,11 +18,13 @@ public struct DelegateRequest: Sendable {
     public var sensitivity: Sensitivity
     /// Ścieżki plików tekstowych, które serwer dokleja do promptu (`FileAttachments`).
     public var files: [String]
+    /// Ścieżka, pod którą serwer zapisuje odpowiedź (`OutputFile`); Claude dostaje wtedy tylko podgląd.
+    public var outputFile: String?
 
     public init(prompt: String, system: String? = nil, model: String? = nil, task: String? = nil,
                 temperature: Double? = nil, maxTokens: Int? = nil, allowFallback: Bool = true,
                 allowSecrets: Bool = false, jsonMode: Bool = false, sensitivity: Sensitivity = .public,
-                files: [String] = []) {
+                files: [String] = [], outputFile: String? = nil) {
         self.prompt = prompt
         self.system = system
         self.model = model
@@ -34,6 +36,7 @@ public struct DelegateRequest: Sendable {
         self.jsonMode = jsonMode
         self.sensitivity = sensitivity
         self.files = files
+        self.outputFile = outputFile
     }
 }
 
@@ -283,10 +286,25 @@ public struct DelegateService: Sendable {
         return RoutingPlan(candidates: all, excluded: excluded, spentToday: spent)
     }
 
-    public func delegate(_ original: DelegateRequest) async throws -> String {
+    struct Prepared {
+        var request: DelegateRequest
+        var config: Config
+        var plan: RoutingPlan
+        var attached: FileAttachments.Composed
+        var output: URL?
+    }
+
+    /// Wszystko, co może odrzucić zadanie przed wywołaniem modelu (pliki, routing, sekrety).
+    /// Zadania w tle wołają to od razu, żeby błąd wrócił do Claude'a, a nie dopiero w wyniku.
+    public func preflight(_ request: DelegateRequest) throws {
+        _ = try prepare(request)
+    }
+
+    func prepare(_ original: DelegateRequest) throws -> Prepared {
         let config = try loadConfig()
         // Pliki doklejamy przed wszystkim innym: limity czasu i wykrywanie sekretów dotyczą pełnej treści.
         let attached = try FileAttachments.compose(prompt: original.prompt, paths: original.files)
+        let output = try original.outputFile.map(OutputFile.validate)
         var request = original
         request.prompt = attached.prompt
         let plan = routingPlan(for: request, config: config)
@@ -309,6 +327,14 @@ public struct DelegateService: Sendable {
                 )
             }
         }
+
+        return Prepared(request: request, config: config, plan: plan, attached: attached, output: output)
+    }
+
+    public func delegate(_ original: DelegateRequest) async throws -> String {
+        let p = try prepare(original)
+        let (request, config, plan, attached, output) = (p.request, p.config, p.plan, p.attached, p.output)
+        let list = plan.candidates
 
         let chat = ChatRequest(prompt: request.prompt, system: request.system,
                                temperature: request.temperature, maxTokens: request.maxTokens,
@@ -337,6 +363,14 @@ public struct DelegateService: Sendable {
                 if attached.count > 0 { h += " · files: \(attached.count) (\(max(1, attached.bytes / 1024)) KB)" }
                 if let spent = plan.spentToday, let budget = config.dailyBudgetUSD {
                     h += String(format: " · budget today: $%.2f/$%.2f", spent + (cost ?? 0), budget)
+                }
+                if let output {
+                    do {
+                        return h + "\n\n" + (try OutputFile.write(reply.text, to: output))
+                    } catch {
+                        // Odpowiedź już zapłacona: oddajemy ją, zamiast gubić.
+                        return h + "\n\nCouldn't write \(output.path) (\(error)); reply follows.\n\n" + reply.text
+                    }
                 }
                 return h + "\n\n" + reply.text
             } catch {

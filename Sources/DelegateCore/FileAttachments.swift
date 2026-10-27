@@ -44,3 +44,47 @@ enum FileAttachments {
         return Composed(prompt: out, count: paths.count, bytes: total)
     }
 }
+
+/// `delegate(output_file:)`: odpowiedź idzie prosto na dysk, a Claude dostaje tylko nagłówek i podgląd.
+/// Bez tego musiałby sam zapisać wynik (`Write`), czyli wygenerować go jeszcze raz swoimi tokenami.
+enum OutputFile {
+    static let previewLines = 8
+
+    /// Sprawdzane przed wywołaniem modelu, żeby nie płacić za odpowiedź, której nie da się zapisać.
+    static func validate(_ raw: String) throws -> URL {
+        let path = (raw as NSString).expandingTildeInPath
+        guard path.hasPrefix("/") else {
+            throw DelegateError(description: "output_file \"\(raw)\": give an absolute path.")
+        }
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue {
+            throw DelegateError(description: "output_file \"\(raw)\" is a directory.")
+        }
+        return URL(fileURLWithPath: path)
+    }
+
+    /// Modele lubią owijać całą odpowiedź w ```…```; w pliku ten płot jest zbędny.
+    static func stripFence(_ text: String) -> (text: String, stripped: Bool) {
+        var lines = text.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "\n")
+        guard lines.count >= 2, lines[0].hasPrefix("```"), lines[lines.count - 1].trimmingCharacters(in: .whitespaces) == "```",
+              !lines.dropFirst().dropLast().contains(where: { $0.hasPrefix("```") }) else { return (text, false) }
+        lines.removeFirst()
+        lines.removeLast()
+        return (lines.joined(separator: "\n") + "\n", true)
+    }
+
+    /// Zapisuje odpowiedź i zwraca opis dla Claude'a (zamiast pełnej treści).
+    static func write(_ reply: String, to url: URL) throws -> String {
+        let (text, stripped) = stripFence(reply)
+        let existed = FileManager.default.fileExists(atPath: url.path)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(text.utf8).write(to: url, options: .atomic)
+        let lines = text.components(separatedBy: "\n")
+        let preview = lines.prefix(previewLines).map { $0.count > 200 ? String($0.prefix(200)) + "…" : $0 }
+        var out = "\(existed ? "Overwrote" : "Wrote") \(url.path): \(lines.count) lines, \(text.utf8.count) bytes"
+        if stripped { out += " (outer code fence removed)" }
+        out += ". Review with git diff or Read rather than trusting it blindly.\nPreview:\n" + preview.joined(separator: "\n")
+        if lines.count > previewLines { out += "\n…" }
+        return out
+    }
+}

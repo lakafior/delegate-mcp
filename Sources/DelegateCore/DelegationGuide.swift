@@ -84,20 +84,24 @@ public struct DelegationGuide: Sendable {
             return "The `delegate` server has no usable models (no enabled provider with a key). Don't call `delegate`."
         }
         var out = """
-        `delegate` sends a task to a cheaper model to save the user's Claude usage limits. \(modeIntro)
+        `delegate` hands work to cheaper models to save the user's Claude usage limits. \(modeIntro) \
+        The model has no tools and sees only `prompt` and `files`, but the server does the file I/O:
+        - `files`: absolute paths the server reads. Don't read or retype big files just to pass them on.
+        - `output_file`: the server writes the reply there and you get a preview. Use it whenever the result \
+        is a file; then check it with `git diff`.
+        - `background: true`: returns a job ID at once. Start several independent jobs in one turn, keep \
+        working, collect them with `delegate_result`.
 
-        It pays off when your input is short and the output long: first drafts (emails, docs, release notes, \
-        commit messages), variants, test data, boilerplate, rewrites of a short text. Rule of thumb: delegate \
-        when you would otherwise write over ~\(wordThreshold) words that don't depend on things only you can see. \
-        It does NOT pay off to retype a long text from the conversation (that costs you as much as doing the task): \
-        for long inputs on disk, pass their paths in `files` and the server reads them. Do it yourself: design, \
-        debugging, anything needing tools or repo access, short answers.
+        Good fits: translating or extending locale files; docs, README, changelog, commit message drafts; test \
+        data and fixtures; boilerplate modelled on an example file; mechanical rewrites of one file; summaries \
+        or first-pass reviews of long files and logs (ask for a short report, so you read less); any text over \
+        ~\(wordThreshold) words that doesn't depend on things only you can see. You are the conductor: pick the \
+        files, write a precise brief (task, constraints, exact output format, e.g. "only the file content"), \
+        review what comes back. Do it yourself: edits spanning many files, design, debugging that needs running \
+        code, short answers.
 
-        The model sees only `prompt` and `files`: state the task and output format fully. Check the result.
-
-        Choose `model` yourself from the catalog below, weighing what the task needs, cost (prefer free or cheaper \
-        at similar quality), and data region. Without `model`, the server routes by `task` tag and provider order. \
-        On errors it falls back to similar models.
+        Choose `model` from the catalog below by what the task needs, cost (prefer free at similar quality), and \
+        data region. Without `model`, the server routes by `task` tag and provider order, falling back on errors.
         """
         out += "\n\n" + sensitivitySection
         if let budget = dailyBudgetUSD {
@@ -138,7 +142,7 @@ public struct DelegationGuide: Sendable {
     public var toolDescription: String {
         candidates.isEmpty
             ? "Send a task to a cheaper model. No models are available right now."
-            : "Send a self-contained task to a cheaper model (saves the user's Claude limits). See the server instructions for when, which model, and `sensitivity`."
+            : "Send a task to a cheaper model (saves the user's Claude limits); files in via `files`, out via `output_file`, parallel via `background`. See the server instructions for when and which model."
     }
 
     public var modelParameterDescription: String {

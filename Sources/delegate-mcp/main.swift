@@ -48,6 +48,7 @@ if args.contains("doctor") || args.contains("--doctor") {
 }
 
 let service = DelegateService(home: home)
+let jobs = DelegateJobs(service: service)
 
 func schema(_ properties: [String: Value], required: [String] = []) -> Value {
     var obj: [String: Value] = ["type": .string("object"), "properties": .object(properties)]
@@ -98,7 +99,22 @@ func makeTools(_ guide: DelegationGuide) -> [Tool] { [
             "json": prop("boolean", "Ask for a JSON reply."),
             "fallback": prop("boolean", "Default true; false = only the given model."),
             "allow_secrets": prop("boolean", "Default false; true only if detected keys/tokens are intentional."),
+            "output_file": prop("string", "Absolute path; the server writes the reply there and returns only a short preview."),
+            "background": prop("boolean", "Return a job ID at once; collect with delegate_result. Start several in one turn to run them in parallel."),
         ], required: ["prompt"])
+    ),
+    Tool(
+        name: "delegate_result",
+        description: "Status and results of background delegate jobs. Waits up to `wait` seconds for them to finish.",
+        inputSchema: schema([
+            "ids": .object([
+                "type": .string("array"),
+                "items": .object(["type": .string("string")]),
+                "description": .string("Job IDs; empty = all jobs of this session."),
+            ]),
+            "wait": prop("number", "Seconds to wait for unfinished jobs (default 0, max \(Int(DelegateJobs.maxWaitSeconds)))."),
+        ]),
+        annotations: .init(readOnlyHint: true)
     ),
     Tool(
         name: "list_remote_models",
@@ -168,9 +184,20 @@ await server.withMethodHandler(CallTool.self) { params in
                 jsonMode: a["json"]?.boolValue ?? false,
                 // Nieznana wartość: ostrożniej traktujemy ją jak dane osobiste, nie publiczne.
                 sensitivity: Sensitivity(rawValue: a["sensitivity"]?.stringValue ?? "public") ?? .personal,
-                files: a["files"]?.arrayValue?.compactMap(\.stringValue) ?? []
+                files: a["files"]?.arrayValue?.compactMap(\.stringValue) ?? [],
+                outputFile: a["output_file"]?.stringValue
             )
+            if a["background"]?.boolValue == true {
+                try service.preflight(request)
+                let id = await jobs.start(request)
+                return .init(content: [reply("Started background job \(id). Keep working; collect with delegate_result.")], isError: false)
+            }
             return .init(content: [reply(try await service.delegate(request))], isError: false)
+
+        case "delegate_result":
+            let ids = a["ids"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            let wait = a["wait"]?.doubleValue ?? a["wait"]?.intValue.map(Double.init) ?? 0
+            return .init(content: [reply(await jobs.result(ids: ids, wait: wait))], isError: false)
 
         case "list_remote_models":
             return .init(content: [reply(try await service.listRemoteModels(providerID: a["provider"]?.stringValue))], isError: false)
