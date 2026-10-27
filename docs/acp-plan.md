@@ -132,6 +132,11 @@ Zrobione w `DelegateCore` (bez zmian w serwerze MCP i apce):
   `tools/list_changed`, natywny tryb tylko do odczytu (Claude Agent: `plan` — porównane na żywo z `default`: ten sam
   wynik, powłoka działa, 13,8 s zamiast 7,6 s; Vibe: `ask`). `list_models` z agentami (sprawdzone na żywo: 6 agentów
   z modelami i domyślnymi).
+- B (tryb zapisu): eksperyment z `swift build` w piaskownicy wykazał, czego potrzeba: `--disable-sandbox` dla SwiftPM
+  (nie da się zagnieździć piaskownicy), cache SwiftPM w `~/Library`, katalog tymczasowy i cache użytkownika
+  (`DARWIN_USER_TEMP_DIR`/`CACHE_DIR`: Foundation i linker piszą tam mimo `TMPDIR`), a do `git add/commit` —
+  `.git/objects`, `refs/heads/delegate/*`, `logs/refs/heads/delegate/*` i metadane worktree (bez `packed-refs`,
+  hooków i configu). Atrapa w testach: zapis poza worktree i do `.git/hooks` zablokowany, zmiany na gałęzi.
 - Nie zrobione: ustawienia per agent (region, domyślny model, włączony) w `delegate.toml` — region dalej z tabeli
   `AgentRegions`, model wybiera Claude parametrem `model`. Do zrobienia, jeśli okaże się potrzebne.
 

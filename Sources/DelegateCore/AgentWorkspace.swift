@@ -11,7 +11,83 @@ public struct RepoSnapshot: Sendable {
     public let includesUncommitted: Bool
     /// Wspólny katalog `.git` oryginalnego repo (obiekty i metadane worktree).
     public let gitDirectory: URL
+    /// Tryb zapisu: gałąź, na której pracuje agent, i commit, od którego wyszła.
+    public var branch: String?
+    public var baseCommit: String?
+    /// Tryb zapisu: katalog metadanych tego worktree (`.git/worktrees/<nazwa>`), do którego git pisze indeks.
+    public var worktreeGitDirectory: URL?
+    /// Tryb zapisu: w oryginale były niezacommitowane zmiany śledzonych plików, których gałąź nie zawiera.
+    public var uncommittedLeftOut = false
 
+    init(repo: URL, path: URL, commit: String, includesUncommitted: Bool, gitDirectory: URL) {
+        self.repo = repo
+        self.path = path
+        self.commit = commit
+        self.includesUncommitted = includesUncommitted
+        self.gitDirectory = gitDirectory
+    }
+
+    /// Tryb zapisu: worktree na nowej gałęzi od `HEAD`. Niezacommitowane zmiany oryginału do niej nie wchodzą
+    /// (gałąź ma się czysto scalać z tym, co jest w repo), co raport zaznacza.
+    public static func createBranch(repo: URL, at path: URL, branch: String) throws -> RepoSnapshot {
+        guard let root = toplevel(of: repo) else {
+            throw DelegateError(description: "\(repo.path) is not a git repository.")
+        }
+        let base: String
+        do {
+            base = try git(["rev-parse", "HEAD"], in: root)
+        } catch {
+            throw DelegateError(description: "\(root.lastPathComponent) has no commits yet.")
+        }
+        let dirty = !((try? git(["status", "--porcelain", "--untracked-files=no"], in: root)) ?? "").isEmpty
+        try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+        _ = try git(["worktree", "add", "-b", branch, path.path, base], in: root)
+        let common = (try? git(["rev-parse", "--path-format=absolute", "--git-common-dir"], in: root))
+            .map { URL(fileURLWithPath: $0) } ?? root.appendingPathComponent(".git")
+        var snapshot = RepoSnapshot(repo: root, path: path, commit: base, includesUncommitted: false, gitDirectory: common)
+        snapshot.branch = branch
+        snapshot.baseCommit = base
+        snapshot.worktreeGitDirectory = (try? git(["rev-parse", "--path-format=absolute", "--git-dir"], in: path))
+            .map { URL(fileURLWithPath: $0) }
+        snapshot.uncommittedLeftOut = dirty
+        return snapshot
+    }
+
+    /// Wynik pracy na gałęzi.
+    public struct BranchResult: Sendable, Equatable {
+        public var branch: String
+        public var base: String
+        public var commits: Int
+        /// `git diff --stat` od bazy.
+        public var diffStat: String
+        /// Ostatnia linia `--stat`, np. „3 files changed, 40 insertions(+), 2 deletions(-)”.
+        public var summary: String
+    }
+
+    /// Commituje to, co agent zostawił w worktree (agent sam nie commituje), i zbiera statystykę zmian.
+    /// Gałąź bez żadnych zmian jest usuwana razem z worktree.
+    public func finishBranch(message: String, author: String) -> BranchResult? {
+        guard let branch, let base = baseCommit else { return nil }
+        if !((try? Self.git(["status", "--porcelain"], in: path)) ?? "").isEmpty {
+            _ = try? Self.git(["add", "-A"], in: path)
+            _ = try? Self.git(["-c", "user.name=\(author)", "-c", "user.email=delegate@localhost",
+                               "commit", "-q", "--no-verify", "-m", message], in: path)
+        }
+        let commits = Int((try? Self.git(["rev-list", "--count", "\(base)..\(branch)"], in: repo)) ?? "0") ?? 0
+        let stat = (try? Self.git(["diff", "--stat", "\(base)...\(branch)"], in: repo)) ?? ""
+        return BranchResult(branch: branch, base: String(base.prefix(10)), commits: commits, diffStat: stat,
+                            summary: stat.split(separator: "\n").last.map(String.init)?.trimmingCharacters(in: .whitespaces) ?? "")
+    }
+
+    /// Nazwa gałęzi: `delegate/<agent>-<słowa zadania>-<id>`.
+    public static func branchName(agent: String, task: String, id: String) -> String {
+        let words = task.lowercased().unicodeScalars
+            .map { CharacterSet.alphanumerics.contains($0) && $0.isASCII ? Character($0) : " " }
+        let slug = String(words).split(separator: " ").prefix(5).joined(separator: "-")
+        let short = String(slug.prefix(32)).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        let agentPart = agent.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "-" }
+        return "delegate/" + [agentPart, short, String(id.prefix(6)).lowercased()].filter { !$0.isEmpty }.joined(separator: "-")
+    }
     public static func create(repo: URL, at path: URL) throws -> RepoSnapshot {
         let top: String
         do {
@@ -43,11 +119,12 @@ public struct RepoSnapshot: Sendable {
         (try? git(["rev-parse", "--show-toplevel"], in: dir)).map { URL(fileURLWithPath: $0) }
     }
 
-    /// Usuwa kopię i jej wpis w `.git/worktrees`.
-    public func remove() {
+    /// Usuwa kopię i jej wpis w `.git/worktrees`. Gałąź trybu zapisu zostaje, chyba że `deleteBranch`.
+    public func remove(deleteBranch: Bool = false) {
         _ = try? Self.git(["worktree", "remove", "--force", path.path], in: repo)
         _ = try? Self.git(["worktree", "prune"], in: repo)
         try? FileManager.default.removeItem(at: path)
+        if deleteBranch, let branch { _ = try? Self.git(["branch", "-D", branch], in: repo) }
     }
 
     @discardableResult
@@ -153,6 +230,31 @@ public struct AgentSandbox: Sendable {
     public static func temporaryEnvironment(_ dir: URL) -> [String: String] {
         let path = dir.path.hasSuffix("/") ? dir.path : dir.path + "/"
         return ["TMPDIR": path, "CLAUDE_CODE_TMPDIR": path]
+    }
+
+    /// Katalogi, w których narzędzia budujące trzymają cache poza projektem (tryb zapisu: agent buduje i testuje).
+    /// Do tego katalogi tymczasowe użytkownika: Foundation i linker zapisują tam pliki pośrednie mimo `TMPDIR`.
+    public static func buildDirectories(home: URL) -> [URL] {
+        let caches = ["Library/Caches/org.swift.swiftpm", "Library/org.swift.swiftpm", ".npm", ".cache",
+                      ".cargo/registry", ".gradle/caches", "go/pkg/mod", "Library/Caches/pip"]
+            .map { home.appendingPathComponent($0) }
+        return caches + [userDirectory(_CS_DARWIN_USER_TEMP_DIR), userDirectory(_CS_DARWIN_USER_CACHE_DIR)].compactMap { $0 }
+    }
+
+    static func userDirectory(_ name: Int32) -> URL? {
+        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+        guard confstr(name, &buffer, buffer.count) > 0 else { return nil }
+        return URL(fileURLWithPath: String(cString: buffer), isDirectory: true)
+    }
+
+    /// Tryb zapisu: części `.git`, do których git pisze przy `add`/`commit` na gałęzi `delegate/*`.
+    /// Hooki, config i pozostałe gałęzie zostają tylko do odczytu (hook zmieniony przez agenta wykonałby się później u użytkownika).
+    public static func gitWriteDirectories(_ snapshot: RepoSnapshot) -> [URL] {
+        let common = snapshot.gitDirectory
+        return [common.appendingPathComponent("objects"),
+                common.appendingPathComponent("refs/heads/delegate"),
+                common.appendingPathComponent("logs/refs/heads/delegate")]
+            + [snapshot.worktreeGitDirectory].compactMap { $0 }
     }
 
     /// Co zawsze ukrywamy przed agentem.

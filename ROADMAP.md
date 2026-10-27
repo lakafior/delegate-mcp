@@ -37,13 +37,13 @@ Claude (albo inny asystent) jako dyrygent: rozbija pracę na zadania, oddaje je 
   logowania i regułami repo (z `agents/checks.json`, zapisywanego przez apkę przy sprawdzaniu agentów).
 
 ### B. Tryb zapisu — serce swarmu, największy kawałek pracy
-- [ ] **B1.** Agent dostaje worktree na gałęzi `delegate/<zadanie>`, który może zmieniać; wszystko poza nim nadal
+- [x] **B1.** Agent dostaje worktree na gałęzi `delegate/<zadanie>`, który może zmieniać; wszystko poza nim nadal
   blokuje piaskownica.
-- [ ] **B2.** Agent może uruchomić testy (`swift build`, `npm test`): zapis w swoim worktree i, dla menedżerów
+- [x] **B2.** Agent może uruchomić testy (`swift build`, `npm test`): zapis w swoim worktree i, dla menedżerów
   pakietów, sieć.
-- [ ] **B3.** Wynik: gałąź z commitem, `git diff --stat` i raport. Dyrygent robi `git diff main...delegate/<zadanie>`,
+- [x] **B3.** Wynik: gałąź z commitem, `git diff --stat` i raport. Dyrygent robi `git diff main...delegate/<zadanie>`,
   przegląda i scala albo odrzuca. Gałąź jest w Twoim repo, więc do scalenia nie trzeba nowych narzędzi.
-- [ ] **B4.** Sprzątanie porzuconych gałęzi i limit równoległych agentów (żeby pięć naraz nie wyczerpało
+- [x] **B4.** Sprzątanie porzuconych gałęzi i limit równoległych agentów (żeby pięć naraz nie wyczerpało
   subskrypcji w kwadrans).
 
 ### C. Skill `/swarm` — jawny tryb dyrygenta

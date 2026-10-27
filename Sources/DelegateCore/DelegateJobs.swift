@@ -198,3 +198,31 @@ extension DelegateHome {
     /// Zadania w tle zapisane na dysk (`JobStore`).
     public var jobsURL: URL { directory.appendingPathComponent("jobs", isDirectory: true) }
 }
+
+/// Limit agentów pracujących naraz (`max_parallel_agents`): kolejne zadania czekają w kolejce na wolne miejsce,
+/// żeby kilka zleceń naraz nie wyczerpało subskrypcji w kwadrans ani nie zatkało Maca budowaniem.
+public actor AgentSlots {
+    public nonisolated let limit: Int
+    private var used = 0
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    public init(limit: Int) { self.limit = max(1, limit) }
+
+    public func acquire() async {
+        if used < limit {
+            used += 1
+            return
+        }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+
+    public func release() {
+        if waiting.isEmpty {
+            used = max(0, used - 1)
+        } else {
+            waiting.removeFirst().resume()
+        }
+    }
+
+    public var queued: Int { waiting.count }
+}

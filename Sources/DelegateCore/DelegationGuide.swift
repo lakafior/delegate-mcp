@@ -125,9 +125,11 @@ public struct DelegationGuide: Sendable {
         }
         out += "\n\nCatalog (provider · data region · cost per 1M in/out): \n" + catalog
         if !agents.isEmpty {
-            out += "\n\n`delegate_agent` runs a coding agent (\(agentList)) on a read-only snapshot of a git "
-                + "repo in the background: hand it repo-wide searches and analysis (where X is used, what must change, a module "
-                + "review) instead of reading many files yourself, then spot-check its file:line claims. Results via `delegate_result`."
+            out += "\n\n`delegate_agent` runs a coding agent (\(agentList)) on a git repo in the background, in a sandbox. "
+                + "Read mode: repo-wide searches and analysis (where X is used, what must change, a module review) instead of "
+                + "reading many files yourself; spot-check its file:line claims. Write mode: well-scoped changes (translations, "
+                + "tests, refactors, a feature slice) on a branch `delegate/…`; review its diff before merging. "
+                + "Independent jobs can run in parallel; results via `delegate_result`."
         }
         if !routingGuidance.isEmpty { out += "\n\nUser's rules: " + routingGuidance }
         return out

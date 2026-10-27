@@ -90,6 +90,23 @@ while True:
                 "sessionUpdate": "tool_call", "toolCallId": "t1", "title": "grep notes", "kind": "search", "status": "completed"}}})
             send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
                 "sessionUpdate": "usage_update", "_meta": {"promptTokens": 100, "completionTokens": 7}}}})
+        if scenario in ("writer", "noop"):
+            import subprocess
+            out = []
+            if scenario == "writer":
+                open("notes.txt", "a").write("agent line\n")
+                open("new.txt", "w").write("new file\n")
+                common = subprocess.run(["/usr/bin/git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                                        capture_output=True, text=True).stdout.strip()
+                for name, path in (("outside", os.environ.get("FAKE_OUTSIDE", "/nonexistent/x")),
+                                   ("hook", os.path.join(common, "hooks", "pre-commit"))):
+                    try:
+                        open(path, "w").write("x"); out.append(name + ":written")
+                    except Exception:
+                        out.append(name + ":blocked")
+            g = subprocess.run(["/usr/bin/git", "status", "--porcelain"], capture_output=True, text=True)
+            out.append("status:" + ("ok" if g.returncode == 0 else "fail"))
+            chunk(" ".join(out) + " ")
         chunk("got: " + text.splitlines()[-1] + "; ")
         send({"jsonrpc": "2.0", "id": "perm-1", "method": "session/request_permission", "params": {
             "sessionId": sid, "toolCall": {"toolCallId": "c1", "kind": os.environ.get("FAKE_PERM_KIND", "edit")},

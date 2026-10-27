@@ -77,6 +77,7 @@ jobStore.purge()
 let jobs = DelegateJobs(service: service, store: jobStore)
 let agentInstaller = AgentInstaller(directory: home.agentsURL)
 let agentRunner = AgentRunner(home: home)
+let agentSlots = AgentSlots(limit: ((try? home.loadConfig()) ?? Config()).maxParallelAgents ?? Config.defaultMaxParallelAgents)
 let usageLog = UsageLog(url: home.usageURL)
 
 func schema(_ properties: [String: Value], required: [String] = []) -> Value {
@@ -112,7 +113,7 @@ func makeTools(_ guide: DelegationGuide) -> [Tool] { baseTools(guide) + (guide.a
 func agentTool(_ guide: DelegationGuide) -> Tool {
     Tool(
         name: "delegate_agent",
-        description: "Run a coding agent on a read-only snapshot of a git repo (HEAD + uncommitted changes of tracked files) in the background; it reads files and runs read-only commands itself and returns a report. Returns a job ID; collect with delegate_result (jobs take minutes).",
+        description: "Run a coding agent on a git repo in the background, in a sandbox. mode=read (default): read-only snapshot (HEAD + uncommitted changes), returns a report. mode=write: the agent edits files, builds and tests on a new branch delegate/… from HEAD; you get the branch, diff stat and summary, then review (git diff) and merge or delete it. Returns a job ID; collect with delegate_result (jobs take minutes).",
         inputSchema: schema([
             "agent": prop("string", "Agent ID: \(guide.agents.joined(separator: ", ")). Models and effort per agent: list_models."),
             "repo": prop("string", "Absolute path inside the git repository."),
@@ -125,6 +126,10 @@ func agentTool(_ guide: DelegationGuide) -> Tool {
                 "description": .string("The whole repo is sent to the agent's cloud model; personal = work or personal code."),
             ]),
             "report_file": prop("string", "Absolute path; write the report there and return only the header and a preview."),
+            "mode": .object([
+                "type": .string("string"), "enum": .array([.string("read"), .string("write")]),
+                "description": .string("read (default) or write (changes on a new branch; give a precise, self-contained task and the checks to run)."),
+            ]),
         ], required: ["agent", "repo", "task"])
     )
 }
@@ -306,10 +311,14 @@ await server.withMethodHandler(CallTool.self) { params in
             let settings = agentConfig.agentSettings(agentID)
             let model = a["model"]?.stringValue ?? settings?.model
             let effort = a["effort"]?.stringValue ?? settings?.effort
-            let id = await jobs.start(label: "\(agentID): " + DelegateJobs.shortLabel(task)) {
+            let write = a["mode"]?.stringValue == "write"
+            let id = await jobs.start(label: "\(agentID)\(write ? " (write)" : ""): " + DelegateJobs.shortLabel(task)) {
+                await agentSlots.acquire()
                 let started = Date()
+                defer { Task { await agentSlots.release() } }
                 do {
-                    let report = try await agentRunner.run(agent: agent, repo: repoURL, task: task, model: model, effort: effort)
+                    let report = try await agentRunner.run(agent: agent, repo: repoURL, task: task, model: model,
+                                                           effort: effort, write: write)
                     usageLog.append(UsageEntry(provider: "agent:\(agentID)", model: report.model ?? "default", task: "agent",
                                                inputTokens: report.inputTokens, outputTokens: report.outputTokens,
                                                ok: true, ms: Int(report.seconds * 1000)))
@@ -322,7 +331,9 @@ await server.withMethodHandler(CallTool.self) { params in
                     throw error
                 }
             }
-            return .init(content: [reply("Started agent job \(id) (\(agent.name)). It usually takes a few minutes; keep working and collect with delegate_result.")], isError: false)
+            let waiting = await agentSlots.queued
+            let queueNote = waiting > 0 ? " \(waiting) job(s) are queued ahead (max \(agentSlots.limit) agents at once)." : ""
+            return .init(content: [reply("Started agent job \(id) (\(agent.name), \(write ? "write" : "read") mode). It usually takes a few minutes; keep working and collect with delegate_result.\(queueNote)")], isError: false)
 
         case "usage_summary":
             return .init(content: [reply(service.usageSummary(days: a["days"]?.intValue ?? 7))], isError: false)

@@ -19,6 +19,7 @@ enum ConfigWriter {
             out += "personal_regions = [\(config.personalRegions.map { string($0.rawValue) }.joined(separator: ", "))]\n"
         }
         if let b = config.dailyBudgetUSD { out += "daily_budget_usd = \(number(b))\n" }
+        if let n = config.maxParallelAgents { out += "max_parallel_agents = \(n)\n" }
         for p in config.providers {
             out += "\n[[provider]]\n"
             out += "id = \(string(p.id))\n"

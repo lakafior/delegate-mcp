@@ -326,3 +326,82 @@ func makeRepo() throws -> URL {
         #expect(AgentCatalog.describe(installed: [], config: c, checks: [:]).isEmpty)
     }
 }
+
+@Suite(.enabled(if: pythonAvailable && AgentSandbox.isAvailable)) struct AgentWriteModeTests {
+    private func runner() throws -> AgentRunner {
+        AgentRunner(home: DelegateHome(directory: try tempDir("home")), workRoot: try tempDir("work"),
+                    userHome: try tempDir("user"))
+    }
+
+    private func agent(_ scenario: String, env: [String: String] = [:]) throws -> InstalledAgent {
+        let exe = try writeFakeAgent(in: try tempDir("bin"))
+        return InstalledAgent(id: "fake", name: "Fake Agent", version: "1", executable: exe.path, args: [],
+                              env: env.merging(["FAKE_SCENARIO": scenario]) { a, _ in a }, installedAt: Date())
+    }
+
+    @Test func changesLandOnABranchAndNothingElseIsTouched() async throws {
+        let repo = try makeRepo()   // ma też niezacommitowaną zmianę notes.txt i nieśledzony .env
+        let outside = repo.appendingPathComponent("outside.txt").path
+        let report = try await runner().run(agent: try agent("writer", env: ["FAKE_OUTSIDE": outside]),
+                                            repo: repo, task: "Add a line to notes", write: true, jobID: "ABC123XYZ")
+        #expect(report.text.contains("outside:blocked"))   // oryginalne repo nietykalne
+        #expect(report.text.contains("hook:blocked"))      // hooki gita nietykalne
+        #expect(report.text.contains("status:ok"))         // git działa w worktree
+        #expect(report.text.contains("permission: allow")) // w trybie zapisu edycje są zatwierdzane
+        #expect(report.mode == nil)                          // atrapa nie ma trybu acceptEdits
+
+        let branch = try #require(report.branch)
+        #expect(branch.branch == "delegate/fake-add-a-line-to-notes-abc123")
+        #expect(branch.commits == 1)
+        #expect(branch.summary.contains("2 files changed"))
+        #expect(report.uncommittedLeftOut)
+        #expect(report.formatted.contains("Merge: `git merge --squash delegate/fake-add-a-line-to-notes-abc123`"))
+
+        // Gałąź jest w repo użytkownika, jego working tree bez zmian, worktree posprzątany.
+        let show = try RepoSnapshot.git(["show", "--stat", "--format=%an|%s", branch.branch], in: repo)
+        #expect(show.contains("Delegate (Fake Agent)|Fake Agent: Add a line to notes"))
+        #expect(try RepoSnapshot.git(["show", "\(branch.branch):notes.txt"], in: repo) == "committed\nagent line")
+        #expect(try String(contentsOf: repo.appendingPathComponent("notes.txt"), encoding: .utf8) == "uncommitted\n")
+        #expect(!FileManager.default.fileExists(atPath: outside))
+        #expect(try RepoSnapshot.git(["worktree", "list"], in: repo).split(separator: "\n").count == 1)
+    }
+
+    @Test func noChangesMeansNoBranch() async throws {
+        let repo = try makeRepo()
+        let report = try await runner().run(agent: try agent("noop"), repo: repo, task: "Look around", write: true)
+        #expect(report.branch?.commits == 0)
+        #expect(report.formatted.contains("No changes were made; the branch was removed."))
+        #expect(try RepoSnapshot.git(["branch", "--list", "delegate/*"], in: repo).isEmpty)
+    }
+
+    @Test func branchNamesAreSafe() {
+        #expect(RepoSnapshot.branchName(agent: "claude-acp", task: "Przetłumacz pliki na pt-BR!", id: "J1A2B3C4")
+            == "delegate/claude-acp-przet-umacz-pliki-na-pt-j1a2b3")
+        #expect(RepoSnapshot.branchName(agent: "x", task: "", id: "j1") == "delegate/x-j1")
+    }
+}
+
+@Suite struct AgentSlotsTests {
+    @Test func onlyLimitRunAtOnce() async {
+        let slots = AgentSlots(limit: 2)
+        let counter = Counter()
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<6 {
+                group.addTask {
+                    await slots.acquire()
+                    await counter.enter()
+                    try? await Task.sleep(for: .milliseconds(30))
+                    await counter.leave()
+                    await slots.release()
+                }
+            }
+        }
+        #expect(await counter.peak == 2)
+    }
+
+    actor Counter {
+        var now = 0, peak = 0
+        func enter() { now += 1; peak = max(peak, now) }
+        func leave() { now -= 1 }
+    }
+}

@@ -22,6 +22,11 @@ public struct AgentReport: Sendable {
     public var seconds: Double
     public var stopReason: String?
     public var includesUncommitted: Bool
+    /// Tryb zapisu: gałąź ze zmianami agenta (`nil` w trybie analizy).
+    public var branch: RepoSnapshot.BranchResult?
+    public var write = false
+    /// Tryb zapisu: niezacommitowane zmiany użytkownika nie weszły do gałęzi.
+    public var uncommittedLeftOut = false
 
     /// Tekst dla Claude'a: nagłówek jak przy `delegate`, raport, na końcu skrót tego, co agent robił.
     public var formatted: String {
@@ -33,11 +38,30 @@ public struct AgentReport: Sendable {
         h += String(format: " · %.0f s", seconds)
         h += " · steps: \(toolCalls.count)"
         if let stopReason, stopReason != "end_turn" { h += " · stopped: \(stopReason)" }
-        h += includesUncommitted ? " · snapshot: HEAD + uncommitted changes" : " · snapshot: HEAD"
+        if write {
+            h += " · write mode"
+        } else {
+            h += includesUncommitted ? " · snapshot: HEAD + uncommitted changes" : " · snapshot: HEAD"
+        }
         var out = h + "\n\n" + text.trimmingCharacters(in: .whitespacesAndNewlines)
         if !rejected.isEmpty {
-            out += "\n\nBlocked (read-only): " + rejected.joined(separator: "; ")
+            out += "\n\nBlocked\(write ? "" : " (read-only)"): " + rejected.joined(separator: "; ")
         }
+        if write { out += "\n\n" + Self.branchSection(branch, uncommittedLeftOut: uncommittedLeftOut) }
+        return out
+    }
+
+    /// Co dyrygent ma zrobić z gałęzią: przejrzeć, scalić albo wyrzucić.
+    static func branchSection(_ branch: RepoSnapshot.BranchResult?, uncommittedLeftOut: Bool) -> String {
+        guard let b = branch, b.commits > 0 else {
+            return "No changes were made; the branch was removed."
+        }
+        var out = "Changes are on branch `\(b.branch)` (from \(b.base)): \(b.summary)."
+        if uncommittedLeftOut {
+            out += " The user's uncommitted changes were not part of the agent's starting point."
+        }
+        out += "\nReview: `git diff \(b.base)...\(b.branch)` · Merge: `git merge --squash \(b.branch)` · Discard: `git branch -D \(b.branch)`"
+        if !b.diffStat.isEmpty { out += "\n```\n\(b.diffStat)\n```" }
         return out
     }
 }
@@ -114,8 +138,25 @@ public struct AgentRunner: Sendable {
         """
     }
 
+    /// Tryb zapisu: agent zmienia pliki na gałęzi `delegate/…`; może budować i testować.
+    static func writePrompt(task: String, cwd: URL, branch: String, base: String) -> String {
+        """
+        You are working in a git worktree of the user's repository at \(cwd.path), on branch \(branch) created from \
+        \(base.prefix(10)). Make the changes the task asks for by editing files in this directory. You may run builds \
+        and tests; network access is available for package managers. You already run inside a sandbox, so tools that \
+        start their own sandbox must have it disabled (Swift packages: `swift build --disable-sandbox`, \
+        `swift test --disable-sandbox`). Do not commit, push, switch branches or touch files outside this directory: \
+        your changes are committed to the branch for the user when you finish. End with a short Markdown summary: \
+        what you changed (file by file), what you ran to check it and the result, and anything left undone.
+
+        Task:
+        \(task)
+        """
+    }
+
     public func run(agent: InstalledAgent, repo: URL, task: String, model: String? = nil, effort: String? = nil,
-                    timeout: Duration = .seconds(600), jobID: String = UUID().uuidString) async throws -> AgentReport {
+                    write: Bool = false, timeout: Duration = .seconds(600),
+                    jobID: String = UUID().uuidString) async throws -> AgentReport {
         if useSandbox && !AgentSandbox.isAvailable {
             throw DelegateError(description: "sandbox-exec is missing on this Mac; agents won't run without a sandbox.")
         }
@@ -125,8 +166,14 @@ public struct AgentRunner: Sendable {
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tmp) }
 
-        let snapshot = try RepoSnapshot.create(repo: repo, at: jobDir.appendingPathComponent("repo", isDirectory: true))
-        defer { snapshot.remove() }
+        let copyPath = jobDir.appendingPathComponent("repo", isDirectory: true)
+        let snapshot = write
+            ? try RepoSnapshot.createBranch(repo: repo, at: copyPath,
+                                            branch: RepoSnapshot.branchName(agent: agent.id, task: task, id: jobID))
+            : try RepoSnapshot.create(repo: repo, at: copyPath)
+        // Gałąź ze zmianami zostaje w repo użytkownika; pustą (albo przy błędzie przed pracą) usuwamy.
+        var keepBranch = false
+        defer { snapshot.remove(deleteBranch: write && !keepBranch) }
 
         let homeDir = userHome
         let state = AgentSandbox.stateDirectories(forAgent: agent.id, kind: agent.kind, home: homeDir)
@@ -135,7 +182,10 @@ public struct AgentRunner: Sendable {
         var executable = URL(fileURLWithPath: agent.executable)
         var arguments = agent.args
         if useSandbox {
-            var sandbox = AgentSandbox(home: homeDir, writable: state + [tmp], readOnly: [snapshot.path],
+            let writable = write
+                ? state + [tmp, snapshot.path] + AgentSandbox.gitWriteDirectories(snapshot) + AgentSandbox.buildDirectories(home: homeDir)
+                : state + [tmp]
+            var sandbox = AgentSandbox(home: homeDir, writable: writable, readOnly: write ? [] : [snapshot.path],
                                        hidden: AgentSandbox.defaultHidden(home: homeDir, delegateHome: home) + [snapshot.repo])
             sandbox.readableExceptions = [snapshot.gitDirectory]
             sandbox.metadataExceptions = [snapshot.repo]
@@ -152,7 +202,7 @@ public struct AgentRunner: Sendable {
             workingDirectory: snapshot.path,
             stderrLog: jobDir.appendingPathComponent("agent.log"),
             onRequest: { [useSandbox] method, params in
-                await Self.readOnlyPolicy(method, params, collector, sandboxed: useSandbox)
+                await Self.permissionPolicy(method, params, collector, sandboxed: useSandbox, write: write)
             },
             onNotification: { method, params in
                 if method == "session/update" { await collector.update(params["update"] ?? .null) }
@@ -171,7 +221,7 @@ public struct AgentRunner: Sendable {
             // Natywny tryb tylko do odczytu, jeśli agent go ma (Claude Agent: `plan`, Vibe: `ask`); piaskownica i tak
             // blokuje zapis, to druga warstwa. W `plan` Claude dalej używa powłoki (sprawdzone), więc analiza nie traci.
             usedMode = nil
-            for mode in Self.readOnlyModes where (try? await conn.setOption(session, "mode", mode)) == true {
+            for mode in (write ? Self.editModes : Self.readOnlyModes) where (try? await conn.setOption(session, "mode", mode)) == true {
                 usedMode = mode
                 break
             }
@@ -198,7 +248,10 @@ public struct AgentRunner: Sendable {
                 usedEffort = session.effortOption?.current
             }
 
-            let prompt = Self.readOnlyPrompt(task: task, cwd: snapshot.path, includesUncommitted: snapshot.includesUncommitted)
+            let prompt = write
+                ? Self.writePrompt(task: task, cwd: snapshot.path, branch: snapshot.branch ?? "", base: snapshot.baseCommit ?? "")
+                : Self.readOnlyPrompt(task: task, cwd: snapshot.path, includesUncommitted: snapshot.includesUncommitted)
+            let commitMessage = "\(agent.name): \(DelegateJobs.shortLabel(task))\n\nDelegated task:\n\(task)"
             let result: JSONValue
             do {
                 result = try await conn.request("session/prompt", [
@@ -208,15 +261,29 @@ public struct AgentRunner: Sendable {
                 try? await conn.notify("session/cancel", ["sessionId": .string(session.id)])
                 await conn.close()
                 let partial = await collector.text
-                throw DelegateError(description: "\(agent.name) didn't finish in \(timeout). Partial report:\n\(partial)")
+                var note = ""
+                if write, let b = snapshot.finishBranch(message: commitMessage + "\n\n(unfinished: timed out)",
+                                                        author: "Delegate (\(agent.name))"), b.commits > 0 {
+                    keepBranch = true
+                    note = "\nUnfinished changes are on branch `\(b.branch)` (\(b.summary)); review before using them."
+                }
+                throw DelegateError(description: "\(agent.name) didn't finish in \(timeout).\(note) Partial report:\n\(partial)")
             }
             await conn.close()
+            var branch: RepoSnapshot.BranchResult?
+            if write {
+                branch = snapshot.finishBranch(message: commitMessage, author: "Delegate (\(agent.name))")
+                keepBranch = (branch?.commits ?? 0) > 0
+            }
             // Po udanym zadaniu katalog (profil, log agenta) nie jest potrzebny; po błędzie zostaje do diagnozy.
             defer { try? fm.removeItem(at: jobDir) }
             var report = await collector.report(agent: hello.name ?? agent.name, model: usedModel, effort: usedEffort, mode: usedMode,
                                           seconds: Date().timeIntervalSince(started),
                                           stopReason: result["stopReason"]?.stringValue,
                                           includesUncommitted: snapshot.includesUncommitted)
+            report.write = write
+            report.branch = branch
+            report.uncommittedLeftOut = snapshot.uncommittedLeftOut
             // Kopia repo znika po zadaniu: ścieżki do niej (np. linki `file://` w raporcie) zamieniamy na oryginał.
             for copy in Set([Self.realPath(snapshot.path.path), snapshot.path.path]).sorted(by: { $0.count > $1.count }) {
                 report.text = report.text.replacingOccurrences(of: copy, with: snapshot.repo.path)
@@ -237,19 +304,28 @@ public struct AgentRunner: Sendable {
 
     /// Tryby sesji, które ograniczają agenta do czytania, w kolejności preferencji.
     static let readOnlyModes = ["plan", "ask", "read-only", "readonly"]
+    /// Tryby sesji dla zapisu: edycje bez pytania (resztę i tak zatwierdzamy, granice trzyma piaskownica).
+    static let editModes = ["acceptEdits", "accept-edits"]
 
     /// Rodzaje narzędzi ACP, które zmieniają pliki: zawsze odmowa.
     static let mutatingKinds: Set<String> = ["edit", "delete", "move"]
 
-    /// Tryb tylko do odczytu. W piaskownicy przepuszczamy polecenia i odczyty (zapisu i tak nie zrobią,
-    /// a odmowa zwykłego `grep` tylko psuje analizę), odmawiamy zmian plików. Bez piaskownicy odmawiamy wszystkiego.
+    /// Zgody dla agenta. Tryb analizy w piaskownicy: polecenia i odczyty tak (zapisu i tak nie zrobią, a odmowa
+    /// zwykłego `grep` psuje analizę), zmiany plików nie. Tryb zapisu w piaskownicy: wszystko tak — piaskownica
+    /// ogranicza zapis do worktree, cache narzędzi i gałęzi `delegate/*`. Bez piaskownicy: wszystko nie.
     /// Operacji klienta (`fs/*`, `terminal/*`) nie ogłaszamy, więc ich też odmawiamy.
-    static func readOnlyPolicy(_ method: String, _ params: JSONValue, _ collector: AgentCollector,
-                               sandboxed: Bool) async -> Result<JSONValue, ACPConnection.RemoteError> {
+    static func permissionPolicy(_ method: String, _ params: JSONValue, _ collector: AgentCollector,
+                                 sandboxed: Bool, write: Bool = false) async -> Result<JSONValue, ACPConnection.RemoteError> {
         guard method == "session/request_permission" else { return .failure(.methodNotFound(method)) }
         let options = params["options"]?.arrayValue ?? []
         let toolCall = params["toolCall"] ?? .null
         let kind = await collector.kind(toolCall)
+        if sandboxed, write,
+           let allow = options.first(where: { $0["kind"]?.stringValue == "allow_once" })
+            ?? options.first(where: { $0["kind"]?.stringValue?.hasPrefix("allow") == true }),
+           let id = allow["optionId"] {
+            return .success(["outcome": ["outcome": "selected", "optionId": id]])
+        }
         if sandboxed, let kind, !mutatingKinds.contains(kind),
            let allow = options.first(where: { $0["kind"]?.stringValue == "allow_once" }), let id = allow["optionId"] {
             return .success(["outcome": ["outcome": "selected", "optionId": id]])

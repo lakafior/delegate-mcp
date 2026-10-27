@@ -200,6 +200,9 @@ public struct Config: Codable, Sendable, Equatable {
     public var agents: [AgentSettings]
     /// Reguły repozytoriów dla agentów.
     public var repos: [RepoRule]
+    /// Ilu agentów może pracować naraz (kolejne czekają); `nil` = 3.
+    public var maxParallelAgents: Int?
+    public static let defaultMaxParallelAgents = 3
 
     public init(routingGuidance: String = "", timeoutSeconds: Double = 120, delegationMode: DelegationMode = .balanced,
                 personalRegions: [PrivacyRegion] = Config.defaultPersonalRegions, dailyBudgetUSD: Double? = nil,
@@ -223,6 +226,7 @@ public struct Config: Codable, Sendable, Equatable {
         case providers = "provider"
         case agents = "agent"
         case repos = "repo"
+        case maxParallelAgents = "max_parallel_agents"
     }
 
     public init(from decoder: Decoder) throws {
@@ -238,6 +242,7 @@ public struct Config: Codable, Sendable, Equatable {
         providers = try c.decodeIfPresent([ProviderConfig].self, forKey: .providers) ?? []
         agents = try c.decodeIfPresent([AgentSettings].self, forKey: .agents) ?? []
         repos = try c.decodeIfPresent([RepoRule].self, forKey: .repos) ?? []
+        maxParallelAgents = try c.decodeNumberIfPresent(forKey: .maxParallelAgents).map { Int($0) }
     }
 
     public func agentSettings(_ id: String) -> AgentSettings? { agents.first { $0.id == id } }
@@ -317,6 +322,7 @@ public struct Config: Codable, Sendable, Equatable {
         for id in mine.agents.map(\.id) + theirs.agents.map(\.id) where !agentOrder.contains(id) { agentOrder.append(id) }
         out.agents = agentOrder.compactMap { id in am[id] != ab[id] ? am[id] : at[id] }
         out.repos = pick(base.repos, mine.repos, theirs.repos)
+        out.maxParallelAgents = pick(base.maxParallelAgents, mine.maxParallelAgents, theirs.maxParallelAgents)
         return out
     }
 

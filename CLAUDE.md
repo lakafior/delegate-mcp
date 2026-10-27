@@ -158,6 +158,14 @@ tabeli `AgentRegions`. Reguły repo `[[repo]] path/agents` (`RepoRule`, sekcja w
 pusta lista = żaden agent; sprawdzane w `AgentRegions.refusal` razem z wrażliwością. Lista agentów liczona przy każdym
 wywołaniu, serwer wysyła `tools/list_changed` po zmianie (co 30 s). `list_models` opisuje agentów z
 `agents/checks.json` (`AgentCheckCache`, zapisuje apka). Tryb sesji: pierwszy dostępny z `plan`, `ask`.
+**Tryb zapisu** (`delegate_agent` z `mode = "write"`): worktree na nowej gałęzi `delegate/<agent>-<zadanie>-<id>`
+od `HEAD` (niezacommitowane zmiany użytkownika do niej nie wchodzą, raport to zaznacza). W piaskownicy zapis do
+worktree, `.git/objects`, `refs/heads/delegate/*`, metadanych worktree, cache narzędzi (`buildDirectories`: SwiftPM, npm,
+`~/.cache`…) i katalogów tymczasowych użytkownika; hooki, config i inne gałęzie tylko do odczytu. Zgody: wszystko tak
+(tylko w piaskownicy), tryb sesji `acceptEdits`/`accept-edits`. Agent nie commituje; po zadaniu `finishBranch`
+commituje jako „Delegate (<agent>)”, zwraca `--stat` i polecenia review/merge/discard; pusta gałąź jest usuwana.
+SwiftPM w piaskownicy wymaga `--disable-sandbox` (mówi to polecenie dla agenta). Limit równoległych agentów:
+`max_parallel_agents` (domyślnie 3, `AgentSlots`).
 Testy na atrapie agenta (Python) w `ACPTests.swift` i `AgentRunTests.swift`.
 
 ## Ważne

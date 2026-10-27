@@ -501,8 +501,26 @@ extension PriceCatalogTests {
 
 @Suite struct BackgroundJobTests {
     @Test func jobsRunInParallelAndReportResults() async throws {
+        // Zadania czekają na bramkę, którą otwiera test, więc „running” nie zależy od czasu.
+        actor Gate {
+            private var entered = 0
+            private var open = false
+            private var waiters: [CheckedContinuation<Void, Never>] = []
+            func enter() async {
+                entered += 1
+                if open { return }
+                await withCheckedContinuation { waiters.append($0) }
+            }
+            func enteredCount() -> Int { entered }
+            func release() {
+                open = true
+                waiters.forEach { $0.resume() }
+                waiters.removeAll()
+            }
+        }
+        let gate = Gate()
         let jobs = DelegateJobs { r in
-            try await Task.sleep(for: .milliseconds(100))
+            await gate.enter()
             if r.prompt == "fail" { throw DelegateError(description: "boom") }
             return "result of \(r.prompt)"
         }
@@ -514,9 +532,15 @@ extension PriceCatalogTests {
         let early = await jobs.result(ids: [a], wait: 0)
         #expect(early.contains("j1 (first): running"))
 
-        let started = Date()
+        // Wszystkie trzy działają naraz (każde dotarło do bramki), zanim którekolwiek skończy.
+        let deadline = Date().addingTimeInterval(10)
+        while await gate.enteredCount() < 3, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(await gate.enteredCount() == 3)
+
+        await gate.release()
         let all = await jobs.result(ids: [], wait: 5)
-        #expect(Date().timeIntervalSince(started) < 2)   // równolegle, nie 3 × 100 ms w kolejce do limitu
         #expect(all.contains("## j1 (first): done\nresult of first"))
         #expect(all.contains("## j2 (fail): failed\nboom"))
         #expect(all.contains("## j3 (→ pt.json): done"))
