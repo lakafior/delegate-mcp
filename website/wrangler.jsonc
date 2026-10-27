@@ -8,8 +8,10 @@
   "assets": {
     "directory": "."
   },
-  // Deploying attaches the domain (DNS record and certificate included).
+  // A route, not a custom domain: a custom domain gets its own certificate that also covers smigi.net,
+  // and browsers reusing one connection across *.smigi.net then get 421 Misdirected Request. A route
+  // uses the zone's *.smigi.net certificate. It needs a proxied DNS record (AAAA 100::) for the host.
   "routes": [
-    { "pattern": "delegate.smigi.net", "custom_domain": true }
+    { "pattern": "delegate.smigi.net/*", "zone_name": "smigi.net" }
   ]
 }

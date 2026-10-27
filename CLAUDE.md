@@ -72,7 +72,8 @@ Ikona: `Assets/AppIcon.icon` (Icon Composer), kompilowana przez `actool` w `buil
 
 `website/`: czysty HTML + `style.css`, bez frameworka i kroku budowania, jak strony Kickon/Dutch/WorldWard; tylko po
 angielsku. Worker Cloudflare ze statycznymi plikami (`website/wrangler.jsonc`, `assets.directory = "."`, domena przez
-`routes` z `custom_domain`). Okno macOS (światła, minimalizacja do docka smigi.net) daje `https://smigi.net/os/chrome.js`
+route `delegate.smigi.net/*` na proxowanym rekordzie `AAAA 100::`; nie custom domain, bo jej osobny certyfikat
+z `smigi.net` daje w Safari 421 Misdirected Request przy współdzielonym połączeniu). Okno macOS (światła, minimalizacja do docka smigi.net) daje `https://smigi.net/os/chrome.js`
 z `data-app="delegate"`; lokalnie się nie ładuje. Zrzuty to kopie `docs/screenshots/`. Podgląd: `.claude/launch.json`
 (`wrangler dev`, port 8787). Wdrożenie: push na `main` ze zmianą w `website/` → `.github/workflows/website.yml`
 (sekrety `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`); ręcznie `cd website && wrangler deploy`.
