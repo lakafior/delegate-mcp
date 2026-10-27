@@ -142,10 +142,14 @@ i podgląd w zakładce Routing):
 
 ## Agenci ACP (w budowie)
 
-Plan i stan: `docs/acp-plan.md`. Gotowe agenty z rejestru ACP (jak w Zedzie) mają wykonywać zadania na repo
-w tle, w piaskownicy. Na razie w `DelegateCore` są `ACPConnection` (JSON-RPC po stdio), `ACPRegistry`
-(+ `ACPRegistryStore`, cache `agents/registry.json`) i `AgentInstaller` (instalacja do `agents/<id>/<wersja>/`,
-`agents/installed.json`, tylko binarki z SHA-256). Serwer MCP i apka jeszcze z nich nie korzystają.
+Plan i stan: `docs/acp-plan.md`. Gotowe agenty z rejestru ACP (jak w Zedzie) wykonują analizy repo w tle:
+`delegate_agent` (widoczne tylko, gdy jakiś agent jest zainstalowany) → `AgentRunner`: kopia repo
+(`RepoSnapshot`, HEAD + niezacommitowane zmiany śledzonych plików), `sandbox-exec` (`AgentSandbox`, zapis tylko do
+stanu agenta i `tmp` zadania, oryginalne repo i klucze niewidoczne), tryb tylko do odczytu (w piaskownicy zgoda na
+polecenia, odmowa dla edycji, usuwania i przenoszenia plików). Wynik przez `delegate_result`; zadania w tle zapisywane w `jobs/<id>.json` (`JobStore`), więc przeżywają
+restart serwera. Instalacja: `agents/<id>/<wersja>/` + `agents/installed.json` (`AgentInstaller`, tylko binarki
+z SHA-256), z terminala `delegate-mcp --install-agent <id>` / `--agents`. Apka jeszcze nie ma zakładki agentów.
+Testy na atrapie agenta (Python) w `ACPTests.swift` i `AgentRunTests.swift`.
 
 ## Ważne
 

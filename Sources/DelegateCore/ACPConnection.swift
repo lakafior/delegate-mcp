@@ -251,12 +251,61 @@ extension ACPConnection {
         return ACPAgentHello(result)
     }
 
-    /// `session/new` w katalogu `cwd`; zwraca ID sesji. Brak logowania = `RemoteError.isAuthRequired`.
-    public func newSession(cwd: URL, timeout: Duration = .seconds(60)) async throws -> String {
+    /// `session/new` w katalogu `cwd`. Brak logowania = `RemoteError.isAuthRequired`.
+    public func newSession(cwd: URL, timeout: Duration = .seconds(60)) async throws -> ACPSession {
         let result = try await request("session/new", ["cwd": .string(cwd.path), "mcpServers": []], timeout: timeout)
-        guard let id = result["sessionId"]?.stringValue else {
+        guard let session = ACPSession(result) else {
             throw ConnectionError.badMessage("session/new without sessionId")
         }
-        return id
+        return session
     }
+
+    /// Ustawia opcję sesji (np. `mode` albo `model`), jeśli agent ją ogłosił z taką wartością.
+    /// Agenci bez opcji konfiguracji, ale z trybami, dostają starsze `session/set_mode`.
+    /// Zwraca `false`, gdy agent takiej opcji lub wartości nie zna.
+    @discardableResult
+    public func setOption(_ session: ACPSession, _ configId: String, _ value: String) async throws -> Bool {
+        if let option = session.configOptions.first(where: { $0.id == configId || $0.category == configId }),
+           option.values.contains(value) {
+            _ = try await request("session/set_config_option", [
+                "sessionId": .string(session.id), "configId": .string(option.id), "value": .string(value),
+            ], timeout: .seconds(30))
+            return true
+        }
+        if configId == "mode", session.modes.contains(value) {
+            _ = try await request("session/set_mode", ["sessionId": .string(session.id), "modeId": .string(value)],
+                                  timeout: .seconds(30))
+            return true
+        }
+        return false
+    }
+}
+
+/// Sesja agenta: ID oraz tryby i opcje, które agent ogłosił w `session/new`.
+public struct ACPSession: Sendable, Equatable {
+    public struct ConfigOption: Sendable, Equatable {
+        public var id: String
+        public var category: String?
+        public var current: String?
+        public var values: [String]
+    }
+
+    public var id: String
+    public var modes: [String]
+    public var configOptions: [ConfigOption]
+
+    init?(_ result: JSONValue) {
+        guard let id = result["sessionId"]?.stringValue else { return nil }
+        self.id = id
+        modes = (result["modes"]?["availableModes"]?.arrayValue ?? []).compactMap { $0["id"]?.stringValue }
+        configOptions = (result["configOptions"]?.arrayValue ?? []).compactMap { o in
+            guard let id = o["id"]?.stringValue else { return nil }
+            return ConfigOption(id: id, category: o["category"]?.stringValue,
+                                current: o["currentValue"]?.stringValue,
+                                values: (o["options"]?.arrayValue ?? []).compactMap { $0["value"]?.stringValue })
+        }
+    }
+
+    /// Wartości opcji modelu (puste, gdy agent nie pozwala wybrać).
+    public var models: [String] { configOptions.first { $0.category == "model" || $0.id == "model" }?.values ?? [] }
 }

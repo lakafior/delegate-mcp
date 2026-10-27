@@ -18,7 +18,11 @@ public struct DelegationGuide: Sendable {
     /// Ile modeli dostawcy pokazać w katalogu; resztę Claude znajdzie w `list_models`.
     static let modelsPerProvider = 5
 
-    public init(config: Config, isReady: (ProviderConfig) -> Bool) {
+    /// Zainstalowani agenci ACP (`delegate_agent`); pusta lista = bez wzmianki w instrukcjach.
+    public let agents: [String]
+
+    public init(config: Config, agents: [String] = [], isReady: (ProviderConfig) -> Bool) {
+        self.agents = agents
         let ready = config.providers.filter(isReady)
         mode = config.delegationMode
         personalRegions = config.personalRegions
@@ -109,6 +113,11 @@ public struct DelegationGuide: Sendable {
             out += String(format: "\nPaid models stop for the day after $%.2f; the server enforces it.", budget)
         }
         out += "\n\nCatalog (provider · data region · cost per 1M in/out): \n" + catalog
+        if !agents.isEmpty {
+            out += "\n\n`delegate_agent` runs a coding agent (\(agents.joined(separator: ", "))) on a read-only snapshot of a git "
+                + "repo in the background: hand it repo-wide searches and analysis (where X is used, what must change, a module "
+                + "review) instead of reading many files yourself, then spot-check its file:line claims. Results via `delegate_result`."
+        }
         if !routingGuidance.isEmpty { out += "\n\nUser's rules: " + routingGuidance }
         return out
     }
@@ -152,7 +161,7 @@ public struct DelegationGuide: Sendable {
 }
 
 extension DelegateService {
-    public func guide(config: Config) -> DelegationGuide {
-        DelegationGuide(config: config) { status(of: $0) == .ready }
+    public func guide(config: Config, agents: [String] = []) -> DelegationGuide {
+        DelegationGuide(config: config, agents: agents) { status(of: $0) == .ready }
     }
 }

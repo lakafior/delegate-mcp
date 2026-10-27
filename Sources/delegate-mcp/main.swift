@@ -46,9 +46,38 @@ if args.contains("doctor") || args.contains("--doctor") {
     print(report.terminalOutput())
     exit(report.allOk ? 0 : 1)
 }
+// Agenci ACP z terminala (zanim apka dostanie swoją zakładkę): `--agents`, `--install-agent <id>`.
+if args.contains("--agents") || args.contains("--install-agent") {
+    let installer = AgentInstaller(directory: home.agentsURL)
+    if let i = args.firstIndex(of: "--install-agent") {
+        guard let id = args.dropFirst(i - args.startIndex + 1).first else {
+            FileHandle.standardError.write(Data("Usage: delegate-mcp --install-agent <id>\n".utf8))
+            exit(2)
+        }
+        guard let registry = await ACPRegistryStore(cacheURL: home.agentRegistryURL).load(),
+              let agent = registry.agent(id) else {
+            FileHandle.standardError.write(Data("No agent \"\(id)\" in the ACP registry.\n".utf8))
+            exit(1)
+        }
+        do {
+            let installed = try await installer.install(agent)
+            print("Installed \(installed.name) \(installed.version): \(installed.executable)")
+        } catch {
+            FileHandle.standardError.write(Data("Error: \(error)\n".utf8))
+            exit(1)
+        }
+    }
+    for a in installer.installed() { print("\(a.id)\t\(a.version)\t\(a.executable)") }
+    exit(0)
+}
 
 let service = DelegateService(home: home)
-let jobs = DelegateJobs(service: service)
+let jobStore = JobStore(directory: home.jobsURL)
+jobStore.purge()
+let jobs = DelegateJobs(service: service, store: jobStore)
+let agentInstaller = AgentInstaller(directory: home.agentsURL)
+let agentRunner = AgentRunner(home: home)
+let usageLog = UsageLog(url: home.usageURL)
 
 func schema(_ properties: [String: Value], required: [String] = []) -> Value {
     var obj: [String: Value] = ["type": .string("object"), "properties": .object(properties)]
@@ -66,11 +95,33 @@ func prop(_ type: String, _ description: String) -> Value {
 
 /// Config czytany przy każdym wywołaniu; przy błędzie pusty, żeby serwer i tak wystartował.
 func currentGuide() -> DelegationGuide {
-    service.guide(config: (try? service.currentConfig()) ?? Config())
+    service.guide(config: (try? service.currentConfig()) ?? Config(), agents: agentInstaller.installed().map(\.id))
 }
 
 /// Lista narzędzi budowana na żądanie: opis `delegate` zawiera aktualne modele i tagi.
-func makeTools(_ guide: DelegationGuide) -> [Tool] { [
+func makeTools(_ guide: DelegationGuide) -> [Tool] { baseTools(guide) + (guide.agents.isEmpty ? [] : [agentTool(guide)]) }
+
+/// `delegate_agent` tylko, gdy jest zainstalowany agent: bez niego narzędzie tylko zabierałoby miejsce.
+func agentTool(_ guide: DelegationGuide) -> Tool {
+    Tool(
+        name: "delegate_agent",
+        description: "Run a coding agent on a read-only snapshot of a git repo (HEAD + uncommitted changes of tracked files) in the background; it reads files and runs read-only commands itself and returns a report. Returns a job ID; collect with delegate_result (jobs take minutes).",
+        inputSchema: schema([
+            "agent": .object(["type": .string("string"), "enum": .array(guide.agents.map { .string($0) })]),
+            "repo": prop("string", "Absolute path inside the git repository."),
+            "task": prop("string", "What to find out; the agent sees the repo, not this conversation. Say what the report should contain."),
+            "model": prop("string", "Agent's model option (optional; an error lists the valid ones)."),
+            "sensitivity": .object([
+                "type": .string("string"),
+                "enum": .array(Sensitivity.allCases.map { .string($0.rawValue) }),
+                "description": .string("The whole repo is sent to the agent's cloud model; personal = work or personal code."),
+            ]),
+            "report_file": prop("string", "Absolute path; write the report there and return only the header and a preview."),
+        ], required: ["agent", "repo", "task"])
+    )
+}
+
+func baseTools(_ guide: DelegationGuide) -> [Tool] { [
     Tool(
         name: "list_models",
         description: "Full model list with tags, costs, key status. Only if the catalog in the server instructions isn't enough.",
@@ -220,6 +271,43 @@ await server.withMethodHandler(CallTool.self) { params in
                     note: o["note"]?.stringValue)
             }
             return .init(content: [reply(try service.updateModels(provider: provider, updates: updates))], isError: false)
+
+        case "delegate_agent":
+            guard let agentID = a["agent"]?.stringValue, let repo = a["repo"]?.stringValue,
+                  let task = a["task"]?.stringValue, !task.isEmpty else {
+                return .init(content: [reply("Required: agent, repo, task.")], isError: true)
+            }
+            guard let agent = agentInstaller.installed(agentID) else {
+                let ids = agentInstaller.installed().map(\.id)
+                return .init(content: [reply("Agent \"\(agentID)\" isn't installed. Installed: \(ids.isEmpty ? "none" : ids.joined(separator: ", ")).")], isError: true)
+            }
+            let repoURL = URL(fileURLWithPath: (repo as NSString).expandingTildeInPath)
+            guard repo.hasPrefix("/") || repo.hasPrefix("~"), FileManager.default.fileExists(atPath: repoURL.path) else {
+                return .init(content: [reply("repo: give an absolute path to an existing directory.")], isError: true)
+            }
+            let sensitivity = Sensitivity(rawValue: a["sensitivity"]?.stringValue ?? "public") ?? .personal
+            if let why = AgentRegions.refusal(agentID: agentID, sensitivity: sensitivity, config: (try? service.currentConfig()) ?? Config()) {
+                return .init(content: [reply("Not sent: \(why).")], isError: true)
+            }
+            let reportFile = try a["report_file"]?.stringValue.map(OutputFile.validate)
+            let model = a["model"]?.stringValue
+            let id = await jobs.start(label: "\(agentID): " + DelegateJobs.shortLabel(task)) {
+                let started = Date()
+                do {
+                    let report = try await agentRunner.run(agent: agent, repo: repoURL, task: task, model: model)
+                    usageLog.append(UsageEntry(provider: "agent:\(agentID)", model: report.model ?? "default", task: "agent",
+                                               inputTokens: report.inputTokens, outputTokens: report.outputTokens,
+                                               ok: true, ms: Int(report.seconds * 1000)))
+                    guard let reportFile else { return report.formatted }
+                    let header = report.formatted.components(separatedBy: "\n").first ?? ""
+                    return header + "\n\n" + (try OutputFile.write(report.formatted, to: reportFile))
+                } catch {
+                    usageLog.append(UsageEntry(provider: "agent:\(agentID)", model: model ?? "default", task: "agent",
+                                               ok: false, error: "\(error)", ms: Int(Date().timeIntervalSince(started) * 1000)))
+                    throw error
+                }
+            }
+            return .init(content: [reply("Started agent job \(id) (\(agent.name)). It usually takes a few minutes; keep working and collect with delegate_result.")], isError: false)
 
         case "usage_summary":
             return .init(content: [reply(service.usageSummary(days: a["days"]?.intValue ?? 7))], isError: false)

@@ -65,7 +65,32 @@ Zrobione w `DelegateCore` (bez zmian w serwerze MCP i apce):
   logowania, śmierć agenta, timeout; rejestr i cache; instalacja, aktualizacja, odinstalowanie, złe sumy
   i ścieżki. Opcjonalny test na prawdziwym agencie: `DELEGATE_REAL_ACP_AGENT=/ścieżka swift test --filter realAgent`.
 
-Następny: etap 2 (snapshot repo, piaskownica, polityka uprawnień, `AgentRun`, trwałe zadania, `delegate_agent`).
+## Stan etapu 2
+
+- `RepoSnapshot` (`AgentWorkspace.swift`) — `git stash create` + `git worktree add --detach` w
+  `~/Library/Caches/com.mar.delegate/agent-jobs/<id>/repo`; usuwany po zadaniu.
+- `AgentSandbox` — profil `sandbox-exec`: zapis zabroniony w `~`, `/Volumes`, `/private/tmp`, `/private/var/folders`;
+  dozwolony w katalogach stanu agenta (`stateDirectories`, np. `~/.vibe`) i `tmp` zadania; kopia repo tylko do odczytu;
+  niewidoczne: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.netrc`, `~/.docker`, `~/.kube`, `~/.config/gh`, `.git-credentials`,
+  `.npmrc`, `.pypirc`, nasz `.env` i **oryginalne repo** (więc nieśledzone pliki typu `.env` w projekcie są poza zasięgiem).
+- `AgentRunner` (`AgentRun.swift`) — snapshot → piaskownica → `initialize` → `session/new` (brak logowania = czytelny
+  błąd) → tryb `ask` → opcjonalny model (zła nazwa = lista poprawnych) → prompt z zasadami tylko do odczytu →
+  raport (`AgentReport.formatted`): tekst, kroki, odrzucone prośby, tokeny z `usage_update`.
+  Polityka: w piaskownicy zgoda na odczyty i polecenia (zapisu i tak nie zrobią), odmowa dla `edit`/`delete`/`move`
+  i nieznanego rodzaju; bez piaskownicy odmowa wszystkiego; `fs/*` i `terminal/*` nieogłaszane. Katalog zadania
+  w Caches znika po sukcesie, po błędzie zostaje (`agent.log`, `sandbox.sb`).
+- Test na żywo przez serwer MCP: `delegate_agent` → Vibe (GLM-5.3) → raport po 30 s, 9 kroków, 122 tys. tokenów
+  wejścia; sprawdzone cytaty `plik:linia` trafne (jeden przesunięty o linię). Pierwsza wersja polityki odrzuciła
+  Vibe zwykłe `sed`/`grep`, stąd zmiana powyżej.
+- `AgentRegions` — region danych agenta z wbudowanej tabeli (Vibe `eu`); `private` nigdy, `personal` tylko do `personal_regions`.
+- `DelegateJobs` + `JobStore` — zadania w tle zapisywane w `Delegate/jobs/<id>.json` (losowe ID, PID właściciela);
+  po restarcie serwera `delegate_result` czyta wynik z dysku, a zadanie martwego procesu zgłasza jako przerwane;
+  pliki starsze niż 7 dni sprzątane przy starcie.
+- Serwer: narzędzie `delegate_agent` (tylko gdy jest zainstalowany agent) i jedna linia w instrukcjach;
+  flagi `--agents`, `--install-agent <id>`. Użycie agentów w `delegate_usage.jsonl` jako `agent:<id>`, bez kosztu
+  (subskrypcja nie liczy się do dziennego budżetu).
+
+Następny: etap 3 (zakładka Agents w apce: instalacja, logowanie, ustawienia per agent, w tym region i model).
 
 ## Podział ról
 

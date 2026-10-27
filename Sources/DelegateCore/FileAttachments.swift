@@ -47,11 +47,11 @@ enum FileAttachments {
 
 /// `delegate(output_file:)`: odpowiedź idzie prosto na dysk, a Claude dostaje tylko nagłówek i podgląd.
 /// Bez tego musiałby sam zapisać wynik (`Write`), czyli wygenerować go jeszcze raz swoimi tokenami.
-enum OutputFile {
+public enum OutputFile {
     static let previewLines = 8
 
     /// Sprawdzane przed wywołaniem modelu, żeby nie płacić za odpowiedź, której nie da się zapisać.
-    static func validate(_ raw: String) throws -> URL {
+    public static func validate(_ raw: String) throws -> URL {
         let path = (raw as NSString).expandingTildeInPath
         guard path.hasPrefix("/") else {
             throw DelegateError(description: "output_file \"\(raw)\": give an absolute path.")
@@ -74,7 +74,7 @@ enum OutputFile {
     }
 
     /// Zapisuje odpowiedź i zwraca opis dla Claude'a (zamiast pełnej treści).
-    static func write(_ reply: String, to url: URL) throws -> String {
+    public static func write(_ reply: String, to url: URL) throws -> String {
         let (text, stripped) = stripFence(reply)
         let existed = FileManager.default.fileExists(atPath: url.path)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

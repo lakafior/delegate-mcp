@@ -12,6 +12,7 @@ let fakeAgentScript = #"""
 #!/usr/bin/python3 -I
 import json, os, sys
 scenario = os.environ.get("FAKE_SCENARIO", "ok")
+model = "m1"
 
 def send(m):
     sys.stdout.write(json.dumps(m) + "\n"); sys.stdout.flush()
@@ -37,7 +38,15 @@ while True:
         if scenario == "auth":
             send({"jsonrpc": "2.0", "id": mid, "error": {"code": -32000, "message": "Authentication required"}})
         else:
-            send({"jsonrpc": "2.0", "id": mid, "result": {"sessionId": "s-" + os.path.basename(m["params"]["cwd"])}})
+            send({"jsonrpc": "2.0", "id": mid, "result": {"sessionId": "s-" + os.path.basename(m["params"]["cwd"]),
+                "modes": {"currentModeId": "auto", "availableModes": [{"id": "ask"}, {"id": "auto"}]},
+                "configOptions": [{"id": "model", "category": "model", "currentValue": "m1",
+                                   "options": [{"value": "m1"}, {"value": "m2"}]}]}})
+    elif method in ("session/set_config_option", "session/set_mode"):
+        p = m["params"]
+        if p.get("configId") == "model":
+            model = p["value"]
+        send({"jsonrpc": "2.0", "id": mid, "result": {}})
     elif method == "session/prompt":
         if scenario == "hang":
             continue
@@ -46,9 +55,30 @@ while True:
         def chunk(t):
             send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
                 "sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": t}}}})
-        chunk("got: " + text + "; ")
+        if scenario == "probe":
+            out = []
+            try: out.append("read:" + open("notes.txt").read().strip())
+            except Exception: out.append("read:fail")
+            try:
+                open("x.txt", "w").write("x"); out.append("write:ok")
+            except Exception: out.append("write:blocked")
+            out.append("env:" + ("yes" if os.path.exists(".env") else "no"))
+            secret = os.environ.get("FAKE_SECRET")
+            if secret:
+                try: open(secret).read(); out.append("secret:read")
+                except Exception: out.append("secret:blocked")
+            try:
+                open(os.path.join(os.environ.get("TMPDIR", "/nonexistent"), "t.txt"), "w").write("t"); out.append("tmp:ok")
+            except Exception: out.append("tmp:blocked")
+            out.append("model:" + model)
+            chunk(" ".join(out) + " ")
+            send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
+                "sessionUpdate": "tool_call", "toolCallId": "t1", "title": "grep notes", "kind": "search", "status": "completed"}}})
+            send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
+                "sessionUpdate": "usage_update", "_meta": {"promptTokens": 100, "completionTokens": 7}}}})
+        chunk("got: " + text.splitlines()[-1] + "; ")
         send({"jsonrpc": "2.0", "id": "perm-1", "method": "session/request_permission", "params": {
-            "sessionId": sid, "toolCall": {"toolCallId": "c1", "kind": "edit"},
+            "sessionId": sid, "toolCall": {"toolCallId": "c1", "kind": os.environ.get("FAKE_PERM_KIND", "edit")},
             "options": [{"optionId": "allow", "name": "Allow", "kind": "allow_once"},
                         {"optionId": "reject", "name": "Reject", "kind": "reject_once"}]}})
         while True:
@@ -114,9 +144,9 @@ actor Collected {
         #expect(hello.authMethods[1].args == ["--setup"])
 
         let session = try await conn.newSession(cwd: URL(fileURLWithPath: "/tmp/project"))
-        #expect(session == "s-project")
+        #expect(session.id == "s-project")
         let result = try await conn.request("session/prompt", [
-            "sessionId": .string(session), "prompt": [["type": "text", "text": "analyse"]],
+            "sessionId": .string(session.id), "prompt": [["type": "text", "text": "analyse"]],
         ], timeout: .seconds(10))
         #expect(result["stopReason"]?.stringValue == "end_turn")
         #expect(await collected.text == "got: analyse; permission: reject")
@@ -160,7 +190,7 @@ actor Collected {
         let session = try await conn.newSession(cwd: URL(fileURLWithPath: "/tmp/x"))
         let started = Date()
         do {
-            _ = try await conn.request("session/prompt", ["sessionId": .string(session), "prompt": [["type": "text", "text": "x"]]],
+            _ = try await conn.request("session/prompt", ["sessionId": .string(session.id), "prompt": [["type": "text", "text": "x"]]],
                                        timeout: .milliseconds(300))
             Issue.record("expected timeout")
         } catch ACPConnection.ConnectionError.timeout(let method) {
@@ -176,7 +206,7 @@ actor Collected {
         let conn = try ACPConnection.launch(executable: agent)
         _ = try await conn.initialize()
         let session = try await conn.newSession(cwd: URL(fileURLWithPath: "/tmp/x"))
-        let result = try await conn.request("session/prompt", ["sessionId": .string(session), "prompt": [["type": "text", "text": "x"]]],
+        let result = try await conn.request("session/prompt", ["sessionId": .string(session.id), "prompt": [["type": "text", "text": "x"]]],
                                             timeout: .seconds(10))
         #expect(result["stopReason"]?.stringValue == "end_turn")
         await conn.close()
@@ -194,7 +224,7 @@ struct RealACPAgentTests {
         #expect(hello.protocolVersion == ACPConnection.protocolVersion)
         #expect(!hello.authMethods.isEmpty)
         let session = try await conn.newSession(cwd: try tempDir("real-acp"))
-        #expect(!session.isEmpty)
+        #expect(!session.id.isEmpty)
         await conn.close()
     }
 }
