@@ -566,6 +566,9 @@ extension PriceCatalogTests {
         // Kolejne wywołanie omija model na przerwie i mówi o tym w nagłówku.
         let second = try await svc.delegate(.init(prompt: "x", model: "mistral/mistral-small-latest"))
         #expect(second.contains("skipped (paused): mistral/mistral-small-latest"))
+        // Fallback dalej szuka modeli podobnych do wybranego (codestral ma inne tagi niż general).
+        let order = svc.routingPlan(for: .init(prompt: "x", model: "mistral/mistral-small-latest"), config: cfg).candidates.map(\.ref)
+        #expect(order.first == "gemini/gemini-flash-latest")
 
         await #expect(throws: DelegateError.self) {
             try await svc.delegate(.init(prompt: "x", model: "mistral/mistral-small-latest", allowFallback: false))

@@ -269,6 +269,9 @@ public struct DelegateService: Sendable {
             }
         }
         var all = usable.flatMap { p in p.models.map { Candidate(provider: p, model: $0) } }
+        // Przed odfiltrowaniem przerw: fallback ma szukać modeli podobnych do wybranego, nawet gdy ten ma przerwę.
+        let matches = { (c: Candidate, wanted: String) in c.ref == wanted || (!wanted.contains("/") && c.model.id == wanted) }
+        let chosenTags = request.model.flatMap { w in all.first { matches($0, w) } }.map { Set($0.model.tags.map { $0.lowercased() }) } ?? []
 
         let cooling = cooldowns.active(now: now)
         if !cooling.isEmpty {
@@ -297,11 +300,10 @@ public struct DelegateService: Sendable {
             if !tagged.isEmpty { all = tagged + all.filter { c in !tagged.contains(c) } }
         }
         if let wanted = request.model, !wanted.isEmpty {
-            let exact = all.filter { $0.ref == wanted || (!wanted.contains("/") && $0.model.id == wanted) }
+            let exact = all.filter { matches($0, wanted) }
             if request.allowFallback {
                 // Fallback po modelu wybranym przez Claude'a: najpierw podobne (wspólne tagi), potem reszta wg priorytetu.
-                let chosen = Set(exact.first?.model.tags.map { $0.lowercased() } ?? [])
-                let shared = { (c: Candidate) in c.model.tags.filter { chosen.contains($0.lowercased()) }.count }
+                let shared = { (c: Candidate) in c.model.tags.filter { chosenTags.contains($0.lowercased()) }.count }
                 let rest = all.filter { c in !exact.contains(c) }.enumerated()
                     .sorted { a, b in shared(a.element) != shared(b.element) ? shared(a.element) > shared(b.element) : a.offset < b.offset }
                     .map(\.element)
