@@ -35,6 +35,18 @@ struct AgentsView: View {
             }
         }
         .task { await model.loadAgents() }
+        .confirmationDialog(
+            "Install \(model.unverifiedAgent?.agent.name ?? "agent") without verification?",
+            isPresented: Binding(get: { model.unverifiedAgent != nil }, set: { if !$0 { model.unverifiedAgent = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Install anyway", role: .destructive) { model.installAgentAnyway() }
+            Button("Cancel", role: .cancel) { model.unverifiedAgent = nil }
+        } message: {
+            if let pending = model.unverifiedAgent {
+                Text("The registry publishes no checksum for it and the program isn't signed by a known developer\(pending.error.signer.map { " (signature: \($0))" } ?? ""). It will still run only in the sandbox. Download SHA-256: \(pending.error.sha256.prefix(16))…; a different file for the same version will be refused later.")
+            }
+        }
     }
 
     // MARK: zainstalowani
@@ -88,7 +100,7 @@ struct AgentsView: View {
         } header: {
             Text("Available from the ACP registry")
         } footer: {
-            Text("The same registry Zed and JetBrains IDEs use. Standalone Mac builds need a published checksum; npm agents are installed once with your Node.js into Delegate's folder (install scripts disabled) and run without npx. Agents that need uv come later.")
+            Text("The same registry Zed and JetBrains IDEs use. Mac builds are verified by the registry's checksum or, without one, by the developer's code signature (unsigned ones only with your approval); npm agents are installed once with your Node.js into Delegate's folder (install scripts disabled) and run without npx. Agents that need uv come later.")
         }
     }
 }
@@ -132,6 +144,11 @@ private struct InstalledAgentRow: View {
 
     private var details: String {
         var parts = ["v\(agent.version)", "data: \(AgentRegions.region(for: agent.id).title)"]
+        switch agent.verifiedBy {
+        case "signature": parts.append("signed by \(agent.signer ?? "a known developer")")
+        case "trusted": parts.append("unverified, installed with your approval")
+        default: break
+        }
         switch check?.signIn {
         case .signedIn: parts.append("signed in")
         case .needsSignIn: parts.append("not signed in")
@@ -195,6 +212,9 @@ private struct AvailableAgentRow: View {
 
     private var sourceLine: String {
         var s = "data: \(AgentRegions.region(for: agent.id).title)"
+        if case .binary(let t) = agent.installKind, (t.sha256 ?? "").isEmpty {
+            s += " · no checksum in the registry, checked by code signature on install"
+        }
         if case .npm(let p) = agent.installKind {
             s += " · npm \(p.package)"
             if let node = model.nodeRuntime { s += " (Node \(node.version))" }
@@ -253,8 +273,8 @@ extension ACPRegistry.Agent {
     /// Dlaczego nie da się zainstalować (do pokazania zamiast przycisku); `nil` = można.
     func installBlocker(node: NodeRuntime?) -> String? {
         switch installKind {
-        case .binary(let target):
-            return (target.sha256 ?? "").isEmpty ? "No checksum in the registry" : nil
+        case .binary:
+            return nil
         case .npm:
             return node == nil ? "Needs Node.js" : nil
         case .needsRuntime(let tool):

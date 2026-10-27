@@ -113,6 +113,12 @@ Zrobione w `DelegateCore` (bez zmian w serwerze MCP i apce):
   30 s, 16 kroków, model `auto`, bez danych o tokenach. Wszyscy trzej (Vibe, Antigravity, Copilot) przetestowani.
 - Ograniczenie: lista agentów w schemacie `delegate_agent` i w instrukcjach powstaje przy starcie serwera, więc
   agent zainstalowany w trakcie sesji Claude'a jest widoczny dopiero po jej restarcie.
+- Weryfikacja binarek bez sumy w rejestrze: podpis Developer ID programu (`CodeSignature`, framework Security);
+  bez niego tylko za zgodą użytkownika (`UnverifiedAgentError` → dialog „Install anyway”, CLI `--allow-unverified`),
+  a suma pobranego pliku jest zapamiętywana (ta sama wersja z innym plikiem = odmowa). Sprawdzone na żywo:
+  Junie (JetBrains s.r.o.) i Devin (Exafunction) przechodzą podpisem; Cursor nie — jego główny program
+  `cursor-agent-sea` jest niepodpisany, choć pozostałe pliki paczki podpisuje Anysphere. Antigravity (Google)
+  i Copilot (GitHub) też są podpisane; Vibe ma tylko podpis ad-hoc, chroni go suma z rejestru.
 - Nie zrobione: ustawienia per agent (region, domyślny model, włączony) w `delegate.toml` — region dalej z tabeli
   `AgentRegions`, model wybiera Claude parametrem `model`. Do zrobienia, jeśli okaże się potrzebne.
 

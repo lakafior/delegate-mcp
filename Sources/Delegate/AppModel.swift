@@ -329,7 +329,16 @@ final class AppModel {
         }
     }
 
-    func installAgent(_ agent: ACPRegistry.Agent) {
+    /// Agent bez sumy i bez podpisu Developer ID czeka na decyzję użytkownika (dialog w zakładce Agents).
+    var unverifiedAgent: (agent: ACPRegistry.Agent, error: UnverifiedAgentError)?
+
+    func installAgentAnyway() {
+        guard let pending = unverifiedAgent else { return }
+        unverifiedAgent = nil
+        installAgent(pending.agent, allowUnverified: true)
+    }
+
+    func installAgent(_ agent: ACPRegistry.Agent, allowUnverified: Bool = false) {
         guard agentActivity[agent.id] == nil else { return }
         agentActivity[agent.id] = agentInstaller.installed(agent.id) == nil ? "Installing…" : "Updating…"
         agentError = nil
@@ -337,10 +346,13 @@ final class AppModel {
         let node = nodeRuntime
         Task {
             do {
-                try await installer.install(agent, node: node)
+                try await installer.install(agent, node: node, allowUnverified: allowUnverified)
                 installedAgents = installer.installed()
                 agentActivity[agent.id] = nil
                 checkAgent(agent.id)
+            } catch let e as UnverifiedAgentError {
+                agentActivity[agent.id] = nil
+                unverifiedAgent = (agent, e)
             } catch {
                 agentActivity[agent.id] = nil
                 agentError = "\(error)"

@@ -15,9 +15,20 @@ public struct InstalledAgent: Codable, Sendable, Equatable, Identifiable {
     public var kind: String?
     /// Katalog instalacji; jego brak = agent usunięty ręcznie.
     public var installDir: String?
+    /// Jak sprawdzono pobrany plik: `checksum` (suma z rejestru), `signature` (podpis Developer ID),
+    /// `trusted` (niepodpisany, zainstalowany za zgodą użytkownika), `npm` (sumy z rejestru npm).
+    public var verifiedBy: String?
+    /// Wydawca z podpisu kodu, np. „Google LLC”.
+    public var signer: String?
+    /// SHA-256 pobranego archiwum; przy ponownej instalacji tej samej wersji musi się zgadzać.
+    public var sha256: String?
 
     public init(id: String, name: String, version: String, executable: String, args: [String],
-                env: [String: String], installedAt: Date, kind: String? = nil, installDir: String? = nil) {
+                env: [String: String], installedAt: Date, kind: String? = nil, installDir: String? = nil,
+                verifiedBy: String? = nil, signer: String? = nil, sha256: String? = nil) {
+        self.verifiedBy = verifiedBy
+        self.signer = signer
+        self.sha256 = sha256
         self.id = id
         self.name = name
         self.version = version
@@ -27,6 +38,18 @@ public struct InstalledAgent: Codable, Sendable, Equatable, Identifiable {
         self.installedAt = installedAt
         self.kind = kind
         self.installDir = installDir
+    }
+}
+
+/// Agent bez sumy w rejestrze i bez podpisu Developer ID: instalacja tylko po jawnej zgodzie (`allowUnverified`).
+public struct UnverifiedAgentError: Error, Sendable, CustomStringConvertible {
+    public var agentName: String
+    public var sha256: String
+    /// Nazwa z podpisu, jeśli w ogóle jest (np. podpis ad-hoc albo nieważny).
+    public var signer: String?
+    public var description: String {
+        "\(agentName) has no checksum in the registry and isn't signed by a known developer (Developer ID); "
+            + "install it only if you trust its source."
     }
 }
 
@@ -64,10 +87,12 @@ public struct AgentInstaller: Sendable {
 
     /// `node`: systemowy Node.js dla agentów z npm (`NodeRuntime.find()`); bez niego takie agenty odpadają.
     @discardableResult
-    public func install(_ agent: ACPRegistry.Agent, node: NodeRuntime? = NodeRuntime.find()) async throws -> InstalledAgent {
+    /// `allowUnverified`: zgoda użytkownika na binarkę bez sumy w rejestrze i bez podpisu Developer ID.
+    public func install(_ agent: ACPRegistry.Agent, node: NodeRuntime? = NodeRuntime.find(),
+                        allowUnverified: Bool = false) async throws -> InstalledAgent {
         switch agent.installKind {
         case .binary(let target):
-            return try await installBinary(agent, target)
+            return try await installBinary(agent, target, allowUnverified: allowUnverified)
         case .npm(let target):
             guard let node else {
                 throw DelegateError(description: "\(agent.name) needs Node.js; install it (e.g. brew install node) and try again.")
@@ -80,10 +105,11 @@ public struct AgentInstaller: Sendable {
         }
     }
 
-    private func installBinary(_ agent: ACPRegistry.Agent, _ target: ACPRegistry.BinaryTarget) async throws -> InstalledAgent {
-        guard let expected = target.sha256?.lowercased(), !expected.isEmpty else {
-            throw DelegateError(description: "\(agent.name): the registry gives no SHA-256 checksum, refusing to install.")
-        }
+    /// Weryfikacja: suma z rejestru, jeśli jest; inaczej podpis Developer ID programu; inaczej tylko za zgodą
+    /// użytkownika. Suma pobranego pliku jest zapamiętywana: ta sama wersja z inną sumą = odmowa.
+    private func installBinary(_ agent: ACPRegistry.Agent, _ target: ACPRegistry.BinaryTarget,
+                               allowUnverified: Bool) async throws -> InstalledAgent {
+        let expected = target.sha256?.lowercased().trimmingCharacters(in: .whitespaces)
         guard let url = URL(string: target.archive), url.scheme == "https" else {
             throw DelegateError(description: "\(agent.name): archive URL must be https.")
         }
@@ -95,8 +121,12 @@ public struct AgentInstaller: Sendable {
             throw DelegateError(description: "\(agent.name): download failed (HTTP \(http.statusCode)).")
         }
         let actual = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-        guard actual == expected else {
+        if let expected, !expected.isEmpty, actual != expected {
             throw DelegateError(description: "\(agent.name): checksum mismatch, the download may be corrupted or tampered with.")
+        }
+        if let previous = installedIncludingMissing().first(where: { $0.id == agent.id && $0.version == agent.version }),
+           let known = previous.sha256, known != actual {
+            throw DelegateError(description: "\(agent.name) \(agent.version) changed since it was first installed (different file for the same version); refusing. Remove the agent first if this is expected.")
         }
 
         let fm = FileManager.default
@@ -123,11 +153,25 @@ public struct AgentInstaller: Sendable {
         }
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stagedExecutable.path)
 
+        let signature = CodeSignature.check(stagedExecutable)
+        let verifiedBy: String
+        if let expected, !expected.isEmpty {
+            verifiedBy = "checksum"
+        } else if signature.isDeveloperID {
+            verifiedBy = "signature"
+        } else if allowUnverified {
+            verifiedBy = "trusted"
+        } else {
+            throw UnverifiedAgentError(agentName: agent.name, sha256: actual, signer: signature.signer)
+        }
+
         let final = try promote(content, agent: agent, agentDir: agentDir)
         return try record(InstalledAgent(id: agent.id, name: agent.name, version: agent.version,
                                          executable: final.appendingPathComponent(relative).path,
                                          args: target.args ?? [], env: target.env ?? [:], installedAt: Date(),
-                                         kind: "binary", installDir: final.path), agentDir: agentDir, keep: final)
+                                         kind: "binary", installDir: final.path, verifiedBy: verifiedBy,
+                                         signer: signature.isDeveloperID ? signature.publisher : nil, sha256: actual),
+                          agentDir: agentDir, keep: final)
     }
 
     /// Paczka npm instalowana raz (`npm install --prefix`) do katalogu agenta; uruchamiana przez systemowy
@@ -159,7 +203,8 @@ public struct AgentInstaller: Sendable {
         agentEnv["PATH"] = node.path
         return try record(InstalledAgent(id: agent.id, name: agent.name, version: agent.version,
                                          executable: node.node.path, args: [finalScript.path] + (target.args ?? []),
-                                         env: agentEnv, installedAt: Date(), kind: "npm", installDir: final.path),
+                                         env: agentEnv, installedAt: Date(), kind: "npm", installDir: final.path,
+                                         verifiedBy: "npm"),
                           agentDir: agentDir, keep: final)
     }
 

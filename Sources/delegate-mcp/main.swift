@@ -60,8 +60,8 @@ if args.contains("--agents") || args.contains("--install-agent") {
             exit(1)
         }
         do {
-            let installed = try await installer.install(agent)
-            print("Installed \(installed.name) \(installed.version): \(installed.executable)")
+            let installed = try await installer.install(agent, allowUnverified: args.contains("--allow-unverified"))
+            print("Installed \(installed.name) \(installed.version) (verified by \(installed.verifiedBy ?? "?")\(installed.signer.map { ": \($0)" } ?? "")): \(installed.executable)")
         } catch {
             FileHandle.standardError.write(Data("Error: \(error)\n".utf8))
             exit(1)

@@ -365,7 +365,8 @@ final class DataTransport: HTTPTransport, @unchecked Sendable {
         let dir = try tempDir("agents")
         let installer = AgentInstaller(directory: dir, transport: DataTransport(data))
         await #expect(throws: DelegateError.self) { try await installer.install(entry(sha: String(repeating: "0", count: 64))) }
-        await #expect(throws: DelegateError.self) { try await installer.install(entry(sha: nil)) }
+        // Bez sumy i bez podpisu Developer ID (skrypt): tylko za zgodą użytkownika.
+        await #expect(throws: UnverifiedAgentError.self) { try await installer.install(entry(sha: nil)) }
         await #expect(throws: DelegateError.self) { try await installer.install(entry(sha: sha, cmd: "../escape")) }
         await #expect(throws: DelegateError.self) { try await installer.install(entry(sha: sha, cmd: "./missing")) }
         await #expect(throws: DelegateError.self) { try await installer.install(entry(sha: sha, archive: "http://example.com/a.tar.gz")) }
@@ -477,5 +478,70 @@ let nodeRuntime = NodeRuntime.find()
         } catch let e as DelegateError {
             #expect(e.description.contains("npm install failed"))
         }
+    }
+}
+
+// MARK: podpis kodu
+
+/// Mała binarka z podpisem Developer ID, jeśli jest na tym Macu (Zed CLI).
+let developerIDSample: URL? = ["/Applications/Zed.app/Contents/MacOS/cli"]
+    .map { URL(fileURLWithPath: $0) }
+    .first { FileManager.default.isExecutableFile(atPath: $0.path) }
+
+@Suite struct CodeSignatureTests {
+    @Test func scriptsAndApplePlatformBinariesAreNotDeveloperID() throws {
+        let script = try writeFakeAgent(in: try tempDir("sig"))
+        #expect(!CodeSignature.check(script).isDeveloperID)
+        #expect(!CodeSignature.check(URL(fileURLWithPath: "/usr/bin/true")).isDeveloperID)
+    }
+
+    @Test(.enabled(if: developerIDSample != nil)) func developerIDBinaryNamesItsPublisher() throws {
+        let sig = CodeSignature.check(try #require(developerIDSample))
+        #expect(sig.isDeveloperID)
+        #expect(sig.publisher == "Zed Industries, Inc.")
+        #expect(sig.teamID == "MQ55VZLNZQ")
+    }
+}
+
+@Suite(.enabled(if: pythonAvailable)) struct UnverifiedInstallTests {
+    private func entry(version: String = "1.0.0", archive: String) -> ACPRegistry.Agent {
+        ACPRegistry.Agent(id: "nosum", name: "No Sum", version: version, description: nil, repository: nil,
+                          website: nil, authors: nil, license: nil, icon: nil,
+                          distribution: .init(binary: [ACPRegistry.platformKey: .init(archive: archive, sha256: nil, cmd: "./tool")],
+                                              npx: nil, uvx: nil))
+    }
+
+    @Test func unsignedNeedsApprovalAndIsPinnedByHash() async throws {
+        let raw = Data(fakeAgentScript.utf8)
+        let dir = try tempDir("agents")
+        let installer = AgentInstaller(directory: dir, transport: DataTransport(raw))
+        do {
+            try await installer.install(entry(archive: "https://example.com/tool"))
+            Issue.record("expected UnverifiedAgentError")
+        } catch let e as UnverifiedAgentError {
+            #expect(e.sha256.count == 64)
+        }
+        #expect(installer.installed().isEmpty)
+
+        let ok = try await installer.install(entry(archive: "https://example.com/tool"), allowUnverified: true)
+        #expect(ok.verifiedBy == "trusted")
+        #expect(ok.signer == nil)
+
+        // Ta sama wersja, inny plik: odmowa, nawet za zgodą.
+        let changed = AgentInstaller(directory: dir, transport: DataTransport(raw + Data("# changed\n".utf8)))
+        await #expect(throws: DelegateError.self) {
+            try await changed.install(entry(archive: "https://example.com/tool"), allowUnverified: true)
+        }
+        // Nowa wersja może mieć inny plik.
+        let next = try await changed.install(entry(version: "1.1.0", archive: "https://example.com/tool"), allowUnverified: true)
+        #expect(next.version == "1.1.0")
+    }
+
+    @Test(.enabled(if: developerIDSample != nil)) func developerIDSignedBinaryInstallsWithoutChecksum() async throws {
+        let data = try Data(contentsOf: try #require(developerIDSample))
+        let installer = AgentInstaller(directory: try tempDir("agents"), transport: DataTransport(data))
+        let installed = try await installer.install(entry(archive: "https://example.com/tool"))
+        #expect(installed.verifiedBy == "signature")
+        #expect(installed.signer == "Zed Industries, Inc.")
     }
 }

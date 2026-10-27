@@ -147,8 +147,8 @@ Plan i stan: `docs/acp-plan.md`. Gotowe agenty z rejestru ACP (jak w Zedzie) wyk
 (`RepoSnapshot`, HEAD + niezacommitowane zmiany śledzonych plików), `sandbox-exec` (`AgentSandbox`, zapis tylko do
 stanu agenta i `tmp` zadania, oryginalne repo i klucze niewidoczne), tryb tylko do odczytu (w piaskownicy zgoda na
 polecenia, odmowa dla edycji, usuwania i przenoszenia plików). Wynik przez `delegate_result`; zadania w tle zapisywane w `jobs/<id>.json` (`JobStore`), więc przeżywają
-restart serwera. Instalacja: `agents/<id>/<wersja>/` + `agents/installed.json` (`AgentInstaller`: binarki tylko
-z SHA-256; paczki npm instalowane raz przez systemowy Node, `NodeRuntime`, `npm install --prefix --ignore-scripts`,
+restart serwera. Instalacja: `agents/<id>/<wersja>/` + `agents/installed.json` (`AgentInstaller`: binarki z SHA-256 z rejestru
+albo z podpisem Developer ID (`CodeSignature`), niepodpisane tylko za zgodą (`UnverifiedAgentError`, `--allow-unverified`); paczki npm instalowane raz przez systemowy Node, `NodeRuntime`, `npm install --prefix --ignore-scripts`,
 uruchamiane `node <skrypt>` bez npx), z terminala `delegate-mcp --install-agent <id>` / `--agents`. W apce zakładka **Agents** (`AgentsView`): lista z rejestru,
 instalacja/aktualizacja/usuwanie, stan logowania (`AgentAccount.check`: próbna sesja w pustym katalogu) i logowanie
 (`agent` → ACP `authenticate`, agent otwiera przeglądarkę; `terminal` → plik `.command` w Terminalu).
