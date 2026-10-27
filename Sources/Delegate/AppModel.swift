@@ -142,6 +142,7 @@ final class AppModel {
         keySources = sources
         onDevice = device.availability
         refreshIntegrations()
+        recheckPendingSignIns()
     }
 
     func keySource(for p: ProviderConfig) -> KeySource { keySources[p.apiKeyEnv] ?? .none }
@@ -298,6 +299,17 @@ final class AppModel {
     /// Co się teraz dzieje z agentem („Installing…”, „Checking…”, „Waiting for sign-in…”).
     private(set) var agentActivity: [String: String] = [:]
     var agentError: String?
+    /// Agenci, których logowanie trwa w Terminalu; po powrocie do apki sprawdzamy ich ponownie.
+    private var pendingTerminalSignIns: Set<String> = []
+
+    /// Wołane przy aktywacji apki (powrót z Terminala albo przeglądarki).
+    func recheckPendingSignIns() {
+        for id in pendingTerminalSignIns {
+            agentChecks[id] = nil
+            checkAgent(id)
+        }
+        pendingTerminalSignIns = []
+    }
 
     private var agentInstaller: AgentInstaller { AgentInstaller(directory: home.agentsURL) }
 
@@ -362,6 +374,8 @@ final class AppModel {
         if method.type == "terminal" {
             do {
                 try AgentAccount.openTerminalSignIn(agent, method: method)
+                // Logowanie kończy się w Terminalu; stan sprawdzamy, gdy użytkownik wróci do apki.
+                pendingTerminalSignIns.insert(id)
             } catch {
                 agentError = "Couldn't open Terminal: \(error)"
             }

@@ -79,7 +79,7 @@ public enum AgentAccount {
         let env = agent.env.merging(method.env) { _, new in new }
             .sorted { $0.key < $1.key }
             .map { "\($0.key)=\(shellQuote($0.value))" }
-        return (env + [shellQuote(agent.executable)] + method.args.map(shellQuote)).joined(separator: " ")
+        return (env + [shellQuote(method.command ?? agent.executable)] + method.args.map(shellQuote)).joined(separator: " ")
     }
 
     /// Otwiera Terminal z poleceniem logowania (plik `.command` w katalogu tymczasowym, bez uprawnień do automatyzacji).

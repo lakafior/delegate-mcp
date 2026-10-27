@@ -186,7 +186,7 @@ func makeRepo() throws -> URL {
         #expect(check.signIn == .signedIn)
         #expect(check.models == ["m1", "m2"])
         #expect(check.defaultModel == "m1")
-        #expect(check.authMethods.map(\.id) == ["browser-auth", "setup"])
+        #expect(check.authMethods.map(\.id) == ["browser-auth", "setup", "legacy"])
     }
 
     @Test func agentWithoutLoginOffersMethods() async throws {
@@ -194,7 +194,7 @@ func makeRepo() throws -> URL {
         guard case .needsSignIn(let methods) = check.signIn else {
             Issue.record("expected needsSignIn, got \(check.signIn)"); return
         }
-        #expect(methods.map(\.type) == ["agent", "terminal"])
+        #expect(methods.map(\.type) == ["agent", "terminal", "terminal"])
     }
 
     @Test func brokenAgentIsReportedNotHung() async throws {
@@ -214,5 +214,8 @@ func makeRepo() throws -> URL {
                                env: ["A": "it's"], installedAt: Date())
         let m = ACPAgentHello.AuthMethod(id: "t", name: "T", type: "terminal", args: ["--setup"], env: ["B": "2"])
         #expect(AgentAccount.terminalCommand(a, method: m) == "A='it'\\''s' B='2' '/Apps/My Agent/agent' '--setup'")
+        // Osobny program logowania (Copilot: `copilot login`) zamiast samego agenta.
+        let legacy = ACPAgentHello.AuthMethod(id: "l", name: "L", type: "terminal", args: ["login"], command: "/opt/copilot")
+        #expect(AgentAccount.terminalCommand(a, method: legacy) == "A='it'\\''s' '/opt/copilot' 'login'")
     }
 }

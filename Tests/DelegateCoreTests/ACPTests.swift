@@ -29,7 +29,8 @@ while True:
     if method == "initialize":
         send({"jsonrpc": "2.0", "id": mid, "result": {
             "protocolVersion": 1, "agentCapabilities": {},
-            "authMethods": [{"id": "browser-auth", "name": "Sign in"}, {"id": "setup", "name": "Terminal", "type": "terminal", "args": ["--setup"]}],
+            "authMethods": [{"id": "browser-auth", "name": "Sign in"}, {"id": "setup", "name": "Terminal", "type": "terminal", "args": ["--setup"]},
+                            {"id": "legacy", "name": "Log in", "_meta": {"terminal-auth": {"command": "/opt/x/login-tool", "args": ["login"], "label": "Login"}}}],
             "agentInfo": {"name": "fake-agent", "title": "Fake Agent", "version": "1.2.3"},
             "echo": m["params"]["clientCapabilities"]}})
     elif method == "session/new":
@@ -143,9 +144,11 @@ actor Collected {
         let hello = try await conn.initialize()
         #expect(hello.name == "Fake Agent")
         #expect(hello.version == "1.2.3")
-        #expect(hello.authMethods.map(\.id) == ["browser-auth", "setup"])
+        #expect(hello.authMethods.map(\.id) == ["browser-auth", "setup", "legacy"])
         #expect(hello.authMethods[0].type == "agent")
         #expect(hello.authMethods[1].args == ["--setup"])
+        // Starszy zapis `_meta.terminal-auth` (Copilot): terminal z osobnym programem.
+        #expect(hello.authMethods[2] == .init(id: "legacy", name: "Log in", type: "terminal", args: ["login"], command: "/opt/x/login-tool"))
 
         let session = try await conn.newSession(cwd: URL(fileURLWithPath: "/tmp/project"))
         #expect(session.id == "s-project")

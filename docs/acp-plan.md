@@ -108,6 +108,11 @@ Zrobione w `DelegateCore` (bez zmian w serwerze MCP i apce):
   piaskownicy co zadania (status = czy zadziała naprawdę); ścieżki kopii repo w raporcie (np. linki `file://`
   Antigravity) zamieniane na ścieżki oryginału. Copilot potrzebuje własnego logowania (przycisk Sign in), a nie
   odsłonięcia tokenu `gh` z dostępem do wszystkich repo.
+- Copilot ogłasza logowanie starszym zapisem `_meta.terminal-auth` (osobny program `copilot login`), który
+  parsujemy jako `type: terminal` z `command`. Po `copilot login` w Terminalu działa w piaskownicy: raport trafny,
+  30 s, 16 kroków, model `auto`, bez danych o tokenach. Wszyscy trzej (Vibe, Antigravity, Copilot) przetestowani.
+- Ograniczenie: lista agentów w schemacie `delegate_agent` i w instrukcjach powstaje przy starcie serwera, więc
+  agent zainstalowany w trakcie sesji Claude'a jest widoczny dopiero po jej restarcie.
 - Nie zrobione: ustawienia per agent (region, domyślny model, włączony) w `delegate.toml` — region dalej z tabeli
   `AgentRegions`, model wybiera Claude parametrem `model`. Do zrobienia, jeśli okaże się potrzebne.
 

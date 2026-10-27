@@ -216,6 +216,19 @@ public struct ACPAgentHello: Sendable, Equatable {
         public var type: String
         public var args: [String]
         public var env: [String: String]
+        /// Osobny program do logowania (starszy zapis `_meta.terminal-auth`, np. Copilot: `copilot login`);
+        /// `nil` = sam agent z `args`.
+        public var command: String?
+
+        public init(id: String, name: String, type: String, args: [String] = [], env: [String: String] = [:],
+                    command: String? = nil) {
+            self.id = id
+            self.name = name
+            self.type = type
+            self.args = args
+            self.env = env
+            self.command = command
+        }
     }
 
     public var name: String?
@@ -230,6 +243,13 @@ public struct ACPAgentHello: Sendable, Equatable {
         protocolVersion = result["protocolVersion"]?.intValue
         authMethods = (result["authMethods"]?.arrayValue ?? []).compactMap { m in
             guard let id = m["id"]?.stringValue else { return nil }
+            // Starszy zapis (Zed, Copilot): bez `type`, logowanie w terminalu opisane w `_meta.terminal-auth`.
+            if m["type"] == nil, let t = m["_meta"]?["terminal-auth"] {
+                return AuthMethod(id: id, name: m["name"]?.stringValue ?? id, type: "terminal",
+                                  args: t["args"]?.arrayValue?.compactMap(\.stringValue) ?? [],
+                                  env: (t["env"]?.objectValue ?? [:]).compactMapValues(\.stringValue),
+                                  command: t["command"]?.stringValue)
+            }
             return AuthMethod(id: id, name: m["name"]?.stringValue ?? id,
                               type: m["type"]?.stringValue ?? "agent",
                               args: m["args"]?.arrayValue?.compactMap(\.stringValue) ?? [],
