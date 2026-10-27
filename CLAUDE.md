@@ -140,6 +140,13 @@ i podgląd w zakładce Routing):
   → tydzień. Sukces zdejmuje przerwę; w Routingu przycisk „Resume paused models” zdejmuje wszystkie.
 - **Tryb** (`delegation_mode`: `conservative`/`balanced`/`aggressive`) zmienia ton i próg słów w instrukcjach serwera.
 
+## Agenci ACP (w budowie)
+
+Plan i stan: `docs/acp-plan.md`. Gotowe agenty z rejestru ACP (jak w Zedzie) mają wykonywać zadania na repo
+w tle, w piaskownicy. Na razie w `DelegateCore` są `ACPConnection` (JSON-RPC po stdio), `ACPRegistry`
+(+ `ACPRegistryStore`, cache `agents/registry.json`) i `AgentInstaller` (instalacja do `agents/<id>/<wersja>/`,
+`agents/installed.json`, tylko binarki z SHA-256). Serwer MCP i apka jeszcze z nich nie korzystają.
+
 ## Ważne
 
 - **Mistral za darmo** działa tylko z kluczem na planie *Experiment* w Mistral Studio. Subskrypcja Pro (Vibe) nie daje kredytów API.

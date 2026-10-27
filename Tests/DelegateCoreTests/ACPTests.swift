@@ -1,0 +1,362 @@
+import CryptoKit
+import Foundation
+import Testing
+@testable import DelegateCore
+
+// MARK: atrapa agenta
+
+/// Atrapa agenta ACP: skrypt Pythona mówiący JSON-RPC po stdio. Scenariusz w `FAKE_SCENARIO`:
+/// `ok` (sesja, dwa fragmenty odpowiedzi, prośba o zgodę na zapis), `auth` (sesja wymaga logowania),
+/// `crash` (wychodzi przy `session/new`), `hang` (nie odpowiada na `session/prompt`).
+let fakeAgentScript = #"""
+#!/usr/bin/python3 -I
+import json, os, sys
+scenario = os.environ.get("FAKE_SCENARIO", "ok")
+
+def send(m):
+    sys.stdout.write(json.dumps(m) + "\n"); sys.stdout.flush()
+
+def read():
+    line = sys.stdin.readline()
+    return json.loads(line) if line else None
+
+while True:
+    m = read()
+    if m is None:
+        break
+    method, mid = m.get("method"), m.get("id")
+    if method == "initialize":
+        send({"jsonrpc": "2.0", "id": mid, "result": {
+            "protocolVersion": 1, "agentCapabilities": {},
+            "authMethods": [{"id": "browser-auth", "name": "Sign in"}, {"id": "setup", "name": "Terminal", "type": "terminal", "args": ["--setup"]}],
+            "agentInfo": {"name": "fake-agent", "title": "Fake Agent", "version": "1.2.3"},
+            "echo": m["params"]["clientCapabilities"]}})
+    elif method == "session/new":
+        if scenario == "crash":
+            sys.exit(3)
+        if scenario == "auth":
+            send({"jsonrpc": "2.0", "id": mid, "error": {"code": -32000, "message": "Authentication required"}})
+        else:
+            send({"jsonrpc": "2.0", "id": mid, "result": {"sessionId": "s-" + os.path.basename(m["params"]["cwd"])}})
+    elif method == "session/prompt":
+        if scenario == "hang":
+            continue
+        sid = m["params"]["sessionId"]
+        text = m["params"]["prompt"][0]["text"]
+        def chunk(t):
+            send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
+                "sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": t}}}})
+        chunk("got: " + text + "; ")
+        send({"jsonrpc": "2.0", "id": "perm-1", "method": "session/request_permission", "params": {
+            "sessionId": sid, "toolCall": {"toolCallId": "c1", "kind": "edit"},
+            "options": [{"optionId": "allow", "name": "Allow", "kind": "allow_once"},
+                        {"optionId": "reject", "name": "Reject", "kind": "reject_once"}]}})
+        while True:
+            r = read()
+            if r is None:
+                sys.exit(0)
+            if r.get("id") == "perm-1":
+                break
+        chunk("permission: " + r.get("result", {}).get("outcome", {}).get("optionId", "error"))
+        send({"jsonrpc": "2.0", "id": mid, "result": {"stopReason": "end_turn"}})
+    elif mid is not None:
+        send({"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": "unknown " + str(method)}})
+"""#
+
+let pythonAvailable = FileManager.default.isExecutableFile(atPath: "/usr/bin/python3")
+
+func tempDir(_ prefix: String) throws -> URL {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("\(prefix)-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    return dir
+}
+
+func writeFakeAgent(in dir: URL, name: String = "fake-agent") throws -> URL {
+    let url = dir.appendingPathComponent(name)
+    try Data(fakeAgentScript.utf8).write(to: url)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    return url
+}
+
+/// Zbiera powiadomienia z wątku odczytu.
+actor Collected {
+    var updates: [JSONValue] = []
+    func add(_ v: JSONValue) { updates.append(v) }
+    var text: String {
+        updates.compactMap { $0["update"]?["content"]?["text"]?.stringValue }.joined()
+    }
+}
+
+// MARK: połączenie
+
+@Suite(.enabled(if: pythonAvailable)) struct ACPConnectionTests {
+    private func launch(_ scenario: String, collected: Collected = Collected()) throws -> ACPConnection {
+        let agent = try writeFakeAgent(in: try tempDir("acp"))
+        return try ACPConnection.launch(
+            executable: agent, environment: ["FAKE_SCENARIO": scenario],
+            onRequest: { method, params in
+                guard method == "session/request_permission" else { return .failure(.methodNotFound(method)) }
+                // Jak w trybie tylko do odczytu: zawsze pierwsza opcja odrzucająca.
+                let reject = params["options"]?.arrayValue?.first { $0["kind"]?.stringValue?.hasPrefix("reject") == true }
+                return .success(["outcome": ["outcome": "selected", "optionId": reject?["optionId"] ?? "?"]])
+            },
+            onNotification: { _, params in await collected.add(params) })
+    }
+
+    @Test func handshakeSessionAndPromptWithPermission() async throws {
+        let collected = Collected()
+        let conn = try launch("ok", collected: collected)
+        let hello = try await conn.initialize()
+        #expect(hello.name == "Fake Agent")
+        #expect(hello.version == "1.2.3")
+        #expect(hello.authMethods.map(\.id) == ["browser-auth", "setup"])
+        #expect(hello.authMethods[0].type == "agent")
+        #expect(hello.authMethods[1].args == ["--setup"])
+
+        let session = try await conn.newSession(cwd: URL(fileURLWithPath: "/tmp/project"))
+        #expect(session == "s-project")
+        let result = try await conn.request("session/prompt", [
+            "sessionId": .string(session), "prompt": [["type": "text", "text": "analyse"]],
+        ], timeout: .seconds(10))
+        #expect(result["stopReason"]?.stringValue == "end_turn")
+        #expect(await collected.text == "got: analyse; permission: reject")
+        await conn.close()
+    }
+
+    @Test func clientCapabilitiesDefaultToNoFilesAndNoTerminal() async throws {
+        let conn = try launch("ok")
+        let raw = try await conn.request("initialize", [
+            "protocolVersion": 1, "clientCapabilities": ["fs": ["readTextFile": false, "writeTextFile": false], "terminal": false],
+        ])
+        #expect(raw["echo"]?["terminal"]?.boolValue == false)
+        await conn.close()
+    }
+
+    @Test func authRequiredIsRecognised() async throws {
+        let conn = try launch("auth")
+        _ = try await conn.initialize()
+        do {
+            _ = try await conn.newSession(cwd: URL(fileURLWithPath: "/tmp/x"))
+            Issue.record("expected auth error")
+        } catch let e as ACPConnection.RemoteError {
+            #expect(e.isAuthRequired)
+        }
+        await conn.close()
+    }
+
+    @Test func crashFailsPendingRequestInsteadOfHanging() async throws {
+        let conn = try launch("crash")
+        _ = try await conn.initialize()
+        await #expect(throws: ACPConnection.ConnectionError.self) {
+            _ = try await conn.newSession(cwd: URL(fileURLWithPath: "/tmp/x"), timeout: .seconds(10))
+        }
+        // Po śmierci agenta kolejne żądania od razu dostają błąd.
+        await #expect(throws: ACPConnection.ConnectionError.self) { _ = try await conn.request("initialize") }
+    }
+
+    @Test func requestTimesOut() async throws {
+        let conn = try launch("hang")
+        _ = try await conn.initialize()
+        let session = try await conn.newSession(cwd: URL(fileURLWithPath: "/tmp/x"))
+        let started = Date()
+        do {
+            _ = try await conn.request("session/prompt", ["sessionId": .string(session), "prompt": [["type": "text", "text": "x"]]],
+                                       timeout: .milliseconds(300))
+            Issue.record("expected timeout")
+        } catch ACPConnection.ConnectionError.timeout(let method) {
+            #expect(method == "session/prompt")
+        }
+        #expect(Date().timeIntervalSince(started) < 5)
+        await conn.close()
+    }
+
+    @Test func unknownAgentRequestGetsMethodNotFound() async throws {
+        // Domyślny `onRequest` odrzuca wszystko, czego klient nie obsługuje; agent dostaje błąd, nie ciszę.
+        let agent = try writeFakeAgent(in: try tempDir("acp"))
+        let conn = try ACPConnection.launch(executable: agent)
+        _ = try await conn.initialize()
+        let session = try await conn.newSession(cwd: URL(fileURLWithPath: "/tmp/x"))
+        let result = try await conn.request("session/prompt", ["sessionId": .string(session), "prompt": [["type": "text", "text": "x"]]],
+                                            timeout: .seconds(10))
+        #expect(result["stopReason"]?.stringValue == "end_turn")
+        await conn.close()
+    }
+}
+
+/// Ręczny test z prawdziwym agentem: `DELEGATE_REAL_ACP_AGENT=/ścieżka/vibe-acp swift test --filter realAgent`.
+/// Tylko `initialize` i `session/new` (nic nie wysyła modelowi, nic nie kosztuje).
+@Suite(.enabled(if: ProcessInfo.processInfo.environment["DELEGATE_REAL_ACP_AGENT"] != nil))
+struct RealACPAgentTests {
+    @Test func realAgentHandshakeAndSession() async throws {
+        let path = try #require(ProcessInfo.processInfo.environment["DELEGATE_REAL_ACP_AGENT"])
+        let conn = try ACPConnection.launch(executable: URL(fileURLWithPath: path))
+        let hello = try await conn.initialize()
+        #expect(hello.protocolVersion == ACPConnection.protocolVersion)
+        #expect(!hello.authMethods.isEmpty)
+        let session = try await conn.newSession(cwd: try tempDir("real-acp"))
+        #expect(!session.isEmpty)
+        await conn.close()
+    }
+}
+
+// MARK: rejestr
+
+let registryFixture = #"""
+{
+  "version": "1.0.0",
+  "agents": [
+    {"id": "mistral-vibe", "name": "Mistral Vibe", "version": "3.0.1", "description": "Mistral's assistant",
+     "icon": "https://cdn.example/vibe.svg", "authors": ["Mistral AI"], "license": "Apache-2.0", "unknownField": 1,
+     "distribution": {"binary": {
+       "darwin-aarch64": {"archive": "https://example.com/vibe-arm.tar.gz", "cmd": "./vibe-acp", "sha256": "abc"},
+       "darwin-x86_64": {"archive": "https://example.com/vibe-x86.tar.gz", "cmd": "./vibe-acp", "sha256": "def"}}}},
+    {"id": "gemini", "name": "Gemini CLI", "version": "0.65.0",
+     "distribution": {"npx": {"package": "@google/gemini-cli@0.65.0", "args": ["--acp"]}}},
+    {"id": "py", "name": "Py Agent", "version": "1", "distribution": {"uvx": {"package": "py-agent"}}},
+    {"id": "linux-only", "name": "Linux", "version": "1",
+     "distribution": {"binary": {"linux-x86_64": {"archive": "https://example.com/l.tar.gz", "cmd": "./l"}}}}
+  ],
+  "extensions": []
+}
+"""#
+
+@Suite struct ACPRegistryTests {
+    @Test func parsesAgentsAndInstallKinds() throws {
+        let r = try ACPRegistry.parse(Data(registryFixture.utf8))
+        #expect(r.agents.count == 4)
+        guard case .binary(let t) = r.agent("mistral-vibe")?.installKind else {
+            Issue.record("vibe should install as binary"); return
+        }
+        #expect(t.cmd == "./vibe-acp")
+        #expect(t.sha256 == (ACPRegistry.platformKey == "darwin-aarch64" ? "abc" : "def"))
+        #expect(r.agent("gemini")?.installKind == .needsRuntime("Node.js"))
+        #expect(r.agent("py")?.installKind == .needsRuntime("uv"))
+        #expect(r.agent("linux-only")?.installKind == .unavailable)
+    }
+
+    @Test func storeCachesAndFallsBackWhenOffline() async throws {
+        let dir = try tempDir("reg")
+        let cache = dir.appendingPathComponent("registry.json")
+        let online = MockTransport(["cdn.agentclientprotocol.com": .init(status: 200, body: registryFixture)])
+        let first = await ACPRegistryStore(cacheURL: cache, transport: online).load()
+        #expect(first?.agents.count == 4)
+        #expect(online.calls.count == 1)
+
+        // Świeża kopia: bez sieci.
+        _ = await ACPRegistryStore(cacheURL: cache, transport: online).load()
+        #expect(online.calls.count == 1)
+
+        // Wymuszone odświeżenie przy awarii sieci: zostaje stara kopia.
+        let offline = MockTransport([:])
+        let stale = await ACPRegistryStore(cacheURL: cache, transport: offline).load(forceRefresh: true)
+        #expect(stale?.agents.count == 4)
+        #expect(offline.calls.count == 1)
+    }
+}
+
+// MARK: instalator
+
+/// Transport z jedną binarną odpowiedzią (archiwum agenta).
+final class DataTransport: HTTPTransport, @unchecked Sendable {
+    let data: Data
+    let status: Int
+    init(_ data: Data, status: Int = 200) { self.data = data; self.status = status }
+    func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        (data, HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
+    }
+}
+
+@Suite(.enabled(if: pythonAvailable)) struct AgentInstallerTests {
+    /// Archiwum `.tar.gz` z atrapą agenta w środku (`./bin/fake-agent`) i jego SHA-256.
+    private func archive() throws -> (Data, String) {
+        let src = try tempDir("src")
+        try FileManager.default.createDirectory(at: src.appendingPathComponent("bin"), withIntermediateDirectories: true)
+        _ = try writeFakeAgent(in: src.appendingPathComponent("bin"))
+        let out = try tempDir("tar").appendingPathComponent("agent.tar.gz")
+        let tar = Process()
+        tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+        tar.arguments = ["-czf", out.path, "-C", src.path, "bin"]
+        try tar.run()
+        tar.waitUntilExit()
+        let data = try Data(contentsOf: out)
+        return (data, SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined())
+    }
+
+    private func entry(version: String = "1.0.0", sha: String?, cmd: String = "./bin/fake-agent",
+                       archive: String = "https://example.com/agent.tar.gz") -> ACPRegistry.Agent {
+        ACPRegistry.Agent(id: "fake", name: "Fake Agent", version: version, description: nil, repository: nil,
+                          website: nil, authors: nil, license: nil, icon: nil,
+                          distribution: .init(binary: [ACPRegistry.platformKey: .init(archive: archive, sha256: sha, cmd: cmd,
+                                                                                         args: ["--acp"], env: ["A": "1"])],
+                                              npx: nil, uvx: nil))
+    }
+
+    @Test func installsVerifiesAndRunsAgent() async throws {
+        let (data, sha) = try archive()
+        let dir = try tempDir("agents")
+        let installer = AgentInstaller(directory: dir, transport: DataTransport(data))
+        let installed = try await installer.install(entry(sha: sha))
+        #expect(installed.executable.hasPrefix(dir.path + "/fake/1.0.0/"))
+        #expect(FileManager.default.isExecutableFile(atPath: installed.executable))
+        #expect(installed.args == ["--acp"])
+        #expect(installer.installed().map(\.id) == ["fake"])
+
+        // Zainstalowany agent naprawdę rozmawia po ACP.
+        let conn = try ACPConnection.launch(executable: URL(fileURLWithPath: installed.executable), arguments: installed.args)
+        #expect(try await conn.initialize().name == "Fake Agent")
+        await conn.close()
+    }
+
+    @Test func updateReplacesOldVersionAndUninstallRemovesEverything() async throws {
+        let (data, sha) = try archive()
+        let dir = try tempDir("agents")
+        let installer = AgentInstaller(directory: dir, transport: DataTransport(data))
+        try await installer.install(entry(version: "1.0.0", sha: sha))
+        #expect(installer.hasUpdate(entry(version: "1.1.0", sha: sha)))
+        try await installer.install(entry(version: "1.1.0", sha: sha))
+        let versions = try FileManager.default.contentsOfDirectory(atPath: dir.appendingPathComponent("fake").path)
+        #expect(versions == ["1.1.0"])
+        #expect(installer.installed("fake")?.version == "1.1.0")
+
+        try installer.uninstall("fake")
+        #expect(installer.installed().isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("fake").path))
+    }
+
+    @Test func refusesBadChecksumMissingChecksumAndUnsafePaths() async throws {
+        let (data, sha) = try archive()
+        let dir = try tempDir("agents")
+        let installer = AgentInstaller(directory: dir, transport: DataTransport(data))
+        await #expect(throws: DelegateError.self) { try await installer.install(entry(sha: String(repeating: "0", count: 64))) }
+        await #expect(throws: DelegateError.self) { try await installer.install(entry(sha: nil)) }
+        await #expect(throws: DelegateError.self) { try await installer.install(entry(sha: sha, cmd: "../escape")) }
+        await #expect(throws: DelegateError.self) { try await installer.install(entry(sha: sha, cmd: "./missing")) }
+        await #expect(throws: DelegateError.self) { try await installer.install(entry(sha: sha, archive: "http://example.com/a.tar.gz")) }
+        #expect(installer.installed().isEmpty)
+        // Po nieudanych próbach nie zostają katalogi tymczasowe.
+        let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: dir.appendingPathComponent("fake").path)) ?? []
+        #expect(leftovers.isEmpty)
+    }
+
+    @Test func installsBareExecutableWithoutArchive() async throws {
+        let raw = Data(fakeAgentScript.utf8)
+        let sha = SHA256.hash(data: raw).map { String(format: "%02x", $0) }.joined()
+        let installer = AgentInstaller(directory: try tempDir("agents"), transport: DataTransport(raw))
+        let installed = try await installer.install(entry(sha: sha, cmd: "./fake-agent", archive: "https://example.com/fake-agent-darwin-arm64"))
+        #expect(FileManager.default.isExecutableFile(atPath: installed.executable))
+    }
+
+    @Test func refusesNonBinaryAgents() async throws {
+        let r = try ACPRegistry.parse(Data(registryFixture.utf8))
+        let installer = AgentInstaller(directory: try tempDir("agents"), transport: DataTransport(Data()))
+        await #expect(throws: DelegateError.self) { try await installer.install(r.agent("gemini")!) }
+    }
+
+    @Test func commandPathRules() throws {
+        #expect(try AgentInstaller.commandPath("./vibe-acp") == "vibe-acp")
+        #expect(try AgentInstaller.commandPath("bin/./tool") == "bin/tool")
+        #expect(throws: DelegateError.self) { try AgentInstaller.commandPath("/usr/bin/env") }
+        #expect(throws: DelegateError.self) { try AgentInstaller.commandPath("a/../../x") }
+        #expect(AgentInstaller.safeComponent("../evil/1.0") == "_evil_1.0")
+    }
+}
