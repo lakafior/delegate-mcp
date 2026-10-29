@@ -1,6 +1,6 @@
 # Roadmapa
 
-Stan na 29.10.2026 (wersja 0.7.0). Szczegóły techniczne i wyniki prób agentów: `docs/acp-plan.md`.
+Stan na 29.10.2026 (wersja 0.7.1). Szczegóły techniczne i wyniki prób agentów: `docs/acp-plan.md`.
 
 ## Cel
 
@@ -21,6 +21,11 @@ Drobne:
 - [ ] Pole `thinking` przy modelu (R5) jest tylko w TOML; kontrolka w edytorze modeli w apce.
 - [ ] Claude Code ma `timeout` per serwer MCP (ms, progress go nie przedłuża): sprawdzić, czy pozwala czekać dłużej
   niż 60 s w jednym wywołaniu; jeśli tak, instalator go wpisuje, a `delegate_result` czeka dłużej (mniej tur).
+- [ ] Pomiar z co najmniej 5 przebiegami (`--runs 5`) dla `translate-locale` i `analyze-repo-agent`: liczby w README
+  (−50%, −38%) są z 2 przebiegów, a w claude-token-efficient −63% z małej próbki skurczyło się do −1…−18%. Przy okazji
+  sprawdza instrukcje 0.7.1 (nowa kolejność, przycinany katalog).
+- [ ] Mapa repo na start `delegate_agent` (jak `workspace-map` w intentic: obszary repo do 2800 znaków; u nich −47%
+  listowań katalogów, −18% wywołań przed pierwszą edycją). Odciąża agentów, nie dyrygenta; najpierw zadanie w `eval/`.
 - [ ] Pomiar 0.6.0: `translate-four` (czy `alwaysLoad` zdejmuje turę ToolSearch) i nowe zadanie analiza → zmiana
   z `context_jobs` i bez.
 
@@ -71,6 +76,13 @@ Wersja 0.4.0 (etapy R z 29.10.2026):
   opcjonalne pole `agent`; przerwy dla agentów (logowanie, limit planu, dwa limity czasu z rzędu), wykrywanie
   zawieszenia po ciszy (180 s odczyt, 360 s zapis), fallback na następnego agenta po błędzie na starcie, statystyki
   z logu (30 dni) w `list_models`.
+
+Wersja 0.7.1 (z artykułów o oszczędzaniu tokenów i repo claude-token-efficient, intentic):
+- **Instrukcje w limicie klienta**: Claude Code ucinał instrukcje po ok. 4096 znakach i przy 9 dostawcach przepadały
+  zasady agentów. Teraz najwyżej 3800 znaków, katalog na końcu i tylko on się skraca; każdy tag zachowuje widoczny model,
+  pominięci dostawcy są wymienieni z nazwy (routing po `task` i fallback dalej ich używają).
+- **`output_file` bez wstępu**: model dostaje w `system` polecenie „sama treść pliku”, więc „Here is the file:” nie
+  ląduje w pliku i nie kosztuje dyrygenta tury z Edit.
 
 Wersja 0.7.0 (z katalogu darmowych dostawców OmniRoute, bez gatewaya):
 - **Darmowi dostawcy**: presety Groq, NVIDIA NIM, SambaNova i Cloudflare Workers AI (API zgodne z OpenAI, bez karty,

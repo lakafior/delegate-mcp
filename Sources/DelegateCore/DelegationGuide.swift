@@ -18,6 +18,10 @@ public struct DelegationGuide: Sendable {
     /// Ile modeli dostawcy pokazać w katalogu; resztę Claude znajdzie w `list_models`.
     static let modelsPerProvider = 5
 
+    /// Claude Code ucina instrukcje serwera po ok. 4096 znakach (koniec zastąpiony „… [truncated]”; z dziewięcioma
+    /// dostawcami przepadały zasady agentów). Składamy je do tego limitu z zapasem; skraca się tylko katalog.
+    static let instructionsLimit = 3800
+
     /// Zainstalowani agenci ACP (`delegate_agent`) wg priorytetu; pusta lista = bez wzmianki w instrukcjach.
     public let agents: [String]
     /// Domyślne opcje i wskazówki agentów z configu, pokazywane przy nazwie (np. `claude-acp: haiku, low — …`).
@@ -72,26 +76,78 @@ public struct DelegationGuide: Sendable {
     }
 
     /// `- mistral · eu · free: mistral-small-latest (general, fast), codestral-latest (code) +3. Note: …`
-    var catalog: String {
+    private func catalogLine(_ p: ProviderConfig, models shown: [ModelConfig], note: Bool) -> String {
+        let notes = Dictionary(providerGuidance.map { ($0.id, $0.text) }, uniquingKeysWith: { first, _ in first })
+        let costs = Set(p.models.map(cost))
+        let shared = costs.count == 1 ? costs.first : nil
+        let models = shown.map { m -> String in
+            var parts: [String] = []
+            if shared == nil { parts.append(cost(m)) }
+            parts += shownTags(m)
+            return parts.isEmpty ? m.id : "\(m.id) (\(parts.joined(separator: ", ")))"
+        }
+        var line = "- \(p.id) · \(p.effectivePrivacy.rawValue)"
+        if let shared { line += " · \(shared)" }
+        line += ": " + models.joined(separator: ", ")
+        if p.models.count > shown.count { line += " +\(p.models.count - shown.count)" }
+        if note, let text = notes[p.id] { line += ". Note: \(text)" }
+        return line
+    }
+
+    private func tags(of models: [ModelConfig]) -> Set<String> { Set(models.flatMap(shownTags)) }
+
+    /// Modele do pokazania: pierwsze `count` każdego dostawcy plus, wg priorytetu, pierwszy model z każdym tagiem,
+    /// którego tamte nie mają. Claude wybiera model wg potrzeby (tagu), więc przycinanie nie może ukryć umiejętności.
+    private func shownModels(_ providers: [ProviderConfig], count: Int) -> [[ModelConfig]] {
+        var picked = providers.map { Array($0.models.prefix(count)) }
+        var covered = tags(of: picked.flatMap { $0 })
+        for (i, p) in providers.enumerated() {
+            for m in p.models.dropFirst(count) {
+                let new = tags(of: [m]).subtracting(covered)
+                if !new.isEmpty { picked[i].append(m); covered.formUnion(new) }
+            }
+        }
+        return picked
+    }
+
+    /// Katalog w `budget` znakach. Kolejno, aż się zmieści: mniej modeli na dostawcę (do jednego, plus modele
+    /// z tagami, których nikt inny nie pokazuje), bez wskazówek od końca kolejki, bez dostawców od końca kolejki,
+    /// najpierw tych, bez których każdy tag nadal ma model. Pominięci są wymienieni z nazwy: routing po `task`
+    /// i fallback dalej z nich korzystają. Pierwszy dostawca zostaje zawsze.
+    func catalog(fitting budget: Int) -> String {
         var providers: [ProviderConfig] = []
         for c in candidates where !providers.contains(where: { $0.id == c.provider.id }) { providers.append(c.provider) }
-        let notes = Dictionary(providerGuidance.map { ($0.id, $0.text) }, uniquingKeysWith: { first, _ in first })
-        return providers.map { p in
-            let costs = Set(p.models.map(cost))
-            let shared = costs.count == 1 ? costs.first : nil
-            let models = p.models.prefix(Self.modelsPerProvider).map { m -> String in
-                var parts: [String] = []
-                if shared == nil { parts.append(cost(m)) }
-                parts += shownTags(m)
-                return parts.isEmpty ? m.id : "\(m.id) (\(parts.joined(separator: ", ")))"
+        func render(_ kept: [ProviderConfig], count: Int, notes: Int) -> String {
+            var lines = zip(kept, shownModels(kept, count: count)).enumerated().map { i, pm in
+                catalogLine(pm.0, models: pm.1, note: i < notes)
             }
-            var line = "- \(p.id) · \(p.effectivePrivacy.rawValue)"
-            if let shared { line += " · \(shared)" }
-            line += ": " + models.joined(separator: ", ")
-            if p.models.count > Self.modelsPerProvider { line += " +\(p.models.count - Self.modelsPerProvider)" }
-            if let note = notes[p.id] { line += ". Note: \(note)" }
-            return line
-        }.joined(separator: "\n")
+            let skipped = providers.filter { p in !kept.contains { $0.id == p.id } }.map(\.id)
+            if !skipped.isEmpty {
+                lines.append("- Not listed: \(skipped.joined(separator: ", ")) (see list_models; `task` routing and fallback still use them)")
+            }
+            return lines.joined(separator: "\n")
+        }
+        for count in stride(from: Self.modelsPerProvider, through: 1, by: -1) {
+            let text = render(providers, count: count, notes: providers.count)
+            if text.count <= budget { return text }
+        }
+        for notes in stride(from: providers.count - 1, through: 0, by: -1) {
+            let text = render(providers, count: 1, notes: notes)
+            if text.count <= budget { return text }
+        }
+        let all = tags(of: providers.flatMap(\.models))
+        var kept = providers
+        var text = render(kept, count: 1, notes: 0)
+        while kept.count > 1, text.count > budget {
+            let keepsTags = kept.indices.dropFirst().reversed().first { i in
+                var rest = kept
+                rest.remove(at: i)
+                return tags(of: rest.flatMap(\.models)) == all
+            }
+            kept.remove(at: keepsTags ?? kept.count - 1)
+            text = render(kept, count: 1, notes: 0)
+        }
+        return text
     }
 
     // MARK: instrukcje serwera
@@ -119,13 +175,13 @@ public struct DelegationGuide: Sendable {
         yourself: short outputs, edits across many files, design, debugging that needs running code.
 
         Choose `model` from the catalog below by what the task needs, cost (prefer free at similar quality), and \
-        data region. Without `model`, the server routes by `task` tag and provider order, falling back on errors.
+        data region. Without `model`, the server routes by `task` tag and provider order over all configured models \
+        (the catalog shows a selection), falling back on errors.
         """
         out += "\n\n" + sensitivitySection
         if let budget = dailyBudgetUSD {
             out += String(format: "\nPaid models stop for the day after $%.2f; the server enforces it.", budget)
         }
-        out += "\n\nCatalog (provider · data region · cost per 1M in/out): \n" + catalog
         if !agents.isEmpty {
             out += "\n\n`delegate_agent` runs a coding agent on a git repo in the background, in a sandbox. Agents in the "
                 + "user's priority order (omit `agent` for the first allowed; pick another only for a reason): \(agentList). "
@@ -137,7 +193,9 @@ public struct DelegationGuide: Sendable {
                 + "Independent jobs can run in parallel; results via `delegate_result`."
         }
         if !routingGuidance.isEmpty { out += "\n\nUser's rules: " + routingGuidance }
-        return out
+        // Katalog na końcu: tylko on się skraca, więc nic za nim nie przepada przy ucinaniu.
+        let heading = "\n\nCatalog (provider · data region · cost per 1M in/out): \n"
+        return out + heading + catalog(fitting: Self.instructionsLimit - out.count - heading.count)
     }
 
     private var modeIntro: String {

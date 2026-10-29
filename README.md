@@ -238,7 +238,7 @@ Delegation pays off on long output or big input (a few hundred lines and up): ev
 
 ### 📏 Measuring savings: `eval/`
 
-`eval/run.py` runs the same tasks through `claude -p` with and without the `delegate` server, counts the assistant's cost from its own usage report, runs each task's automatic check and a judge. In our runs, translating 199 strings into four languages cost 50% less with delegation, and a repo analysis by an agent 38% less; short tasks cost more. Details and results: [ROADMAP.md](ROADMAP.md) and [eval/README.md](eval/README.md).
+`eval/run.py` runs the same tasks through `claude -p` with and without the `delegate` server, counts the assistant's cost from its own usage report, runs each task's automatic check and a judge. In our runs, translating 199 strings into four languages cost 50% less with delegation, and a repo analysis by an agent 38% less (medians of 2 runs each, so treat them as directional); short tasks cost more. Details and results: [ROADMAP.md](ROADMAP.md) and [eval/README.md](eval/README.md).
 
 ---
 

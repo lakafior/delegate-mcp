@@ -357,6 +357,7 @@ public struct DelegateService: Sendable {
         }
         var request = original
         request.prompt = attached.prompt
+        if output != nil { request.system = OutputFile.system(to: request.system) }
         let plan = routingPlan(for: request, config: config)
         let list = plan.candidates
         guard !list.isEmpty else {

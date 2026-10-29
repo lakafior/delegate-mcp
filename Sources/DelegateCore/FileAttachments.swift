@@ -50,6 +50,16 @@ enum FileAttachments {
 public enum OutputFile {
     static let previewLines = 8
 
+    /// Dopisywane do `system`: bez tego modele zaczynają od „Here is the file:”, które ląduje w pliku, a dyrygent
+    /// zdejmuje je dodatkową turą (płot ``` zdejmuje `stripFence`, wstępu i komentarza na końcu nie).
+    static let fileOnlyRule = "Your reply is written to a file as is. Reply with the file content only: "
+        + "no preamble, no explanation or closing remarks, no code fence around it."
+
+    static func system(adding rule: String = fileOnlyRule, to system: String?) -> String {
+        guard let system, !system.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return rule }
+        return system + "\n\n" + rule
+    }
+
     /// Sprawdzane przed wywołaniem modelu, żeby nie płacić za odpowiedź, której nie da się zapisać.
     public static func validate(_ raw: String) throws -> URL {
         let path = (raw as NSString).expandingTildeInPath

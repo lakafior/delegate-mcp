@@ -23,7 +23,7 @@ urządzeniu (Apple Foundation Models, `type = "foundation"`): bez klucza, offlin
 | Narzędzie | Do czego |
 |---|---|
 | `list_models` | Lista dostawców i modeli wg priorytetu, z tagami, kosztami, statusem klucza i zasadami routingu |
-| `delegate` | Wysyła zadanie: `model` (`provider/model`), `task` (tag) albo automatycznie wg priorytetu; opcjonalnie `system`, `temperature`, `max_tokens`, `fallback=false`, `sensitivity` (`public`/`personal`/`private`), `files` (ścieżki plików tekstowych, które serwer czyta sam), `output_file` (serwer zapisuje odpowiedź na dysk, Claude dostaje podgląd), `check` (kryterium akceptacji, niżej), `background` (od razu zwraca ID zadania) |
+| `delegate` | Wysyła zadanie: `model` (`provider/model`), `task` (tag) albo automatycznie wg priorytetu; opcjonalnie `system`, `temperature`, `max_tokens`, `fallback=false`, `sensitivity` (`public`/`personal`/`private`), `files` (ścieżki plików tekstowych, które serwer czyta sam), `output_file` (serwer zapisuje odpowiedź na dysk, Claude dostaje podgląd; do `system` dopisuje „sama treść pliku”, `OutputFile.fileOnlyRule`), `check` (kryterium akceptacji, niżej), `background` (od razu zwraca ID zadania) |
 | `delegate_result` | Status i wyniki zadań w tle (`ids`, `wait` do 40 s); zadania żyją w pamięci procesu serwera, czyli tyle co sesja. Claude zrywa wywołanie narzędzia po ok. 60 s (i restartuje serwer), więc `delegate` bez `background` startuje zadanie w tle i czeka na nie do 50 s (`DelegateRequest.syncDeadlineSeconds`, `DelegateJobs.state(of:waiting:)`): szybkie wraca w tej samej turze, wolniejsze zostaje zadaniem z ID (R1: każda dodatkowa tura dyrygenta kosztuje) |
 | `list_remote_models` | Pyta API dostawcy o aktualne ID modeli, z sugerowanymi tagami, kontekstem i cenami (jeśli API je podaje) |
 | `update_models` | Zapisuje tagi i koszt modeli w `delegate.toml` (upsert, bez kluczy). Koszt: kategoria (`free`/`cheap`/`paid`/`varies`) albo `price_in`/`price_out` w USD za 1M tokenów |
@@ -149,7 +149,7 @@ przy starcie serwera: kiedy delegować (wyjście powyżej ~300 linii w trybie `b
 `files`, `output_file`, jeden `git diff`; próg z pomiaru R1, `eval/`), katalog po jednej linii na dostawcę
 (region, koszt, do 5 modeli z tagami, wskazówka) i `routing_guidance`. Model wybiera Claude; kolejność
 dostawców to tylko domyślna trasa i fallback (najpierw modele o wspólnych tagach). Instrukcje i opisy narzędzi
-idą w każdym zapytaniu, więc są krótkie (test `instructionsStayCompact`). Claude Code chowa narzędzia MCP za
+idą w każdym zapytaniu, więc są krótkie (test `instructionsStayCompact`). Claude Code ucina instrukcje po ok. 4096 znakach („… [truncated]”), więc mają najwyżej `instructionsLimit` (3800): katalog idzie na koniec i tylko on się skraca (mniej modeli na dostawcę, potem bez wskazówek, potem bez dostawców z końca kolejki). Przy skracaniu każdy tag zachowuje widoczny model (Claude wybiera wg potrzeby, `shownModels`), dostawca jest usuwany najpierw wtedy, gdy bez niego wszystkie tagi nadal mają model, a pominięci są wymienieni z nazwy („Not listed: …”; routing po `task` i fallback dalej ich używają); testy `bigConfigFitsTheClientLimitWithAgentsIntact`, `trimmedCatalogKeepsEveryTag`. Claude Code chowa narzędzia MCP za
 ToolSearch (dodatkowa tura dyrygenta); `delegate` i `delegate_result` mają `_meta["anthropic/alwaysLoad"] = true`,
 więc są zawsze w prompcie, reszta zostaje odłożona. `doctor` pokazuje, ile narzędzi tak oznaczono. Teksty dla Claude'a są po angielsku.
 

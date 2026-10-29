@@ -554,6 +554,65 @@ extension PriceCatalogTests {
         // Idą w każdym zapytaniu: pilnujemy rozmiaru (ok. 4 znaki na token).
         #expect(text.count < 2600, "instrukcje mają \(text.count) znaków")
     }
+
+    /// Jak prawdziwy config z presetów: 11 dostawców po 6 modeli ze wskazówkami i 6 agentów.
+    /// `special` nadaje wybranym modelom (dostawca, model) własne tagi.
+    private func bigGuide(special: [String: String] = [:]) throws -> String {
+        var toml = "routing_guidance = \"Never send work material to cn.\"\n"
+        for p in 1...11 {
+            toml += """
+
+            [[provider]]
+            id = "provider\(p)"
+            type = "openai"
+            base_url = "https://api.provider\(p).example/v1"
+            api_key_env = "P\(p)_KEY"
+            guidance = "Paid per token; good for long drafts and translations, slower at peak hours, keep briefs short."
+
+            """
+            for m in 1...6 {
+                let tags = special["\(p)/\(m)"] ?? #""general", "fast", "long-context""#
+                toml += "\n[[provider.model]]\nid = \"vendor\(p)/some-long-model-name-\(m)-instruct\"\ntags = [\(tags)]\nprice_in = 0.3\nprice_out = \(m).2\n"
+            }
+        }
+        let agents = ["mistral-vibe", "claude-acp", "github-copilot-cli", "junie", "codex-acp", "antigravity-acp"]
+        for a in agents { toml += "\n[[agent]]\nid = \"\(a)\"\nguidance = \"Fine for analysis and well-described changes.\"\n" }
+        return DelegationGuide(config: try Config.parse(toml), agents: agents) { _ in true }.serverInstructions
+    }
+
+    @Test func bigConfigFitsTheClientLimitWithAgentsIntact() throws {
+        let text = try bigGuide()
+        #expect(text.count <= DelegationGuide.instructionsLimit, "instrukcje mają \(text.count) znaków")
+        // Zasady agentów i użytkownika są przed katalogiem, więc nie przepadają; katalog wymienia pominiętych.
+        #expect(text.contains("Merge on a passing check after `git diff --stat`."))
+        #expect(text.contains("User's rules: Never send work material to cn."))
+        #expect(text.contains("- provider1 · "))
+        #expect(!text.contains("- provider11 · "))
+        #expect(text.contains("provider11 (see list_models; `task` routing and fallback still use them)"))
+    }
+
+    @Test func trimmedCatalogKeepsEveryTag() throws {
+        // Jedyny model z `code` jest szósty u piątego dostawcy, jedyny `creative` u ostatniego.
+        let text = try bigGuide(special: ["5/6": #""code""#, "11/1": #""creative""#])
+        #expect(text.count <= DelegationGuide.instructionsLimit, "instrukcje mają \(text.count) znaków")
+        #expect(text.contains("vendor5/some-long-model-name-6-instruct ($0.3/$6.2, code)"))
+        #expect(text.contains("- provider11 · "))
+        #expect(text.contains("vendor11/some-long-model-name-1-instruct ($0.3/$1.2, creative)"))
+        #expect(text.contains("Not listed: "))
+    }
+
+    @Test func outputFileAsksForFileContentOnly() async throws {
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("out-\(UUID())/a.txt")
+        let t = MockTransport(["api.mistral.ai": .init(status: 200, body: openAIBody)])
+        let (svc, _) = try makeService(t, keys: ["MISTRAL_API_KEY": "m"])
+        _ = try await svc.delegate(.init(prompt: "Translate", system: "Formal tone.",
+                                         model: "mistral/mistral-small-latest", outputFile: out.path))
+        _ = try await svc.delegate(.init(prompt: "Translate", model: "mistral/mistral-small-latest"))
+        let bodies = t.calls.map { String(decoding: $0.httpBody ?? Data(), as: UTF8.self) }
+        #expect(bodies.count == 2)
+        #expect(bodies[0].contains("Formal tone.") && bodies[0].contains("file content only"))
+        #expect(!bodies[1].contains("file content only"))
+    }
 }
 
 @Suite struct BackgroundJobTests {
