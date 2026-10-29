@@ -332,6 +332,42 @@ extension PriceCatalogTests {
         #expect(PrivacyRegion.inferred(for: ProviderConfig(id: "x", kind: .openai, baseURL: "https://api.nowy.dev/v1")) == .other)
     }
 
+    @Test func gatewayOnLocalhostIsNotLocal() throws {
+        func region(_ url: String) -> PrivacyRegion { PrivacyRegion.inferred(for: ProviderConfig(id: "g", kind: .openai, baseURL: url)) }
+        #expect(region("http://localhost:20128/v1") == .other)
+        #expect(region("http://127.0.0.1:4000") == .other)
+        #expect(region("http://localhost/v1") == .other)
+        #expect(region("http://127.0.0.1:1234/v1") == .local)
+        #expect(ProviderConfig(id: "g", kind: .openai, baseURL: "http://localhost:20128/v1", privacy: .local).effectivePrivacy == .local)
+
+        var presets = Config()
+        presets.addProvider(from: ProviderPreset.all.first { $0.id == "ollama" }!)
+        presets.addProvider(from: ProviderPreset.all.first { $0.id == "lmstudio" }!)
+        #expect(presets.providers.allSatisfy { $0.privacy == .local })
+    }
+
+    @Test func gatewayOnLocalhostGetsNoPrivateTasksAndCountsTowardBudget() throws {
+        let log = FileManager.default.temporaryDirectory.appendingPathComponent("usage-\(UUID()).jsonl")
+        UsageLog(url: log).append(UsageEntry(provider: "x", model: "y", costUSD: 1, ok: true, ms: 1))
+        var cfg = Config(providers: [
+            ProviderConfig(id: "gateway", kind: .openai, baseURL: "http://localhost:20128/v1", models: [ModelConfig(id: "auto")]),
+        ])
+        let svc = DelegateService(loadConfig: { Config() }, secrets: FixedSecrets(values: [:]), transport: MockTransport([:]),
+                                  onDevice: FakeOnDevice(), usage: UsageLog(url: log))
+        let gateway = cfg.providers[0]
+        #expect(!gateway.models[0].isFree(at: gateway))
+
+        let priv = svc.routingPlan(for: .init(prompt: "x", sensitivity: .private), config: cfg)
+        #expect(priv.candidates.isEmpty)
+        #expect(priv.excluded.contains { $0.ref == "gateway" && $0.reason.contains("other") })
+        #expect(svc.routingPlan(for: .init(prompt: "x"), config: cfg).candidates.map(\.provider.id) == ["gateway"])
+
+        cfg.dailyBudgetUSD = 0.5
+        let spent = svc.routingPlan(for: .init(prompt: "x"), config: cfg)
+        #expect(spent.candidates.isEmpty)
+        #expect(spent.excluded.contains { $0.ref == "gateway/auto" && $0.reason.contains("budget") })
+    }
+
     @Test func sensitivityIsEnforced() throws {
         let (svc, _) = try makeService(MockTransport([:]), keys: keys, onDevice: FakeOnDevice(availability: .available))
         let cfg = try Config.parse(sampleConfigToml)

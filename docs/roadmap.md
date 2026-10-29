@@ -34,7 +34,7 @@ Punkt wyjścia: dwa źródła przeczytane 2026-10-29.
 
 | Etap | Zakres | Gotowe, gdy |
 |---|---|---|
-| R0. Region gatewayów | `PrivacyRegion.inferred`: dostawca `openai` na localhost nie jest automatycznie `local` ani darmowy; wyjątek dla presetów Ollama i LM Studio; jawne `privacy` wygrywa | test: custom provider na `localhost:20128` nie dostaje `sensitivity = private` i liczy się do budżetu |
+| R0. Region gatewayów ✅ | `PrivacyRegion.inferred`: dostawca `openai` na localhost nie jest automatycznie `local` ani darmowy; wyjątek dla presetów Ollama i LM Studio; jawne `privacy` wygrywa | test: custom provider na `localhost:20128` nie dostaje `sensitivity = private` i liczy się do budżetu |
 | R1. Pomiar oszczędności | zestaw ok. 10 typowych zadań (tłumaczenie locale, README, fixture, review długiego pliku, analiza repo agentem…), każde przez `claude -p --output-format json` z serwerem `delegate` i bez, po 2 przebiegi; tokeny i koszt Claude'a + ocena wyniku wg rubryki | tabela: które rodzaje zadań oszczędzają, które nie; wnioski wpisane do instrukcji serwera |
 | R2. Raporty agentów z dowodami | `delegate_agent` read: stały format raportu (tezy z `plik:linia`, osobno pewne i do sprawdzenia), żeby Claude weryfikował wyrywkowo | w R1 Claude czyta po raporcie mniej plików niż bez agenta |
 | R3. Odmowy z instrukcją | gdy routing odrzuci wszystkich dostawców (region, budżet, przerwy), odpowiedź mówi Claude'owi, co zrobić: zrób sam / inna `sensitivity` / inny model | każda ścieżka odmowy w `DelegateService` ma test z treścią wskazówki |

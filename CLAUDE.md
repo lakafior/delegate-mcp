@@ -148,7 +148,8 @@ Subagenta `grunt` aplikacja już nie instaluje (nie korzystał z `delegate`); is
 `DelegateService.routingPlan` buduje kolejność prób i listę pominiętych z powodami (używa go `delegate`
 i podgląd w zakładce Routing):
 - **Region danych** dostawcy (`privacy` w `[[provider]]`: `local`/`eu`/`us`/`cn`/`other`, domyślnie wnioskowany
-  z hosta, `PrivacyRegion.inferred`). Zadanie `sensitivity = personal` trafia tylko do `personal_regions`
+  z hosta, `PrivacyRegion.inferred`; localhost jest `local` tylko na portach Ollamy 11434 i LM Studio 1234, inaczej
+  `other`, bo gateway na localhost wysyła dane do chmury; presety Ollama/LM Studio zapisują `privacy = "local"` jawnie). Zadanie `sensitivity = personal` trafia tylko do `personal_regions`
   (domyślnie local, eu, us), `private` tylko do lokalnych. Nieznana wartość `sensitivity` = `personal`.
 - **Dzienny budżet** (`daily_budget_usd`): po wydaniu limitu (suma `cost_usd` z dzisiejszego logu) płatne modele
   odpadają; nieznana cena liczy się jako płatna, lokalne i `free` zawsze przechodzą.

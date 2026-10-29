@@ -13,10 +13,13 @@ public struct ProviderPreset: Sendable, Identifiable {
     public var guidance: String?
     /// Gdzie zdobyć klucz (do podpowiedzi w GUI).
     public var keyURL: String?
+    /// Region zapisywany jawnie przy dodaniu (`ProviderConfig.privacy`), żeby nie zależał od portu w adresie.
+    public var privacy: PrivacyRegion?
     public var models: [ModelConfig]
 
     public init(id: String, title: String, kind: ProviderKind, baseURL: String = "", apiKeyEnv: String = "",
-                note: String? = nil, guidance: String? = nil, keyURL: String? = nil, models: [ModelConfig] = []) {
+                note: String? = nil, guidance: String? = nil, keyURL: String? = nil, privacy: PrivacyRegion? = nil,
+                models: [ModelConfig] = []) {
         self.id = id
         self.title = title
         self.kind = kind
@@ -25,6 +28,7 @@ public struct ProviderPreset: Sendable, Identifiable {
         self.note = note
         self.guidance = guidance
         self.keyURL = keyURL
+        self.privacy = privacy
         self.models = models
     }
 
@@ -72,12 +76,14 @@ public struct ProviderPreset: Sendable, Identifiable {
             id: "ollama", title: "Ollama (local)", kind: .openai,
             baseURL: "http://localhost:11434/v1",
             note: "Local model: no key needed, data never leaves the Mac.",
-            guidance: "Runs locally on this Mac: fine for private content."),
+            guidance: "Runs locally on this Mac: fine for private content.",
+            privacy: .local),
         ProviderPreset(
             id: "lmstudio", title: "LM Studio (local)", kind: .openai,
             baseURL: "http://localhost:1234/v1",
             note: "Local model: no key needed, data never leaves the Mac.",
-            guidance: "Runs locally on this Mac: fine for private content."),
+            guidance: "Runs locally on this Mac: fine for private content.",
+            privacy: .local),
         ProviderPreset(
             id: "apple", title: "Apple on-device", kind: .foundation,
             note: "On-device model (Apple Intelligence): free, private, offline. Small context window, short tasks only.",
@@ -101,7 +107,7 @@ extension Config {
         if id != preset.id, !keyEnv.isEmpty { keyEnv = Self.defaultKeyEnv(for: id) }
         providers.append(ProviderConfig(
             id: id, kind: preset.kind, baseURL: preset.baseURL, apiKeyEnv: keyEnv,
-            note: preset.note, guidance: preset.guidance, models: preset.models.map { ModelConfig(id: $0.id, tags: $0.tags, cost: $0.cost) }))
+            note: preset.note, guidance: preset.guidance, privacy: preset.privacy, models: preset.models.map { ModelConfig(id: $0.id, tags: $0.tags, cost: $0.cost) }))
         return id
     }
 

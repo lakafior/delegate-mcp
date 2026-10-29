@@ -10,11 +10,18 @@ public enum PrivacyRegion: String, Codable, Sendable, CaseIterable {
     /// Nieznany dostawca: dopóki użytkownik nie ustawi regionu, nie dostaje danych osobistych.
     case other
 
+    /// Domyślne porty serwerów modeli na tym Macu (Ollama, LM Studio).
+    static let localModelPorts: Set<Int> = [11434, 1234]
+
     /// Region z typu i hosta `base_url`. Jawne `privacy` w configu ma pierwszeństwo.
+    /// Adres lokalny to jeszcze nie model lokalny: gateway (OmniRoute, LiteLLM) też słucha na localhost i wysyła
+    /// dane do chmury, więc `local` dostają tylko domyślne porty Ollamy i LM Studio, reszta jest `other`.
     public static func inferred(for p: ProviderConfig) -> PrivacyRegion {
         if p.kind == .foundation { return .local }
-        guard let host = URL(string: p.baseURL)?.host?.lowercased() else { return .other }
-        if host == "localhost" || host == "127.0.0.1" || host == "::1" || host.hasSuffix(".local") { return .local }
+        guard let url = URL(string: p.baseURL), let host = url.host?.lowercased() else { return .other }
+        if host == "localhost" || host == "127.0.0.1" || host == "::1" || host.hasSuffix(".local") {
+            return url.port.map(localModelPorts.contains) == true ? .local : .other
+        }
         func matches(_ domains: [String]) -> Bool { domains.contains { host == $0 || host.hasSuffix("." + $0) } }
         if matches(["mistral.ai"]) { return .eu }
         if matches(["deepseek.com"]) { return .cn }
