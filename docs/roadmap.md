@@ -40,7 +40,42 @@ Punkt wyjścia: dwa źródła przeczytane 2026-10-29.
 | R3. Odmowy z instrukcją | gdy routing odrzuci wszystkich dostawców (region, budżet, przerwy), odpowiedź mówi Claude'owi, co zrobić: zrób sam / inna `sensitivity` / inny model | każda ścieżka odmowy w `DelegateService` ma test z treścią wskazówki |
 | R4. Preset gatewaya | „Gateway (OmniRoute / LiteLLM)” w `ProviderPreset`: OpenAI-compatible, model `auto/cheap`, obowiązkowy wybór regionu przy dodawaniu | dodanie w apce bez edycji TOML; region nie jest zgadywany |
 | R5. Niezawodność dostawców | przyjrzeć się Gemini: w logu 10 z 13 wywołań nieudanych (m.in. „network: cancelled” po 60 s) | przyczyna znana, przerwy i limity czasu dopasowane |
+| R6. Ranking agentów | patrz niżej | `delegate_agent` bez pola `agent` trafia do pierwszego dozwolonego agenta wg priorytetu; większość analiz idzie do szybkiego agenta zamiast do Codexa/Antigravity |
 | Później | tylko jeśli R1 pokaże zysk: wagi routingu zamiast samej kolejności (jak „mode packs” w OmniRoute); panel tanich modeli + sędzia do review | osobny plan |
+
+## R6. Ranking agentów
+
+Problem: dostawcy mają kolejność (`[[provider]]`), notatki i wskazówki, a agentów Claude wybiera sam z listy
+w kolejności `agents/installed.json` (alfabetycznej), bez żadnych danych. Pole `agent` jest wymagane. Skutek: Claude
+często bierze Antigravity (pierwszy na liście, dużo błędów) i Codexa (darmowy plan z limitami, długo myśli),
+a prawie nigdy Mistral Vibe (GLM, Mistral Large), który zwykle wystarcza i jest najszybszy.
+
+Zadania z `jobs/` (mała próbka, głównie 2026-10-27):
+
+| Agent | Udane | Czas (read) | Czas (write) | Uwagi |
+|---|---|---|---|---|
+| mistral-vibe (glm-5-3) | 3/3 | 19–29 s | 278 s | raporty trafne |
+| claude-acp (haiku, low) | 7/7 | 7–122 s | — | ta sama subskrypcja co dyrygent |
+| codex-acp (gpt-6-luna, medium) | 6/7 | 332 s | 160–280 s | 1× limit 600 s, 38–66 kroków |
+| antigravity-acp | 2/3 | 78–394 s | — | 1× limit 600 s: uruchomił zadanie w tle i czekał na nie do końca |
+| github-copilot-cli | 1/2 | 30 s | — | 1× niezalogowany |
+
+Krok 1 (tani, największy efekt):
+- Kolejność `[[agent]]` w `delegate.toml` = priorytet, przeciąganie w apce jak u dostawców. Instrukcje serwera
+  i opis pola `agent` wymieniają agentów w tej kolejności: pierwszy jest domyślny, innego wybierać tylko z powodu.
+- `guidance` per agent (jedna linia, jak u dostawców), np. Vibe: domyślny do analiz i dobrze opisanych zmian, szybki;
+  Codex: darmowy plan z limitami, wolny, tylko trudne zmiany w wielu plikach; Antigravity: niestabilny, w ostateczności.
+- Pole `agent` opcjonalne: bez niego serwer wybiera pierwszego dozwolonego wg priorytetu (region, `[[repo]]`, przerwy).
+
+Krok 2 (dane zamiast opinii):
+- Przerwy dla agentów (jak `ModelCooldowns`): limit planu → do resetu, „not signed in” → do zalogowania, dwa limity
+  czasu z rzędu → godzina. Wstrzymany agent odpada z wyboru; fallback na następnego tylko, gdy agent niczego nie zapisał.
+- Wykrywanie zawieszenia: brak aktualizacji ACP przez N sekund → koniec zadania zamiast czekania 600 s.
+- Statystyki z `JobStore` (odsetek udanych, mediana czasu) w `list_models`, nie w opisie narzędzia: opis jest w
+  cache'owanym prefiksie i odświeża się przy `tools/list_changed`, więc zmieniające się liczby psułyby prompt cache
+  Claude'a. W opisie co najwyżej zgrubne etykiety (szybki/wolny), zmieniane rzadko.
+
+Krok 3: w R1 te same ok. 5 zadań przez każdego agenta; domyślną kolejność ustawić z wyników.
 
 ## Czego nie robimy
 
