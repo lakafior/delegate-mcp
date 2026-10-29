@@ -41,13 +41,15 @@ enum ConfigWriter {
                 if let n = m.note, !n.isEmpty { out += "note = \(string(n, multiline: true))\n" }
             }
         }
-        for a in config.agents where !a.isEmpty {
+        // Wszystkie wpisy, także same `id`: kolejność `[[agent]]` to priorytet.
+        for a in config.agents {
             out += "\n[[agent]]\n"
             out += "id = \(string(a.id))\n"
             if let m = a.model { out += "model = \(string(m))\n" }
             if let e = a.effort { out += "effort = \(string(e))\n" }
             if a.enabled == false { out += "enabled = false\n" }
             if let r = a.privacy { out += "privacy = \(string(r.rawValue))\n" }
+            if let g = a.guidance { out += "guidance = \(string(g))\n" }
         }
         for r in config.repos {
             out += "\n[[repo]]\n"

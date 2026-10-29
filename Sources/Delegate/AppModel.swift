@@ -302,6 +302,10 @@ final class AppModel {
 
     private(set) var agentRegistry: ACPRegistry?
     private(set) var installedAgents: [InstalledAgent] = []
+    /// Zainstalowani agenci wg priorytetu (`[[agent]]` w configu), jak widzi ich dyrygent.
+    var prioritizedAgents: [InstalledAgent] {
+        config.prioritizedAgents(installedAgents.map(\.id)).compactMap { id in installedAgents.first { $0.id == id } }
+    }
     private(set) var loadingAgentRegistry = false
     /// Systemowy Node.js dla agentów z npm (`nil`: brak).
     private(set) var nodeRuntime: NodeRuntime?

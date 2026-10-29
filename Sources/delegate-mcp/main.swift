@@ -104,10 +104,11 @@ func prop(_ type: String, _ description: String) -> Value {
 }
 
 /// Config czytany przy każdym wywołaniu; przy błędzie pusty, żeby serwer i tak wystartował.
-/// Agenci, których dyrygent może użyć: zainstalowani i niewyłączeni w apce. Liczone przy każdym wywołaniu,
-/// więc nowy agent działa bez restartu klienta (który dostaje też `tools/list_changed`).
+/// Agenci, których dyrygent może użyć: zainstalowani i niewyłączeni w apce, wg priorytetu z configu. Liczone przy
+/// każdym wywołaniu, więc nowy agent działa bez restartu klienta (który dostaje też `tools/list_changed`).
 func usableAgents(_ config: Config) -> [InstalledAgent] {
-    agentInstaller.installed().filter { config.agentSettings($0.id)?.isEnabled != false }
+    let enabled = agentInstaller.installed().filter { config.agentSettings($0.id)?.isEnabled != false }
+    return config.prioritizedAgents(enabled.map(\.id)).compactMap { id in enabled.first { $0.id == id } }
 }
 
 func currentGuide() -> DelegationGuide {
@@ -128,7 +129,7 @@ func agentTool(_ guide: DelegationGuide, clientName: String?) -> Tool {
         name: "delegate_agent",
         description: "Run a coding agent on a git repo in the background, in a sandbox. mode=read (default): read-only snapshot (HEAD + uncommitted changes), returns a report. mode=write: the agent edits files, builds and tests on a new branch delegate/… from HEAD; you get the branch, diff stat and summary, then review (git diff) and merge or delete it. Returns a job ID; collect with delegate_result (jobs take minutes)." + hint,
         inputSchema: schema([
-            "agent": prop("string", "Agent ID: \(guide.agents.joined(separator: ", ")). Models and effort per agent: list_models."),
+            "agent": prop("string", "Agent ID, in the user's priority order: \(guide.agents.joined(separator: ", ")). Omit to use the first one allowed for this repo and sensitivity; pick another only for a reason. Models and effort per agent: list_models."),
             "repo": prop("string", "Absolute path inside the git repository."),
             "task": prop("string", "What to find out; the agent sees the repo, not this conversation. Say what the report should contain."),
             "model": prop("string", "Agent's model option; default from the user's settings, else the agent's own (an error lists the valid ones)."),
@@ -144,7 +145,7 @@ func agentTool(_ guide: DelegationGuide, clientName: String?) -> Tool {
                 "type": .string("string"), "enum": .array([.string("read"), .string("write")]),
                 "description": .string("read (default) or write (changes on a new branch; give a precise, self-contained task and the checks to run)."),
             ]),
-        ], required: ["agent", "repo", "task"])
+        ], required: ["repo", "task"])
     )
 }
 
@@ -304,21 +305,35 @@ await server.withMethodHandler(CallTool.self) { params in
             return .init(content: [reply(try service.updateModels(provider: provider, updates: updates))], isError: false)
 
         case "delegate_agent":
-            guard let agentID = a["agent"]?.stringValue, let repo = a["repo"]?.stringValue,
-                  let task = a["task"]?.stringValue, !task.isEmpty else {
-                return .init(content: [reply("Required: agent, repo, task.")], isError: true)
+            guard let repo = a["repo"]?.stringValue, let task = a["task"]?.stringValue, !task.isEmpty else {
+                return .init(content: [reply("Required: repo, task.")], isError: true)
             }
             let agentConfig = (try? service.currentConfig()) ?? Config()
-            guard let agent = agentInstaller.installed(agentID) else {
-                let ids = usableAgents(agentConfig).map(\.id)
-                return .init(content: [reply("Agent \"\(agentID)\" isn't installed. Available: \(ids.isEmpty ? "none" : ids.joined(separator: ", ")).")], isError: true)
-            }
             let repoURL = URL(fileURLWithPath: (repo as NSString).expandingTildeInPath)
             guard repo.hasPrefix("/") || repo.hasPrefix("~"), FileManager.default.fileExists(atPath: repoURL.path) else {
                 return .init(content: [reply("repo: give an absolute path to an existing directory.")], isError: true)
             }
             let sensitivity = Sensitivity(rawValue: a["sensitivity"]?.stringValue ?? "public") ?? .personal
             let repoRoot = RepoSnapshot.toplevel(of: repoURL) ?? repoURL
+            var picked: AgentChoice.Result?
+            let agentID: String
+            if let named = a["agent"]?.stringValue, !named.isEmpty {
+                agentID = named
+            } else {
+                let choice = AgentChoice.pick(from: usableAgents(agentConfig).map(\.id), sensitivity: sensitivity,
+                                              config: agentConfig, repo: repoRoot,
+                                              checks: AgentCheckCache(url: home.agentChecksURL).load(),
+                                              clientName: await clientState.name)
+                guard let id = choice.agent else {
+                    return .init(content: [reply(AgentChoice.refusal(choice))], isError: true)
+                }
+                agentID = id
+                picked = choice
+            }
+            guard let agent = agentInstaller.installed(agentID) else {
+                let ids = usableAgents(agentConfig).map(\.id)
+                return .init(content: [reply("Agent \"\(agentID)\" isn't installed. Available: \(ids.isEmpty ? "none" : ids.joined(separator: ", ")). Or omit `agent` to use the user's first choice.")], isError: true)
+            }
             if let why = AgentRegions.refusal(agentID: agentID, sensitivity: sensitivity, config: agentConfig, repo: repoRoot) {
                 return .init(content: [reply("Not sent: \(why).")], isError: true)
             }
@@ -355,7 +370,12 @@ await server.withMethodHandler(CallTool.self) { params in
             })
             let waiting = await agentSlots.queued
             let queueNote = waiting > 0 ? " \(waiting) job(s) are queued ahead (max \(agentSlots.limit) agents at once)." : ""
-            return .init(content: [reply("Started agent job \(id) (\(agent.name), \(write ? "write" : "read") mode). It usually takes a few minutes; keep working and collect with delegate_result.\(queueNote)")], isError: false)
+            var pickNote = ""
+            if let picked {
+                pickNote = " Picked \(agentID), the first allowed in the user's priority order"
+                pickNote += picked.skipped.isEmpty ? "." : " (skipped: " + picked.skipped.map { "\($0.ref): \($0.reason)" }.joined(separator: "; ") + ")."
+            }
+            return .init(content: [reply("Started agent job \(id) (\(agent.name), \(write ? "write" : "read") mode).\(pickNote) It usually takes a few minutes; keep working and collect with delegate_result.\(queueNote)")], isError: false)
 
         case "usage_summary":
             return .init(content: [reply(service.usageSummary(days: a["days"]?.intValue ?? 7))], isError: false)

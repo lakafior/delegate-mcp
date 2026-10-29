@@ -174,9 +174,13 @@ albo z podpisem Developer ID (`CodeSignature`), niepodpisane tylko za zgodą (`U
 uruchamiane `node <skrypt>` bez npx), z terminala `delegate-mcp --install-agent <id>` / `--agents`. W apce: zainstalowani agenci w pasku bocznym ze stronami
 (`AgentDetailView`), rejestr pod „Browse agents” (`AgentsView`), sekcja Agents w Overview; stan logowania (`AgentAccount.check`: próbna sesja w pustym katalogu) i logowanie
 (`agent` → ACP `authenticate`, agent otwiera przeglądarkę; `terminal` → plik `.command` w Terminalu).
-Ustawienia agenta w `delegate.toml` (`[[agent]] id/model/effort/enabled/privacy`, `AgentSettings`, strona agenta):
+Ustawienia agenta w `delegate.toml` (`[[agent]] id/model/effort/enabled/privacy/guidance`, `AgentSettings`, strona agenta):
 domyślny model i wysiłek (gdy dyrygent ich nie poda), wyłączenie (agent znika z `delegate_agent`), region zamiast
-tabeli `AgentRegions`. Reguły repo `[[repo]] path/agents` (`RepoRule`, sekcja w Routingu): najdłuższa pasująca ścieżka,
+tabeli `AgentRegions`. **Priorytet:** kolejność `[[agent]]` (`Config.prioritizedAgents`, przeciąganie w pasku
+bocznym, `reorderAgents`); wpis bez ustawień zostaje jako samo `id`, bo trzyma miejsce. Instrukcje serwera, opis
+`delegate_agent` i `list_models` wymieniają agentów w tej kolejności z `guidance`. Pole `agent` jest opcjonalne: bez
+niego `AgentChoice.pick` bierze pierwszego dozwolonego (reguła repo, wrażliwość, zalogowanie; agenta dyrygenta tylko
+z ustawionym tańszym modelem), a odpowiedź mówi, kogo pominął. Reguły repo `[[repo]] path/agents` (`RepoRule`, sekcja w Routingu): najdłuższa pasująca ścieżka,
 pusta lista = żaden agent; sprawdzane w `AgentRegions.refusal` razem z wrażliwością. Lista agentów liczona przy każdym
 wywołaniu, serwer wysyła `tools/list_changed` po zmianie (co 30 s). `list_models` opisuje agentów z
 `agents/checks.json` (`AgentCheckCache`, zapisuje apka). Tryb sesji: pierwszy dostępny z `plan`, `ask`.

@@ -79,7 +79,7 @@ struct SettingsView: View {
                     .onMove { model.config.providers.move(fromOffsets: $0, toOffset: $1) }
                 }
                 Section("Agents") {
-                    ForEach(model.installedAgents) { agent in
+                    ForEach(model.prioritizedAgents) { agent in
                         Label {
                             Text(agent.name)
                         } icon: {
@@ -89,6 +89,11 @@ struct SettingsView: View {
                         .contextMenu {
                             Button("Check again", systemImage: "arrow.clockwise") { model.checkAgent(agent.id) }
                         }
+                    }
+                    .onMove { from, to in
+                        var order = model.prioritizedAgents.map(\.id)
+                        order.move(fromOffsets: from, toOffset: to)
+                        model.config.reorderAgents(order)
                     }
                     Label("Browse agents", systemImage: "square.grid.2x2").tag(SidebarItem.agents)
                 }

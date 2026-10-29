@@ -156,17 +156,21 @@ public struct AgentSettings: Codable, Sendable, Equatable {
     public var enabled: Bool?
     /// Region danych; `nil` = z wbudowanej tabeli (`AgentRegions`).
     public var privacy: PrivacyRegion?
+    /// Wskazówka dla dyrygenta, jedna linia (do czego ten agent, czego unikać); jak `ProviderConfig.guidance`.
+    public var guidance: String?
 
-    public init(id: String, model: String? = nil, effort: String? = nil, enabled: Bool? = nil, privacy: PrivacyRegion? = nil) {
+    public init(id: String, model: String? = nil, effort: String? = nil, enabled: Bool? = nil, privacy: PrivacyRegion? = nil,
+                guidance: String? = nil) {
         self.id = id
         self.model = model
         self.effort = effort
         self.enabled = enabled
         self.privacy = privacy
+        self.guidance = guidance
     }
 
     public var isEnabled: Bool { enabled ?? true }
-    var isEmpty: Bool { model == nil && effort == nil && enabled == nil && privacy == nil }
+    var isEmpty: Bool { model == nil && effort == nil && enabled == nil && privacy == nil && guidance == nil }
 }
 
 /// Reguła dla repozytorium (`[[repo]]`): do których agentów może trafić jego kod. Repo bez reguły: do wszystkich.
@@ -247,16 +251,29 @@ public struct Config: Codable, Sendable, Equatable {
 
     public func agentSettings(_ id: String) -> AgentSettings? { agents.first { $0.id == id } }
 
-    /// Zmienia ustawienia agenta; wpis bez żadnych ustawień znika z configu.
+    /// Agenci wg priorytetu: najpierw w kolejności `[[agent]]`, potem pozostali w podanej kolejności.
+    public func prioritizedAgents(_ ids: [String]) -> [String] {
+        agents.map(\.id).filter(ids.contains) + ids.filter { id in !agents.contains { $0.id == id } }
+    }
+
+    /// Nowa kolejność agentów (przeciąganie w apce). Wpis bez ustawień zostaje jako samo `id`: trzyma miejsce.
+    /// Wpisy agentów spoza `order` (np. odinstalowanych) idą na koniec z ustawieniami.
+    public mutating func reorderAgents(_ order: [String]) {
+        agents = order.map { agentSettings($0) ?? AgentSettings(id: $0) } + agents.filter { !order.contains($0.id) }
+    }
+
+    /// Zmienia ustawienia agenta. Istniejący wpis zostaje, nawet pusty, bo jego miejsce to priorytet;
+    /// nowego pustego nie dodajemy.
     public mutating func updateAgent(_ id: String, _ change: (inout AgentSettings) -> Void) {
         var entry = agentSettings(id) ?? AgentSettings(id: id)
         change(&entry)
         let clean = { (s: String?) in s.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 } }
         entry.model = clean(entry.model)
         entry.effort = clean(entry.effort)
+        entry.guidance = clean(entry.guidance?.replacingOccurrences(of: "\n", with: " "))
         if entry.enabled == true { entry.enabled = nil }
         if let i = agents.firstIndex(where: { $0.id == id }) {
-            if entry.isEmpty { agents.remove(at: i) } else { agents[i] = entry }
+            agents[i] = entry
         } else if !entry.isEmpty {
             agents.append(entry)
         }

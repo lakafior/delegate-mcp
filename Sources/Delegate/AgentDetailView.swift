@@ -32,6 +32,7 @@ struct AgentDetailView: View {
             }
             statusSection
             defaultsSection
+            guidanceSection
             detailsSection
             Section {
                 Button("Remove \(agent.name)…", role: .destructive) { confirmRemove = true }
@@ -139,6 +140,20 @@ struct AgentDetailView: View {
             } footer: {
                 Text("Used when the assistant doesn't pick a model or effort itself. A cheaper model saves your plan's limits: for example Claude Agent on haiku with low effort costs a fraction of what the assistant's own model would.")
             }
+        }
+    }
+
+    private var guidanceSection: some View {
+        Section {
+            TextField("Guidance", text: Binding(
+                get: { settings?.guidance ?? "" },
+                set: { value in model.config.updateAgent(agent.id) { $0.guidance = value.isEmpty ? nil : value } }),
+                prompt: Text("E.g. Default for analysis and well-described changes; fast."), axis: .vertical)
+                .lineLimit(1...3)
+        } header: {
+            Text("Guidance for the assistant")
+        } footer: {
+            Text("One line on what this agent is for and what to avoid. The assistant sees agents in the order of the sidebar and uses the first allowed one unless it has a reason to pick another; drag agents in the sidebar to change it. English works best. The server instructions pick up changes after restarting the assistant, list_models right away.")
         }
     }
 

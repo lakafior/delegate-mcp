@@ -88,8 +88,9 @@ public enum AgentCatalog {
                                 clientName: String? = nil) -> String {
         let shared = AssistantClient.sameSubscriptionAgent(clientName: clientName)
         guard !installed.isEmpty else { return "" }
-        var out = "\n## Agents (delegate_agent)\n\n"
-        for agent in installed.sorted(by: { $0.id < $1.id }) {
+        var out = "\n## Agents (delegate_agent), in the user's priority order\n\n"
+        let order = config.prioritizedAgents(installed.map(\.id).sorted())
+        for agent in order.compactMap({ id in installed.first { $0.id == id } }) {
             let settings = config.agentSettings(agent.id)
             let region = AgentRegions.region(for: agent.id, config: config)
             var line = "- `\(agent.id)` (\(agent.name)) · region \(region.rawValue)"
@@ -106,6 +107,7 @@ public enum AgentCatalog {
             default: break
             }
             out += line + "\n"
+            if let g = settings?.guidance { out += "  guidance: \(g)\n" }
             if let check, !check.models.isEmpty {
                 let chosen = settings?.model ?? check.defaultModel
                 out += "  models: " + unique(check.models).joined(separator: ", ")

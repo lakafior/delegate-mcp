@@ -18,16 +18,18 @@ public struct DelegationGuide: Sendable {
     /// Ile modeli dostawcy pokazać w katalogu; resztę Claude znajdzie w `list_models`.
     static let modelsPerProvider = 5
 
-    /// Zainstalowani agenci ACP (`delegate_agent`); pusta lista = bez wzmianki w instrukcjach.
+    /// Zainstalowani agenci ACP (`delegate_agent`) wg priorytetu; pusta lista = bez wzmianki w instrukcjach.
     public let agents: [String]
-    /// Domyślne opcje agentów z configu, pokazywane przy nazwie (np. `claude-acp: haiku, low`).
+    /// Domyślne opcje i wskazówki agentów z configu, pokazywane przy nazwie (np. `claude-acp: haiku, low — …`).
     let agentSettings: [AgentSettings]
 
     var agentList: String {
         agents.map { id in
             guard let s = agentSettings.first(where: { $0.id == id }) else { return id }
             let parts = [s.model, s.effort].compactMap { $0 }
-            return parts.isEmpty ? id : "\(id): \(parts.joined(separator: ", "))"
+            var line = parts.isEmpty ? id : "\(id): \(parts.joined(separator: ", "))"
+            if let g = s.guidance { line += " — \(g)" }
+            return line
         }.joined(separator: "; ")
     }
 
@@ -125,7 +127,8 @@ public struct DelegationGuide: Sendable {
         }
         out += "\n\nCatalog (provider · data region · cost per 1M in/out): \n" + catalog
         if !agents.isEmpty {
-            out += "\n\n`delegate_agent` runs a coding agent (\(agentList)) on a git repo in the background, in a sandbox. "
+            out += "\n\n`delegate_agent` runs a coding agent on a git repo in the background, in a sandbox. Agents in the "
+                + "user's priority order (omit `agent` for the first allowed; pick another only for a reason): \(agentList). "
                 + "Read mode: repo-wide searches and analysis (where X is used, what must change, a module review) instead of "
                 + "reading many files yourself; spot-check its file:line claims. Write mode: well-scoped changes (translations, "
                 + "tests, refactors, a feature slice) on a branch `delegate/…`; review its diff before merging. "

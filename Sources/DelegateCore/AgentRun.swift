@@ -104,6 +104,45 @@ public enum AgentRegions {
     }
 }
 
+/// Wybór agenta, gdy dyrygent go nie podał: pierwszy dozwolony wg priorytetu (`Config.prioritizedAgents`).
+public enum AgentChoice {
+    public struct Result: Sendable, Equatable {
+        public var agent: String?
+        /// Agenci przed wybranym (albo wszyscy, gdy nikt nie pasuje) z powodem pominięcia.
+        public var skipped: [RoutingExclusion]
+    }
+
+    /// `agents`: zainstalowani i włączeni, już w kolejności priorytetu.
+    public static func pick(from agents: [String], sensitivity: Sensitivity, config: Config, repo: URL?,
+                            checks: [String: AgentCheckRecord], clientName: String?) -> Result {
+        let shared = AssistantClient.sameSubscriptionAgent(clientName: clientName)
+        var skipped: [RoutingExclusion] = []
+        for id in agents {
+            if let why = AgentRegions.refusal(agentID: id, sensitivity: sensitivity, config: config, repo: repo) {
+                skipped.append(RoutingExclusion(ref: id, reason: why, kind: .region))
+            } else if checks[id]?.status == "needsSignIn" {
+                skipped.append(RoutingExclusion(ref: id, reason: "not signed in (the user signs in in the Delegate app)", kind: .unavailable))
+            } else if id == shared, config.agentSettings(id)?.model == nil {
+                // Bez tańszego modelu w ustawieniach to ten sam model co dyrygent: nie wybieramy go sami.
+                skipped.append(RoutingExclusion(ref: id, reason: "same subscription as you and no cheaper default model set", kind: .unavailable))
+            } else {
+                return Result(agent: id, skipped: skipped)
+            }
+        }
+        return Result(agent: nil, skipped: skipped)
+    }
+
+    /// Odmowa, gdy nikt nie pasuje: powody i co zrobić (jak `RoutingPlan.refusalAdvice`).
+    public static func refusal(_ result: Result) -> String {
+        var out = "No agent can take this task."
+        if !result.skipped.isEmpty {
+            out += "\nSkipped:\n" + result.skipped.map { "- \($0.ref): \($0.reason)" }.joined(separator: "\n")
+        }
+        out += "\nWhat to do: name an agent with `agent` if one of the reasons doesn't apply (e.g. same subscription with a cheaper `model`), lower `sensitivity` only if the code really allows it, or do the task yourself."
+        return out
+    }
+}
+
 /// Uruchamia agenta ACP na kopii repo w piaskownicy, w trybie tylko do odczytu, i zbiera raport.
 public struct AgentRunner: Sendable {
     let home: DelegateHome

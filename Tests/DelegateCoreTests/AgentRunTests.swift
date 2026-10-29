@@ -164,20 +164,23 @@ func makeRepo() throws -> URL {
         #expect(merged.agentSettings("claude-acp")?.model == "sonnet")
         #expect(merged.timeoutSeconds == 90)
 
+        // Wpis bez ustawień zostaje jako samo `id`: jego miejsce to priorytet.
         config.setAgent("claude-acp", model: nil, effort: nil)
-        #expect(config.agents.isEmpty)
+        #expect(config.agents == [AgentSettings(id: "claude-acp")])
+        #expect(try config.serialized().contains("[[agent]]\nid = \"claude-acp\"\n"))
 
         var withDefaults = try Config.parse(sampleConfigToml)
         withDefaults.setAgent("claude-acp", model: "haiku", effort: "low")
         let text = DelegationGuide(config: withDefaults, agents: ["mistral-vibe", "claude-acp"]) { _ in true }.serverInstructions
-        #expect(text.contains("(mistral-vibe; claude-acp: haiku, low)"))
+        #expect(text.contains("pick another only for a reason): mistral-vibe; claude-acp: haiku, low. "))
     }
 
     @Test func instructionsMentionAgentsOnlyWhenInstalled() throws {
         let config = try Config.parse(sampleConfigToml)
         #expect(!DelegationGuide(config: config) { _ in true }.serverInstructions.contains("delegate_agent"))
         let text = DelegationGuide(config: config, agents: ["mistral-vibe"]) { _ in true }.serverInstructions
-        #expect(text.contains("`delegate_agent` runs a coding agent (mistral-vibe)"))
+        #expect(text.contains("`delegate_agent` runs a coding agent on a git repo"))
+        #expect(text.contains("for a reason): mistral-vibe. "))
     }
 }
 
@@ -373,6 +376,76 @@ func makeRepo() throws -> URL {
         #expect(text.contains("`off` (OFF) · region other · turned off by the user"))
         #expect(text.contains("Repository rules: ~/Work → no agents"))
         #expect(AgentCatalog.describe(installed: [], config: c, checks: [:]).isEmpty)
+    }
+}
+
+@Suite struct AgentPriorityTests {
+    private let installed = ["antigravity-acp", "claude-acp", "codex-acp", "mistral-vibe"]
+
+    @Test func configOrderIsPriorityAndSurvivesReorderAndRoundTrip() throws {
+        var c = Config()
+        #expect(c.prioritizedAgents(installed) == installed)   // bez configu: kolejność instalacji
+        c.updateAgent("codex-acp") { $0.guidance = "Free plan with limits,\nslow" }
+        c.reorderAgents(["mistral-vibe", "claude-acp", "codex-acp"])
+        #expect(c.prioritizedAgents(installed) == ["mistral-vibe", "claude-acp", "codex-acp", "antigravity-acp"])
+        #expect(c.agentSettings("codex-acp")?.guidance == "Free plan with limits, slow")
+        // Wpis odinstalowanego agenta zostaje z ustawieniami, na końcu.
+        c.updateAgent("old") { $0.model = "x" }
+        c.reorderAgents(["claude-acp", "mistral-vibe"])
+        #expect(c.agents.map(\.id) == ["claude-acp", "mistral-vibe", "codex-acp", "old"])
+        let parsed = try Config.parse(try c.serialized())
+        #expect(parsed.agents == c.agents)
+    }
+
+    @Test func pickTakesTheFirstAllowedAndSaysWhoWasSkipped() {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        var c = Config()
+        c.repos = [RepoRule(path: "~/Work", agents: ["claude-acp", "codex-acp"])]
+        let checks = ["claude-acp": AgentCheckRecord(.init(signIn: .needsSignIn([]), models: [], defaultModel: nil, authMethods: []))]
+        let order = ["mistral-vibe", "claude-acp", "codex-acp"]
+
+        let free = AgentChoice.pick(from: order, sensitivity: .public, config: c, repo: home.appendingPathComponent("Code/x"),
+                                    checks: checks, clientName: nil)
+        #expect(free == .init(agent: "mistral-vibe", skipped: []))
+
+        let work = AgentChoice.pick(from: order, sensitivity: .public, config: c, repo: home.appendingPathComponent("Work/app"),
+                                    checks: checks, clientName: nil)
+        #expect(work.agent == "codex-acp")
+        #expect(work.skipped.map(\.ref) == ["mistral-vibe", "claude-acp"])
+        #expect(work.skipped[1].reason.contains("not signed in"))
+
+        let none = AgentChoice.pick(from: order, sensitivity: .private, config: c, repo: nil, checks: [:], clientName: nil)
+        #expect(none.agent == nil && none.skipped.count == 3)
+        let text = AgentChoice.refusal(none)
+        #expect(text.contains("Skipped:\n- mistral-vibe: private data stays on this Mac"))
+        #expect(text.contains("What to do:") && text.contains("do the task yourself"))
+    }
+
+    @Test func conductorsOwnAgentIsPickedOnlyWithACheaperDefault() {
+        var c = Config()
+        let order = ["claude-acp", "mistral-vibe"]
+        let skip = AgentChoice.pick(from: order, sensitivity: .public, config: c, repo: nil, checks: [:], clientName: "claude-code")
+        #expect(skip.agent == "mistral-vibe")
+        #expect(skip.skipped.first?.reason.contains("same subscription") == true)
+        c.setAgent("claude-acp", model: "haiku", effort: "low")
+        #expect(AgentChoice.pick(from: order, sensitivity: .public, config: c, repo: nil, checks: [:], clientName: "claude-code").agent == "claude-acp")
+        #expect(AgentChoice.pick(from: order, sensitivity: .public, config: Config(), repo: nil, checks: [:], clientName: "codex").agent == "claude-acp")
+    }
+
+    @Test func guidanceAndOrderReachTheConductor() throws {
+        var c = try Config.parse(sampleConfigToml)
+        c.updateAgent("mistral-vibe") { $0.guidance = "Default for analysis; fast." }
+        c.reorderAgents(["mistral-vibe", "antigravity-acp"])
+        let text = DelegationGuide(config: c, agents: c.prioritizedAgents(["antigravity-acp", "mistral-vibe"])) { _ in true }.serverInstructions
+        #expect(text.contains("for a reason): mistral-vibe — Default for analysis; fast.; antigravity-acp. "))
+
+        let agents = ["antigravity-acp", "mistral-vibe"].map {
+            InstalledAgent(id: $0, name: $0, version: "1", executable: "/x", args: [], env: [:], installedAt: Date())
+        }
+        let catalog = AgentCatalog.describe(installed: agents, config: c, checks: [:])
+        let vibe = try #require(catalog.range(of: "`mistral-vibe`")), anti = try #require(catalog.range(of: "`antigravity-acp`"))
+        #expect(vibe.lowerBound < anti.lowerBound)
+        #expect(catalog.contains("  guidance: Default for analysis; fast.\n"))
     }
 }
 

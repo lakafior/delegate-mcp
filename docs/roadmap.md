@@ -60,7 +60,7 @@ Zadania z `jobs/` (mała próbka, głównie 2026-10-27):
 | antigravity-acp | 2/3 | 78–394 s | — | 1× limit 600 s: uruchomił zadanie w tle i czekał na nie do końca |
 | github-copilot-cli | 1/2 | 30 s | — | 1× niezalogowany |
 
-Krok 1 (tani, największy efekt):
+Krok 1 (tani, największy efekt) ✅ zrobione:
 - Kolejność `[[agent]]` w `delegate.toml` = priorytet, przeciąganie w apce jak u dostawców. Instrukcje serwera
   i opis pola `agent` wymieniają agentów w tej kolejności: pierwszy jest domyślny, innego wybierać tylko z powodu.
 - `guidance` per agent (jedna linia, jak u dostawców), np. Vibe: domyślny do analiz i dobrze opisanych zmian, szybki;
