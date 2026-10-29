@@ -307,19 +307,27 @@ extension ACPConnection {
     /// Zwraca `false`, gdy agent takiej opcji lub wartości nie zna.
     @discardableResult
     public func setOption(_ session: ACPSession, _ configId: String, _ value: String) async throws -> Bool {
+        let isMode = configId == "mode"
         if let option = session.configOptions.first(where: { $0.id == configId || $0.category == configId }),
-           option.values.contains(value) {
+           let match = Self.match(value, in: option.values, mode: isMode) {
             _ = try await request("session/set_config_option", [
-                "sessionId": .string(session.id), "configId": .string(option.id), "value": .string(value),
+                "sessionId": .string(session.id), "configId": .string(option.id), "value": .string(match),
             ], timeout: .seconds(30))
             return true
         }
-        if configId == "mode", session.modes.contains(value) {
-            _ = try await request("session/set_mode", ["sessionId": .string(session.id), "modeId": .string(value)],
+        if isMode, let match = Self.match(value, in: session.modes, mode: true) {
+            _ = try await request("session/set_mode", ["sessionId": .string(session.id), "modeId": .string(match)],
                                   timeout: .seconds(30))
             return true
         }
         return false
+    }
+
+    /// Wartość ogłoszona przez agenta. Tryby bywają pełnymi adresami (Copilot 1.0.105:
+    /// `https://agentclientprotocol.com/protocol/session-modes#plan`), więc `plan` pasuje też do końcówki `#plan`.
+    static func match(_ value: String, in values: [String], mode: Bool) -> String? {
+        if values.contains(value) { return value }
+        return mode ? values.first { $0.hasSuffix("#" + value) } : nil
     }
 }
 

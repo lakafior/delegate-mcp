@@ -78,6 +78,10 @@ struct AgentDetailView: View {
                     ProgressView().controlSize(.small)
                 } else {
                     if case .needsSignIn(let methods) = check?.signIn { signInButtons(methods, prominent: true) }
+                    // Nieudane sprawdzenie (np. po aktualizacji agenta) bywa wygasłym logowaniem: dajemy się zalogować.
+                    if case .failed = check?.signIn, let methods = check?.authMethods {
+                        signInButtons(methods, prominent: false, label: "Sign in again")
+                    }
                     Button("Check again") { model.checkAgent(agent.id) }
                 }
             }

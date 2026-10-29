@@ -575,3 +575,15 @@ let developerIDSample: URL? = ["/Applications/Zed.app/Contents/MacOS/cli"]
         #expect(installed.signer == "Zed Industries, Inc.")
     }
 }
+
+@Suite struct ACPModeMatchTests {
+    @Test func modeNamesMatchURLStyleValues() {
+        let copilot = ["https://agentclientprotocol.com/protocol/session-modes#agent",
+                       "https://agentclientprotocol.com/protocol/session-modes#plan"]
+        #expect(ACPConnection.match("plan", in: copilot, mode: true) == copilot[1])
+        #expect(ACPConnection.match("ask", in: copilot, mode: true) == nil)
+        #expect(ACPConnection.match("plan", in: ["ask", "plan"], mode: true) == "plan")
+        // Poza trybem tylko dokładne wartości (model `x#plan` nie jest „plan”).
+        #expect(ACPConnection.match("plan", in: ["x#plan"], mode: false) == nil)
+    }
+}
