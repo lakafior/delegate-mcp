@@ -1,0 +1,6 @@
+{
+  "prompt": "Wygeneruj 25 zróżnicowanych, poprawnych zamówień testowych zgodnych ze schema/order.schema.json i zapisz je jako tablicę w fixtures/orders.json (wzór formatu: fixtures/example.json). Pokryj wszystkie statusy, waluty, metody wysyłki i kraje, przypadki brzegowe (np. 1 i 6 pozycji, vatId ustawiony i null, notes null i dłuższe), unikalne ID.",
+  "artifacts": ["fixtures/orders.json"],
+  "judge_inputs": ["schema/order.schema.json"],
+  "rubric": "Exactly 25 orders, all valid against the schema; unique ids; good coverage of enum values and edge cases asked for; realistic, varied data (not copy-paste with one field changed)."
+}

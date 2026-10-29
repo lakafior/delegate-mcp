@@ -1,0 +1,15 @@
+[
+  {
+    "id": "ord_7f3k9q2m",
+    "customer": { "id": "cus_a81bx0zd", "email": "anna.nowak@example.com", "country": "PL", "vatId": null },
+    "items": [
+      { "sku": "MUG-0042", "quantity": 2, "unitPrice": 39.9 },
+      { "sku": "TEE-1201", "quantity": 1, "unitPrice": 89.0 }
+    ],
+    "currency": "PLN",
+    "status": "paid",
+    "createdAt": "2026-09-14T10:22:05Z",
+    "shipping": { "method": "parcel_locker", "cost": 12.99 },
+    "notes": null
+  }
+]

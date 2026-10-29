@@ -436,7 +436,7 @@ extension PriceCatalogTests {
         let g = DelegationGuide(config: c) { ["mistral", "apple"].contains($0.id) }
         let text = g.serverInstructions
         #expect(text.contains("Delegate by default"))
-        #expect(text.contains("~50"))
+        #expect(text.contains("over ~150 lines"))
         #expect(text.contains("`personal` = personal or work data, regions local, eu, us"))
         #expect(text.contains("local models only (apple)"))
         #expect(text.contains("after $1.00"))
@@ -522,9 +522,11 @@ extension PriceCatalogTests {
         #expect(try await svc.delegate(.init(prompt: "x", deadlineSeconds: 50)).contains("cześć"))
     }
 
-    @Test func instructionsSendLongTasksToBackground() throws {
+    @Test func instructionsKeepDelegationToOneRoundTrip() throws {
         let text = DelegationGuide(config: try Config.parse(sampleConfigToml)) { _ in true }.serverInstructions
-        #expect(text.contains("cut off at 50 s"))
+        #expect(text.contains("A call waits up to 50 s for the reply"))
+        #expect(text.contains("Every extra turn re-reads your whole context"))
+        #expect(text.contains("over ~300 lines"))
         #expect(DelegateJobs.maxWaitSeconds < 60)
     }
 
@@ -661,5 +663,19 @@ extension PriceCatalogTests {
         #expect(ModelCooldowns(url: url).active()["a/b"]?.reason == "r")
         ModelCooldowns(url: url).clear("a/b")
         #expect(ModelCooldowns(url: url).active().isEmpty)
+    }
+}
+
+@Suite struct InlineWaitTests {
+    @Test func stateWaitsForAFastJobAndReportsASlowOne() async {
+        let jobs = DelegateJobs(run: { request in
+            try await Task.sleep(for: .milliseconds(request.prompt == "slow" ? 3000 : 50))
+            return "reply to \(request.prompt)"
+        })
+        let fast = await jobs.start(.init(prompt: "fast"))
+        #expect(await jobs.state(of: fast, waiting: 2) == .done("reply to fast"))
+        let slow = await jobs.start(.init(prompt: "slow"))
+        #expect(await jobs.state(of: slow, waiting: 0.3) == .running)
+        #expect(await jobs.state(of: "nope", waiting: 0.1) == nil)
     }
 }

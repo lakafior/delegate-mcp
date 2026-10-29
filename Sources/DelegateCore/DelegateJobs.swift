@@ -136,6 +136,15 @@ public actor DelegateJobs {
 
     /// Czeka (najwyżej `wait` s), aż wszystkie wskazane zadania się skończą; puste `ids` = zadania tej sesji.
     /// Zadania spoza pamięci (sprzed restartu serwera) czyta z dysku.
+    /// Czeka na jedno zadanie najwyżej `seconds` i zwraca jego stan (`.running`, gdy nie zdążyło; `nil`: nie ma takiego).
+    public func state(of id: String, waiting seconds: Double, now: @Sendable () -> Date = Date.init) async -> State? {
+        let deadline = now().addingTimeInterval(max(seconds, 0))
+        while now() < deadline, case .running? = jobs[id]?.state {
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        return jobs[id]?.state
+    }
+
     public func result(ids: [String], wait: Double, now: @Sendable () -> Date = Date.init) async -> String {
         let wanted = ids.isEmpty ? order : ids
         let deadline = now().addingTimeInterval(min(max(wait, 0), Self.maxWaitSeconds))

@@ -553,6 +553,20 @@ func makeRepo() throws -> URL {
         }
     }
 
+    @Test func failedCheckGetsAFixRoundInTheSameSession() async throws {
+        let repo = try makeRepo()
+        // Atrapa dopisuje „agent line” przy każdym prompcie: check przechodzi dopiero po drugim, czyli po jednej poprawce.
+        let check = "test $(grep -c 'agent line' notes.txt) -ge 2"
+        let report = try await runner().run(agent: try agent("writer"), repo: repo, task: "Add lines to notes", write: true,
+                                            check: check, jobID: "ddddddd4")
+        let result = try #require(report.check)
+        #expect(result.passed && result.fixes == 1)
+        #expect(report.formatted.contains("✓ check `\(check)` passed after 1 fix"))
+        #expect(report.formatted.contains("Agent's summary:"))
+        let branch = try #require(report.branch)
+        #expect(try RepoSnapshot.git(["show", "\(branch.branch):notes.txt"], in: repo) == "committed\nagent line\nagent line")
+    }
+
     @Test func timeoutKeepsUnfinishedWorkOnABranchAndReportsIt() async throws {
         let repo = try makeRepo()
         do {

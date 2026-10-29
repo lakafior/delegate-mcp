@@ -23,8 +23,8 @@ urządzeniu (Apple Foundation Models, `type = "foundation"`): bez klucza, offlin
 | Narzędzie | Do czego |
 |---|---|
 | `list_models` | Lista dostawców i modeli wg priorytetu, z tagami, kosztami, statusem klucza i zasadami routingu |
-| `delegate` | Wysyła zadanie: `model` (`provider/model`), `task` (tag) albo automatycznie wg priorytetu; opcjonalnie `system`, `temperature`, `max_tokens`, `fallback=false`, `sensitivity` (`public`/`personal`/`private`), `files` (ścieżki plików tekstowych, które serwer czyta sam), `output_file` (serwer zapisuje odpowiedź na dysk, Claude dostaje podgląd), `background` (od razu zwraca ID zadania) |
-| `delegate_result` | Status i wyniki zadań w tle (`ids`, `wait` do 40 s); zadania żyją w pamięci procesu serwera, czyli tyle co sesja. Claude zrywa wywołanie narzędzia po ok. 60 s (i restartuje serwer), więc wywołania synchroniczne mają łączny limit 50 s (`DelegateRequest.syncDeadlineSeconds`), a pierwsza próba bierze najwyżej 60% pozostałego czasu, żeby zostało na fallback |
+| `delegate` | Wysyła zadanie: `model` (`provider/model`), `task` (tag) albo automatycznie wg priorytetu; opcjonalnie `system`, `temperature`, `max_tokens`, `fallback=false`, `sensitivity` (`public`/`personal`/`private`), `files` (ścieżki plików tekstowych, które serwer czyta sam), `output_file` (serwer zapisuje odpowiedź na dysk, Claude dostaje podgląd), `check` (kryterium akceptacji, niżej), `background` (od razu zwraca ID zadania) |
+| `delegate_result` | Status i wyniki zadań w tle (`ids`, `wait` do 40 s); zadania żyją w pamięci procesu serwera, czyli tyle co sesja. Claude zrywa wywołanie narzędzia po ok. 60 s (i restartuje serwer), więc `delegate` bez `background` startuje zadanie w tle i czeka na nie do 50 s (`DelegateRequest.syncDeadlineSeconds`, `DelegateJobs.state(of:waiting:)`): szybkie wraca w tej samej turze, wolniejsze zostaje zadaniem z ID (R1: każda dodatkowa tura dyrygenta kosztuje) |
 | `list_remote_models` | Pyta API dostawcy o aktualne ID modeli, z sugerowanymi tagami, kontekstem i cenami (jeśli API je podaje) |
 | `update_models` | Zapisuje tagi i koszt modeli w `delegate.toml` (upsert, bez kluczy). Koszt: kategoria (`free`/`cheap`/`paid`/`varies`) albo `price_in`/`price_out` w USD za 1M tokenów |
 | `usage_summary` | Podsumowanie wywołań i tokenów z lokalnego logu |
@@ -67,6 +67,13 @@ Ikona: `Assets/AppIcon.icon` (Icon Composer), kompilowana przez `actool` w `buil
   `DEVELOPER_ID_P12_BASE64` / `DEVELOPER_ID_P12_PASSWORD` (certyfikat „Developer ID Application” z kluczem, `base64 -i cert.p12`),
   `NOTARY_KEY_P8_BASE64` / `NOTARY_KEY_ID` / `NOTARY_ISSUER_ID` (klucz API App Store Connect, rola Developer).
   `notarize.sh` w CI używa klucza API (`NOTARY_KEY_PATH`), lokalnie profilu z Keychain.
+
+## Pomiar oszczędności: `eval/`
+
+`eval/run.py` (Python, tylko narzędzie deweloperskie) puszcza zadania z `eval/tasks/` przez `claude -p` z serwerem
+`delegate` i bez, liczy koszt dyrygenta z `modelUsage`, uruchamia `check.py` i sędziego. Opis: `eval/README.md`.
+Wyniki w `eval/results/` (poza gitem), katalogi robocze w `/tmp/delegate-eval` (poza repo, żeby ten `CLAUDE.md`
+nie wchodził do każdego przebiegu). Wymaga zalogowanego CLI (`claude auth login`).
 
 ## Strona: delegate.smigi.net
 
@@ -136,8 +143,8 @@ dostawcy i zaktualizuj delegate.toml”*.
 
 Główny mechanizm to **instrukcje serwera MCP** (`DelegationGuide.serverInstructions`): serwer podaje je
 przy `initialize`, a Claude Code i Claude Desktop wstrzykują je do każdej sesji. Są generowane z configu
-przy starcie serwera: kiedy delegować (krótkie wejście, długie wyjście; długie teksty z dysku przez `files`,
-bo przepisywanie ich do promptu kosztuje Claude'a tyle samo tokenów), katalog po jednej linii na dostawcę
+przy starcie serwera: kiedy delegować (wyjście powyżej ~300 linii w trybie `balanced` albo duże wejście, jedna runda:
+`files`, `output_file`, jeden `git diff`; próg z pomiaru R1, `eval/`), katalog po jednej linii na dostawcę
 (region, koszt, do 5 modeli z tagami, wskazówka) i `routing_guidance`. Model wybiera Claude; kolejność
 dostawców to tylko domyślna trasa i fallback (najpierw modele o wspólnych tagach). Instrukcje i opisy narzędzi
 idą w każdym zapytaniu, więc są krótkie (test `instructionsStayCompact`). Teksty dla Claude'a są po angielsku.
@@ -160,6 +167,8 @@ i podgląd w zakładce Routing):
   429 z `limit: 0` → doba, 429 z „retry in …” → tyle, ile podał dostawca, inny 429 → 60 s, 402 → godzina,
   503/502/504/529 i timeout (gdy model miał pełny limit albo co najmniej 25 s) → 5 min, 500 → 2 min, 404 i 400 „only supports…”
   → tydzień. Sukces zdejmuje przerwę; w Routingu przycisk „Resume paused models” zdejmuje wszystkie.
+  Odrzucony klucz (401, 403, 402 „authentication”) nie daje przerwy, ale pozostałe modele tego dostawcy odpadają w tym
+  wywołaniu (`DelegateService.isKeyRejected`), a błąd mówi, czyje klucze sprawdzić.
 - **Myślenie Gemini** (`ProviderClient.geminiThinking`): Flash i Pro 3+ (także `-latest`) dostają `thinkingLevel: low`,
   bo ich domyślne `medium`/`high` to minuty na zwykłe zadanie; Flash-Lite (domyślnie `minimal`), 1.x/2.x i Gemma nic.
   Nadpisanie per model: `thinking = "high"` w `[[provider.model]]`, `"default"` = nic nie wysyłać. Odrzucony poziom
@@ -207,6 +216,13 @@ commituje jako „Delegate (<agent>)”, zwraca `--stat` i polecenia review/merg
 SwiftPM w piaskownicy wymaga `--disable-sandbox` (mówi to polecenie dla agenta). Limit równoległych agentów:
 `max_parallel_agents` (domyślnie 3, `AgentSlots`). `branch_from` (tylko zapis): runda poprawek startuje z gałęzi
 poprzedniego agenta zamiast z `HEAD`.
+**`check` (model seniora z juniorami):** `delegate` (z `output_file`) i `delegate_agent` w trybie zapisu przyjmują polecenie
+akceptacji (testy, build, walidator). `CheckRunner` uruchamia je w piaskownicy (`AgentSandbox` z `network`/`keychain`:
+zapis tylko do katalogu zadania, tmp i cache narzędzi; bez Keychain; sieć tylko dla agenta) z limitem 300 s. Nie przejdzie →
+do `DelegateRequest.maxFixRounds` (2) rund poprawek: `delegate` wysyła błąd i bieżący plik temu samemu modelowi
+(`modelRef` z nagłówka), agent dostaje `fixPrompt` w tej samej sesji (watchdog ciszy śpi w czasie polecenia). Dyrygent
+dostaje jedną linię (`CheckResult.line`) zamiast podglądu, a z agentem krótki raport: wynik, `--stat`, ~600 znaków
+podsumowania. R1 pokazał, że koszt robiły nie tanie modele, tylko dyrygent sprawdzający wynik własnymi skryptami.
 **Skill `/swarm`** (`SwarmSkill`): procedura dyrygenta dla Claude Code w `~/.claude/skills/swarm/SKILL.md`, instalowana
 z Overview (rozpoznawana po znaczniku `<!-- delegate-mcp swarm skill -->`; cudzego skilla o tej nazwie nie nadpisujemy).
 Inni klienci MCP (sekcja „Other assistants” w Overview): `MCPClients.swift` (`MCPClient`, `MCPClientConfig`: Cursor

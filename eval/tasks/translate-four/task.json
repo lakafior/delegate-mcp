@@ -1,0 +1,13 @@
+{
+  "prompt": "Przetłumacz locales/en.json na polski, niemiecki, francuski i hiszpański i zapisz jako locales/pl.json, de.json, fr.json i es.json. Zachowaj klucze, placeholdery w nawiasach klamrowych i składnię ICU plural (z kategoriami właściwymi dla każdego języka, np. one/few/many/other w polskim).",
+  "artifacts": [
+    "locales/pl.json",
+    "locales/de.json",
+    "locales/fr.json",
+    "locales/es.json"
+  ],
+  "judge_inputs": [
+    "locales/en.json"
+  ],
+  "rubric": "Four files with the same keys as the source; placeholders, ICU syntax, shortcuts and **bold** markers intact; correct plural categories per language (Polish one/few/many/other, French one/many/other or one/other, German and Spanish one/other); natural, consistent UI wording in each language, not literal."
+}

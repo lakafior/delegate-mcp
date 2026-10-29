@@ -262,3 +262,6 @@ skills/
 
 # Cloudflare (website/)
 .wrangler/
+
+# R1: wyniki pomiaru (duże, lokalne)
+eval/results/

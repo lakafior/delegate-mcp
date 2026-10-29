@@ -1,0 +1,8 @@
+{
+  "prompt": "Chcemy dodać nowy rodzaj wykluczenia z routingu: `quota` (dostawca wyczerpał miesięczny limit; to coś innego niż przerwa po błędzie). Znajdź w Sources/, gdzie powstają i gdzie są czytane wykluczenia (`RoutingExclusion` i jego `Kind`), i napisz w ANALYSIS.md, co dokładnie trzeba zmienić (plik:linia), żeby nowy rodzaj działał w routingu, w odmowach z instrukcją i w GUI. Nie zmieniaj kodu. Zleć analizę agentowi przez `delegate_agent` w trybie read i oprzyj odpowiedź na jego raporcie; sam czytaj kod tylko, żeby sprawdzić wyrywkowo jego tezy.",
+  "artifacts": [
+    "ANALYSIS.md"
+  ],
+  "judge_reference": "reference.md",
+  "rubric": "Compare with the reference: the places that create and read exclusions, and what a new `quota` kind needs (enum case, where it is produced in routingPlan, a line in refusalAdvice, GUI display, tests). Score on completeness and correct file:line references; penalise invented locations or code changes."
+}

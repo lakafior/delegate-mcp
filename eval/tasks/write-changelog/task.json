@@ -1,0 +1,6 @@
+{
+  "prompt": "Dopisz do CHANGELOG.md sekcję dla wersji 1.3.0 (data: dzisiejsza) na podstawie historii gita od tagu v1.2.0. Format jak istniejące wpisy (Keep a Changelog: Added / Changed / Fixed / Removed), po angielsku, pisany dla użytkowników aplikacji; pomiń zmiany techniczne, które użytkownika nie dotyczą.",
+  "artifacts": ["CHANGELOG.md"],
+  "judge_reference": "history.json",
+  "rubric": "Only commits after v1.2.0 (history.json `after_tag`) belong in 1.3.0. User-facing ones go in the right sections: Added (Markdown tables, PDF export, tag colors, filter by several tags), Changed (default font, faster index rebuild), Fixed (sync conflicts, crash on empty note, diacritics in search, PDF image aspect ratio, sync retry after wake), Removed (legacy Evernote importer). chore/ci/refactor/test/docs commits are left out, and nothing from before the tag is repeated. Entries are written for users, not as commit messages. The 1.2.0 section stays unchanged."
+}

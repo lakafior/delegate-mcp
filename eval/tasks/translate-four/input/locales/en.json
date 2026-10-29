@@ -1,0 +1,279 @@
+{
+  "app": {
+    "name": "Quill",
+    "description": "A simple and powerful note-taking app for your thoughts and ideas.",
+    "welcomeMessage": "Welcome to Quill! Start by creating a new note.",
+    "unsavedChanges": "You have unsaved changes. Do you want to save them before closing?",
+    "exitConfirmation": "Are you sure you want to exit Quill?",
+    "newNoteShortcut": "**⌘N** to create a new note",
+    "searchShortcut": "**⌘F** to search your notes"
+  },
+  "menu": {
+    "file": {
+      "label": "File",
+      "newNote": "New Note",
+      "newFolder": "New Folder",
+      "openNote": "Open Note",
+      "save": "Save",
+      "saveAs": "Save As...",
+      "export": "Export",
+      "exportAs": "Export As...",
+      "exportAsMarkdown": "Markdown (.md)",
+      "exportAsHtml": "HTML (.html)",
+      "exportAsPdf": "PDF (.pdf)",
+      "import": "Import",
+      "importFrom": "Import From...",
+      "close": "Close",
+      "quit": "Quit Quill"
+    },
+    "edit": {
+      "label": "Edit",
+      "undo": "Undo",
+      "redo": "Redo",
+      "cut": "Cut",
+      "copy": "Copy",
+      "paste": "Paste",
+      "selectAll": "Select All",
+      "find": "Find",
+      "findNext": "Find Next",
+      "findPrevious": "Find Previous",
+      "replace": "Replace",
+      "preferences": "Preferences"
+    },
+    "view": {
+      "label": "View",
+      "toggleSidebar": "Toggle Sidebar",
+      "toggleFullScreen": "Toggle Full Screen",
+      "zoomIn": "Zoom In",
+      "zoomOut": "Zoom Out",
+      "resetZoom": "Reset Zoom"
+    },
+    "help": {
+      "label": "Help",
+      "documentation": "Documentation",
+      "reportIssue": "Report an Issue",
+      "checkForUpdates": "Check for Updates",
+      "about": "About Quill"
+    }
+  },
+  "editor": {
+    "untitledNote": "Untitled Note",
+    "saveChangesPrompt": "Save changes to **{name}** before closing?",
+    "markdownPreview": "Markdown Preview",
+    "togglePreview": "Toggle Preview",
+    "formatting": {
+      "bold": "Bold (**⌘B**)",
+      "italic": "Italic (**⌘I**)",
+      "strikethrough": "Strikethrough",
+      "heading1": "Heading 1",
+      "heading2": "Heading 2",
+      "heading3": "Heading 3",
+      "bulletList": "Bullet List",
+      "numberedList": "Numbered List",
+      "link": "Link",
+      "image": "Image",
+      "code": "Code",
+      "blockquote": "Blockquote",
+      "horizontalRule": "Horizontal Rule"
+    },
+    "tooltips": {
+      "save": "Save note (**⌘S**)",
+      "bold": "Bold text",
+      "italic": "Italic text",
+      "link": "Insert link",
+      "image": "Insert image"
+    },
+    "statusBar": {
+      "words": "{count, plural, one {# word} other {# words}}",
+      "characters": "{count, plural, one {# character} other {# characters}}",
+      "lines": "{count, plural, one {# line} other {# lines}}",
+      "lastSaved": "Last saved: {date}",
+      "unsavedChanges": "Unsaved changes"
+    }
+  },
+  "sidebar": {
+    "notes": "Notes",
+    "folders": "Folders",
+    "searchPlaceholder": "Search notes...",
+    "newNote": "New Note",
+    "newFolder": "New Folder",
+    "recentNotes": "Recent Notes",
+    "allNotes": "All Notes",
+    "trash": "Trash",
+    "emptyTrash": "Empty Trash",
+    "restoreAll": "Restore All",
+    "deleteForever": "Delete Forever",
+    "notesCount": "{count, plural, one {# note} other {# notes}} in this folder",
+    "folderActions": {
+      "rename": "Rename Folder",
+      "delete": "Delete Folder",
+      "move": "Move Folder"
+    },
+    "noteActions": {
+      "rename": "Rename Note",
+      "delete": "Delete Note",
+      "move": "Move Note",
+      "duplicate": "Duplicate Note",
+      "pin": "Pin Note",
+      "unpin": "Unpin Note"
+    },
+    "tooltips": {
+      "newNote": "Create a new note (**⌘N**)",
+      "newFolder": "Create a new folder",
+      "search": "Search your notes (**⌘F**)"
+    }
+  },
+  "sync": {
+    "status": {
+      "syncing": "Syncing your notes...",
+      "synced": "Last synced: {date}",
+      "offline": "Offline - changes will sync when back online",
+      "error": "Sync failed. Retrying..."
+    },
+    "providers": {
+      "dropbox": "Dropbox",
+      "googleDrive": "Google Drive",
+      "oneDrive": "OneDrive",
+      "webdav": "WebDAV"
+    },
+    "actions": {
+      "syncNow": "Sync Now",
+      "connect": "Connect to {provider}",
+      "disconnect": "Disconnect from {provider}",
+      "retry": "Retry Sync"
+    },
+    "errors": {
+      "authFailed": "Authentication failed. Please reconnect to {provider}.",
+      "quotaExceeded": "Your {provider} storage is full. Free up space to continue syncing.",
+      "networkError": "Network error. Check your connection and try again."
+    }
+  },
+  "settings": {
+    "general": {
+      "label": "General",
+      "theme": "Theme",
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System Default",
+      "fontSize": "Font Size",
+      "small": "Small",
+      "medium": "Medium",
+      "large": "Large",
+      "startupAction": "On Startup",
+      "openLastNote": "Open last note",
+      "showWelcome": "Show welcome screen",
+      "autoSave": "Auto-save changes",
+      "autoSaveInterval": "Auto-save interval (seconds)"
+    },
+    "editor": {
+      "label": "Editor",
+      "defaultFormat": "Default note format",
+      "markdown": "Markdown",
+      "richText": "Rich Text",
+      "showLineNumbers": "Show line numbers",
+      "wordWrap": "Word wrap",
+      "spellCheck": "Spell check",
+      "autoComplete": "Auto-complete brackets and quotes"
+    },
+    "sync": {
+      "label": "Sync",
+      "enableSync": "Enable sync",
+      "syncInterval": "Sync interval (minutes)",
+      "conflictResolution": "Conflict resolution",
+      "keepLocal": "Keep local changes",
+      "keepRemote": "Keep remote changes",
+      "manual": "Ask me each time"
+    },
+    "backup": {
+      "label": "Backup",
+      "enableBackup": "Enable automatic backups",
+      "backupLocation": "Backup location",
+      "backupFrequency": "Backup frequency",
+      "daily": "Daily",
+      "weekly": "Weekly",
+      "monthly": "Monthly",
+      "maxBackups": "Maximum backups to keep"
+    },
+    "actions": {
+      "save": "Save Settings",
+      "reset": "Reset to Defaults"
+    }
+  },
+  "errors": {
+    "file": {
+      "notFound": "The file **{name}** could not be found.",
+      "readError": "Could not read the file. It may be corrupted or in use by another program.",
+      "writeError": "Could not save the file. Check your permissions or disk space.",
+      "importError": "Failed to import **{name}**. The file may be corrupted or in an unsupported format."
+    },
+    "sync": {
+      "generic": "Sync error: {message}",
+      "timeout": "Sync timed out. Check your internet connection.",
+      "rateLimit": "You've exceeded the sync rate limit. Please wait before trying again."
+    },
+    "app": {
+      "crash": "Quill has encountered an unexpected error and needs to restart.",
+      "outOfMemory": "Quill is running low on memory. Close some notes to continue working."
+    },
+    "validation": {
+      "emptyName": "Name cannot be empty.",
+      "invalidCharacters": "Name contains invalid characters.",
+      "nameTooLong": "Name is too long (max {max} characters)."
+    }
+  },
+  "dialogs": {
+    "confirmDelete": {
+      "title": "Delete Note",
+      "message": "Are you sure you want to delete **{name}**? This cannot be undone.",
+      "confirm": "Delete",
+      "cancel": "Cancel"
+    },
+    "confirmDeleteFolder": {
+      "title": "Delete Folder",
+      "message": "Deleting this folder will also delete {count, plural, one {# note} other {# notes}} inside it. Are you sure?",
+      "confirm": "Delete Folder",
+      "cancel": "Cancel"
+    },
+    "emptyTrash": {
+      "title": "Empty Trash",
+      "message": "Are you sure you want to permanently delete {count, plural, one {# item} other {# items}} in the trash?",
+      "confirm": "Empty Trash",
+      "cancel": "Cancel"
+    },
+    "rename": {
+      "title": "Rename {type}",
+      "label": "New name",
+      "placeholder": "Enter a new name",
+      "confirm": "Rename",
+      "cancel": "Cancel"
+    },
+    "export": {
+      "title": "Export Note",
+      "formatLabel": "Export format",
+      "locationLabel": "Save to",
+      "confirm": "Export",
+      "cancel": "Cancel"
+    },
+    "import": {
+      "title": "Import Notes",
+      "fileLabel": "Select file(s) to import",
+      "formatLabel": "File format",
+      "confirm": "Import",
+      "cancel": "Cancel"
+    },
+    "syncSetup": {
+      "title": "Set Up Sync",
+      "providerLabel": "Sync provider",
+      "accountLabel": "Account",
+      "connect": "Connect",
+      "cancel": "Cancel"
+    },
+    "unsavedChanges": {
+      "title": "Unsaved Changes",
+      "message": "You have unsaved changes in **{count, plural, one {# note} other {# notes}}**. Save before closing?",
+      "save": "Save All",
+      "discard": "Discard Changes",
+      "cancel": "Cancel"
+    }
+  }
+}

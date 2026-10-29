@@ -1,0 +1,6 @@
+{
+  "prompt": "Przetłumacz locales/en.json na polski i zapisz jako locales/pl.json. Zachowaj klucze, placeholdery w nawiasach klamrowych i składnię ICU plural (z polskimi formami one/few/many/other).",
+  "artifacts": ["locales/pl.json"],
+  "judge_inputs": ["locales/en.json"],
+  "rubric": "Same keys as the source; placeholders and ICU syntax intact; Polish plurals use one/few/many/other correctly; natural, consistent UI Polish (not literal), consistent terminology; shortcuts and **bold** markers kept."
+}

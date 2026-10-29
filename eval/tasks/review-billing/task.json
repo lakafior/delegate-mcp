@@ -1,0 +1,6 @@
+{
+  "prompt": "Zrób code review src/billing.py pod kątem błędów logiki (nie stylu). Zapisz wynik w REVIEW.md: lista problemów od najpoważniejszych, każdy z numerem linii, opisem skutku i proponowaną poprawką.",
+  "artifacts": ["REVIEW.md"],
+  "judge_inputs": ["src/billing.py"],
+  "rubric": "Reference: four bugs were planted. (1) line ~160 apply_coupon: expiry check reversed (`>` instead of `<`), so valid coupons are ignored and expired ones applied. (2) line ~216 should_retry_payment: `> 3` allows a 4th retry, spec is max 3. (3) line ~185 calculate_tax: `vat_id or is_reverse_charge` zero-rates every consumer in reverse-charge countries; must be `and`. (4) line ~263 update_invoice_status: the invoice is not removed from the old status index, so it is listed under two statuses. Score mostly on how many of these are found with correct line, effect and fix; penalise false or invented problems; other real issues are a small bonus."
+}

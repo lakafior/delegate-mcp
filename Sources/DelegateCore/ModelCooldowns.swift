@@ -56,6 +56,8 @@ public struct ModelCooldowns: Sendable {
                     return (min(max(wait, 30), day), "quota exhausted (HTTP 429)")
                 }
                 return (60, "rate limited (HTTP 429)")
+            case 402 where lower.contains("authentication"):
+                return nil   // Venice tak odrzuca klucz: to nie brak środków ani wina modelu
             case 402:
                 return (3600, "out of credit (HTTP 402)")
             case 404:

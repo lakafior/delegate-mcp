@@ -22,6 +22,9 @@ public struct DelegateRequest: Sendable {
     public var outputFile: String?
     /// Łączny limit czasu na wszystkie próby (z fallbackami); `nil` = bez limitu (zadania w tle).
     public var deadlineSeconds: TimeInterval?
+    /// Kryterium akceptacji: polecenie uruchamiane po zapisaniu `outputFile` (`CheckRunner`); nie przechodzi →
+    /// rundy poprawek tym samym modelem.
+    public var check: String?
 
     /// Wywołania synchroniczne muszą się zmieścić przed ok. 60 s, po których Claude zrywa wywołanie narzędzia.
     public static let syncDeadlineSeconds: TimeInterval = 50
@@ -29,7 +32,7 @@ public struct DelegateRequest: Sendable {
     public init(prompt: String, system: String? = nil, model: String? = nil, task: String? = nil,
                 temperature: Double? = nil, maxTokens: Int? = nil, allowFallback: Bool = true,
                 allowSecrets: Bool = false, jsonMode: Bool = false, sensitivity: Sensitivity = .public,
-                files: [String] = [], outputFile: String? = nil, deadlineSeconds: TimeInterval? = nil) {
+                files: [String] = [], outputFile: String? = nil, deadlineSeconds: TimeInterval? = nil, check: String? = nil) {
         self.prompt = prompt
         self.system = system
         self.model = model
@@ -43,7 +46,13 @@ public struct DelegateRequest: Sendable {
         self.files = files
         self.outputFile = outputFile
         self.deadlineSeconds = deadlineSeconds
+        self.check = check
     }
+}
+
+extension DelegateRequest {
+    /// Ile rund poprawek po nieudanym `check`.
+    public static let maxFixRounds = 2
 }
 
 public struct Candidate: Sendable, Equatable {
@@ -133,6 +142,7 @@ public struct DelegateService: Sendable {
     let onDevice: any OnDeviceModel
     let priceCatalog: PriceCatalogStore?
     public let cooldowns: ModelCooldowns
+    let checks: CheckRunner?
 
     public init(
         loadConfig: @escaping @Sendable () throws -> Config,
@@ -142,7 +152,8 @@ public struct DelegateService: Sendable {
         saveConfig: (@Sendable (Config) throws -> Void)? = nil,
         usage: UsageLog,
         priceCatalog: PriceCatalogStore? = nil,
-        cooldowns: ModelCooldowns = ModelCooldowns(url: nil)
+        cooldowns: ModelCooldowns = ModelCooldowns(url: nil),
+        checks: CheckRunner? = nil
     ) {
         self.loadConfig = loadConfig
         self.saveConfig = saveConfig
@@ -152,6 +163,7 @@ public struct DelegateService: Sendable {
         self.usage = usage
         self.priceCatalog = priceCatalog
         self.cooldowns = cooldowns
+        self.checks = checks
     }
 
     /// Standardowe podpięcie: katalog domowy, `.env` + Keychain.
@@ -165,7 +177,8 @@ public struct DelegateService: Sendable {
             saveConfig: { try home.save($0) },
             usage: UsageLog(url: home.usageURL),
             priceCatalog: PriceCatalogStore(cacheURL: home.priceCatalogURL, transport: transport),
-            cooldowns: ModelCooldowns(url: home.cooldownsURL)
+            cooldowns: ModelCooldowns(url: home.cooldownsURL),
+            checks: CheckRunner(home: home)
         )
     }
 
@@ -336,6 +349,12 @@ public struct DelegateService: Sendable {
         // Pliki doklejamy przed wszystkim innym: limity czasu i wykrywanie sekretów dotyczą pełnej treści.
         let attached = try FileAttachments.compose(prompt: original.prompt, paths: original.files)
         let output = try original.outputFile.map(OutputFile.validate)
+        if original.check?.isEmpty == false {
+            guard output != nil else {
+                throw DelegateError(description: "`check` needs `output_file`: it runs after the reply is written there.")
+            }
+            guard checks != nil else { throw DelegateError(description: "Checks aren't available in this mode.") }
+        }
         var request = original
         request.prompt = attached.prompt
         let plan = routingPlan(for: request, config: config)
@@ -363,7 +382,55 @@ public struct DelegateService: Sendable {
         return Prepared(request: request, config: config, plan: plan, attached: attached, output: output)
     }
 
+    /// Z `check`: odpowiedź do `output_file`, polecenie w katalogu repo tego pliku, a gdy nie przejdzie, do
+    /// `maxFixRounds` poprawek tym samym modelem (błąd i bieżący plik w załączniku). Dyrygent dostaje nagłówek i jedną
+    /// linię wyniku zamiast podglądu: jak senior, który patrzy, czy testy przechodzą, a nie czyta każdej linii.
     public func delegate(_ original: DelegateRequest) async throws -> String {
+        guard let check = original.check?.trimmingCharacters(in: .whitespacesAndNewlines), !check.isEmpty else {
+            return try await attempt(original)
+        }
+        let output = try OutputFile.validate(original.outputFile ?? "")
+        guard let checks else { throw DelegateError(description: "Checks aren't available in this mode.") }
+        let folder = output.deletingLastPathComponent()
+        let directory = RepoSnapshot.toplevel(of: folder) ?? folder
+        var reply = try await attempt(original)
+        var result = await checks.run(check, in: directory)
+        while !result.passed && result.fixes < DelegateRequest.maxFixRounds {
+            var retry = original
+            retry.model = Self.modelRef(in: reply) ?? original.model
+            retry.files = original.files.filter { $0 != output.path } + [output.path]
+            retry.prompt = original.prompt + """
+
+
+            Your previous answer is attached as \(output.lastPathComponent). It failed the acceptance check \
+            `\(check)` (exit \(result.exitCode)):
+            ```
+            \(result.output)
+            ```
+            Return the complete corrected content, in the same output format.
+            """
+            reply = try await attempt(retry)
+            let fixes = result.fixes + 1
+            result = await checks.run(check, in: directory)
+            result.fixes = fixes
+        }
+        let header = reply.prefix { $0 != "\n" }
+        let lines = ((try? String(contentsOf: output, encoding: .utf8)) ?? "").split(separator: "\n", omittingEmptySubsequences: false).count
+        var out = "\(header)\n\(result.line) · \(output.path): \(lines) lines"
+        if !result.passed {
+            out += "\n```\n\(result.output)\n```\nThe file is there as last written; fix it with an Edit or delegate again with what's wrong."
+        }
+        return out
+    }
+
+    /// `provider/model` z nagłówka odpowiedzi („[delegate] model: x/y · …”), żeby poprawka szła do tego samego modelu.
+    static func modelRef(in reply: String) -> String? {
+        guard let range = reply.range(of: "model: ") else { return nil }
+        let ref = reply[range.upperBound...].prefix { $0 != " " && $0 != "\n" }
+        return ref.isEmpty ? nil : String(ref)
+    }
+
+    func attempt(_ original: DelegateRequest) async throws -> String {
         let p = try prepare(original)
         let (request, config, plan, attached, output) = (p.request, p.config, p.plan, p.attached, p.output)
         let list = plan.candidates
@@ -374,7 +441,11 @@ public struct DelegateService: Sendable {
         var failures: [String] = []
         let deadline = request.deadlineSeconds.map { Date().addingTimeInterval($0) }
 
+        // Dostawcy, którzy odrzucili klucz: klucz jest jeden na dostawcę, więc jego pozostałe modele odpadają od razu
+        // (bez tego zły albo nieczytelny klucz to po jednej próbie na każdy model z katalogu).
+        var rejectedKeys: [String] = []
         for (i, c) in list.enumerated() {
+            if rejectedKeys.contains(c.provider.id) { continue }
             let fullTimeout = Self.computeTimeout(for: request, provider: c.provider, config: config)
             var timeout = fullTimeout
             if let deadline {
@@ -389,7 +460,17 @@ public struct DelegateService: Sendable {
             }
             let client = ProviderClient(transport: transport, timeout: timeout)
             chat.thinking = c.model.thinking
-            let key = secrets.secret(for: c.provider.apiKeyEnv) ?? ""
+            let secret = c.provider.needsKey ? secrets.secret(for: c.provider.apiKeyEnv) : nil
+            if c.provider.needsKey, secret == nil {
+                // Wpis jest (status „ready” sprawdza same atrybuty), ale odczyt się nie udał: najczęściej proces serwera
+                // sprzed podmiany binarki (przebudowa, aktualizacja apki), którego Keychain już nie rozpoznaje.
+                // Pusty klucz dałby tylko 401/403 na każdym modelu tego dostawcy.
+                failures.append("\(c.provider.id): the API key is in Keychain but this server process can't read it; "
+                                + "restart the MCP server (/mcp → Reconnect) or the assistant")
+                rejectedKeys.append(c.provider.id)
+                continue
+            }
+            let key = secret ?? ""
             let started = Date()
             do {
                 let reply: ChatReply
@@ -429,14 +510,26 @@ public struct DelegateService: Sendable {
                 usage.append(UsageEntry(provider: c.provider.id, model: c.model.id, task: request.task,
                                         ok: false, error: String(describing: error), ms: ms))
                 failures.append("\(c.ref) → \(error)")
+                if Self.isKeyRejected(error) {
+                    rejectedKeys.append(c.provider.id)
+                    let skipped = list[(i + 1)...].filter { $0.provider.id == c.provider.id }.count
+                    if skipped > 0 { failures.append("\(c.provider.id): \(skipped) more model(s) skipped, the key was rejected") }
+                }
                 if let pause = ModelCooldowns.cooldown(for: error, fullTimeout: timeout >= min(fullTimeout, ModelCooldowns.fairTimeout)) {
                     cooldowns.set(c.ref, ModelCooldown(until: Date().addingTimeInterval(pause.seconds), reason: pause.reason))
                 }
                 if !request.allowFallback { break }
             }
         }
+        let keys = rejectedKeys.isEmpty ? "" : " API keys rejected by \(rejectedKeys.joined(separator: ", ")): the user checks them in the Delegate app."
         throw DelegateError(description: "All attempts failed:\n" + failures.map { "- \($0)" }.joined(separator: "\n")
-            + "\nWhat to do: retry later or with another model from list_models (failed models may now be paused), or do the task yourself.")
+            + "\nWhat to do: retry later or with another model from list_models (failed models may now be paused), or do the task yourself." + keys)
+    }
+
+    /// Odmowa klucza (zły, pusty, nieczytelny z Keychain): 401, 403, 402 z „authentication” (Venice tak odpowiada).
+    static func isKeyRejected(_ error: Error) -> Bool {
+        guard case ProviderError.http(let status, let body) = error else { return false }
+        return status == 401 || status == 403 || (status == 402 && body.lowercased().contains("authentication"))
     }
 
     private func header(_ c: Candidate, _ r: ChatReply, ms: Int, cost: Double?, failures: [String]) -> String {

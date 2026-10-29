@@ -3,7 +3,7 @@ import Foundation
 import MCP
 
 /// Jedyne źródło wersji: `build-app.sh` wpisuje ją do Info.plist, a workflow wydania sprawdza, czy zgadza się z tagiem.
-let version = "0.4.0"
+let version = "0.5.0"
 let home = DelegateHome.resolve()
 let args = CommandLine.arguments.dropFirst()
 
@@ -160,6 +160,7 @@ func agentTool(_ guide: DelegationGuide, clientName: String?) -> Tool {
             ]),
             "report_file": prop("string", "Absolute path; write the report there and return only the header and a preview."),
             "branch_from": prop("string", "Write mode: branch or commit to start from instead of HEAD, e.g. a previous delegate/… branch for a follow-up round."),
+            "check": prop("string", "Write mode: acceptance check run on the agent's branch after it finishes, e.g. `swift build --disable-sandbox && swift test --disable-sandbox` (SwiftPM needs the flag inside the sandbox). If it fails, the agent gets the error and fixes it (up to \(DelegateRequest.maxFixRounds) rounds). With a check the report is short: result, diff stat, summary."),
             "mode": .object([
                 "type": .string("string"), "enum": .array([.string("read"), .string("write")]),
                 "description": .string("read (default) or write (changes on a new branch; give a precise, self-contained task and the checks to run)."),
@@ -198,7 +199,8 @@ func baseTools(_ guide: DelegationGuide) -> [Tool] { [
             "fallback": prop("boolean", "Default true; false = only the given model."),
             "allow_secrets": prop("boolean", "Default false; true only if detected keys/tokens are intentional."),
             "output_file": prop("string", "Absolute path; the server writes the reply there and returns only a short preview."),
-            "background": prop("boolean", "Return a job ID at once; collect with delegate_result. Required for anything that may take over ~40 s (whole files, long output): sync calls are cut off at \(Int(DelegateRequest.syncDeadlineSeconds)) s."),
+            "check": prop("string", "Acceptance check with output_file, e.g. `python3 -m json.tool locales/pl.json` or a test command; runs in the file's repo (sandbox, no network). If it fails, the same model gets the error and fixes the file (up to \(DelegateRequest.maxFixRounds) rounds); you get one line: passed or failed with the error."),
+            "background": prop("boolean", "Return a job ID at once (collect with delegate_result); only to start several jobs in parallel. Without it the call waits up to \(Int(DelegateRequest.syncDeadlineSeconds)) s for the reply and, if the model is slower, keeps running as a background job."),
         ], required: ["prompt"])
     ),
     Tool(
@@ -289,16 +291,25 @@ await server.withMethodHandler(CallTool.self) { params in
                 // Nieznana wartość: ostrożniej traktujemy ją jak dane osobiste, nie publiczne.
                 sensitivity: Sensitivity(rawValue: a["sensitivity"]?.stringValue ?? "public") ?? .personal,
                 files: a["files"]?.arrayValue?.compactMap(\.stringValue) ?? [],
-                outputFile: a["output_file"]?.stringValue
+                outputFile: a["output_file"]?.stringValue,
+                check: a["check"]?.stringValue
             )
+            try service.preflight(request)
+            let id = await jobs.start(request)
             if a["background"]?.boolValue == true {
-                try service.preflight(request)
-                let id = await jobs.start(request)
                 return .init(content: [reply("Started background job \(id). Keep working; collect with delegate_result.")], isError: false)
             }
-            var sync = request
-            sync.deadlineSeconds = DelegateRequest.syncDeadlineSeconds
-            return .init(content: [reply(try await service.delegate(sync))], isError: false)
+            // Bez `background` czekamy na wynik w tym samym wywołaniu: każda dodatkowa tura dyrygenta czyta od nowa cały
+            // jego kontekst (R1: 3–8 tur więcej zjadało oszczędność). Zadanie i tak biegnie jako zadanie w tle, więc gdy nie
+            // zdąży przed limitem klienta, nie przepada: dyrygent dostaje ID zamiast błędu.
+            switch await jobs.state(of: id, waiting: DelegateRequest.syncDeadlineSeconds) {
+            case .done(let text)?:
+                return .init(content: [reply(text)], isError: false)
+            case .failed(let error)?:
+                return .init(content: [reply(error)], isError: true)
+            default:
+                return .init(content: [reply("Still running after \(Int(DelegateRequest.syncDeadlineSeconds)) s, as background job \(id); collect it with delegate_result (wait up to \(Int(DelegateJobs.maxWaitSeconds)) s) once you need the result.")], isError: false)
+            }
 
         case "delegate_result":
             let ids = a["ids"]?.arrayValue?.compactMap(\.stringValue) ?? []
@@ -367,6 +378,10 @@ await server.withMethodHandler(CallTool.self) { params in
             if branchFrom != nil && !write {
                 return .init(content: [reply("branch_from works only with mode \"write\".")], isError: true)
             }
+            let check = a["check"]?.stringValue.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
+            if check != nil && !write {
+                return .init(content: [reply("check works only with mode \"write\" (it runs on the agent's branch).")], isError: true)
+            }
             let details = DelegateJobs.Details(agent: agentID, model: model, repo: repoRoot.path, write: write)
             let conductor = await clientState.name
             let autoPicked = picked != nil
@@ -380,7 +395,8 @@ await server.withMethodHandler(CallTool.self) { params in
                     let started = Date()
                     do {
                         let report = try await agentRunner.run(agent: current, repo: repoURL, task: task, model: currentModel,
-                                                               effort: currentEffort, write: write, branchFrom: branchFrom)
+                                                               effort: currentEffort, write: write, branchFrom: branchFrom,
+                                                               check: check)
                         _ = recordAgentOutcome(current.id, error: nil)
                         usageLog.append(UsageEntry(provider: "agent:\(current.id)", model: report.model ?? "default", task: "agent",
                                                    inputTokens: report.inputTokens, outputTokens: report.outputTokens,

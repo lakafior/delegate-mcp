@@ -1,0 +1,6 @@
+{
+  "prompt": "Napisz testy jednostkowe (unittest, bez zewnętrznych bibliotek) dla src/textutils.py w tests/test_textutils.py. Pokryj każdą funkcję, przypadki brzegowe i błędy opisane w docstringach. Testy mają przechodzić poleceniem `python3 -m unittest discover -s tests` uruchomionym z katalogu głównego repo.",
+  "artifacts": ["tests/test_textutils.py"],
+  "judge_inputs": ["src/textutils.py"],
+  "rubric": "Tests pass, cover every function and the edge cases and errors from the docstrings (accents and ł in slugify, max_length without trailing separator, truncate placeholder and ValueError, parse_duration units/case/repeats/bare number/errors, format_bytes decimal vs binary and negative, word_wrap exact fit/long words/whitespace/empty). Assertions are exact, not vague; tests are readable and independent."
+}

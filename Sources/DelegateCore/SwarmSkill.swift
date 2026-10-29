@@ -60,8 +60,8 @@ public enum SwarmSkill {
     - Split the goal into tasks that don't touch the same files and don't depend on each other's results. Tasks
       that must run in sequence go in later waves.
     - Pick the executor per task:
-      - **Text from files or short input** (translations, docs, changelog, fixtures, one-file rewrites):
-        `delegate` with `files` in, `output_file` out, `background: true`.
+      - **Long text from files** (translations, docs, changelog, fixtures, one-file rewrites; worth it from a few
+        hundred lines of output): `delegate` with `files` in, `output_file` out, a `check`, `background: true`.
       - **Repo analysis**: `delegate_agent` in read mode.
       - **Code changes with checks**: `delegate_agent` with `mode: "write"`. Its branch starts from HEAD, so
         tell the user to commit first if the task builds on uncommitted work.
@@ -69,8 +69,9 @@ public enum SwarmSkill {
       stronger ones for tricky logic. An agent on your own subscription (Claude Agent when you are Claude) only
       pays off with a cheaper model. Respect `sensitivity` (work or personal code: `personal`) and repository
       rules; if a job is refused, don't route around the rule.
-    - Write each brief as if for a contractor who sees only the repo and the brief: the goal, the files and
-      boundaries, constraints (style, no new dependencies), the exact checks to run and what to report.
+    - Brief like a senior to a junior: the goal in a few sentences, boundaries (files, no new dependencies) and
+      the acceptance `check` (build, tests, a validator). Don't explain what the agent can read in the repo or
+      the model gets in `files`; a long brief costs you more than it saves.
     - Show the plan as a short table (task, executor and model, mode, files) and wait for the user's go-ahead,
       unless they already said to proceed. Dispatching sends code to other providers and spends their quotas.
 
@@ -81,8 +82,9 @@ public enum SwarmSkill {
     - Collect with `delegate_result` (`wait` up to 40 s per call), all job IDs at once.
 
     ## 4. Review every result
-    - Read the report, then check the work itself: for write mode `git diff <base>...<branch>` and run the
-      relevant tests yourself; for text output, open the file.
+    - A passing `check` plus `git diff --stat` is the acceptance. The server already sent failures back for up to
+      two fix rounds, so don't re-run the checks or write your own validators. Read the diff only when the check
+      failed, the stat looks wrong (unexpected files, huge changes) or the area is risky.
     - Spot-check file:line claims from read-mode reports before relying on them.
     - Accept, or send one follow-up round with concrete feedback (`delegate_agent` write mode with
       `branch_from: "<branch>"` continues on top of the agent's branch). If a task fails twice, do it yourself.

@@ -27,6 +27,10 @@ public struct AgentReport: Sendable {
     public var write = false
     /// Tryb zapisu: niezacommitowane zmiany użytkownika nie weszły do gałęzi.
     public var uncommittedLeftOut = false
+    /// Tryb zapisu z `check`: wynik po ostatniej rundzie poprawek.
+    public var check: CheckResult?
+    /// Z `check` raport jest krótki (senior patrzy na wynik testów i `--stat`): tyle znaków podsumowania agenta.
+    static let briefSummaryCharacters = 600
 
     /// Tekst dla Claude'a: nagłówek jak przy `delegate`, raport, na końcu skrót tego, co agent robił.
     public var formatted: String {
@@ -43,7 +47,16 @@ public struct AgentReport: Sendable {
         } else {
             h += includesUncommitted ? " · snapshot: HEAD + uncommitted changes" : " · snapshot: HEAD"
         }
-        var out = h + "\n\n" + text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var summary = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let check {
+            if summary.count > Self.briefSummaryCharacters {
+                summary = String(summary.suffix(Self.briefSummaryCharacters)).drop { $0 != " " && $0 != "\n" }
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                summary = "…" + summary
+            }
+            summary = check.line + (check.passed ? "" : ":\n```\n\(check.output)\n```") + "\n\nAgent's summary: " + summary
+        }
+        var out = h + "\n\n" + summary
         if !rejected.isEmpty {
             out += "\n\nBlocked\(write ? "" : " (read-only)"): " + rejected.joined(separator: "; ")
         }
@@ -166,6 +179,18 @@ public struct AgentRunner: Sendable {
         self.useSandbox = useSandbox
     }
 
+    /// Runda poprawki po nieudanym `check`.
+    static func fixPrompt(check: String, result: CheckResult) -> String {
+        """
+        The acceptance check `\(check)` failed (exit \(result.exitCode)):
+        ```
+        \(result.output)
+        ```
+        Fix the code so that it passes. Don't weaken the check or the tests to make it pass unless they are wrong; \
+        if they are, say why. Reply with a short summary of what you changed.
+        """
+    }
+
     /// Zasady doklejane przed zadaniem. Piaskownica i tak blokuje zapis; to oszczędza agentowi prób.
     static func readOnlyPrompt(task: String, cwd: URL, includesUncommitted: Bool = false) -> String {
         // `git stash create` robi z niezacommitowanych zmian dwa techniczne commity; bez tej uwagi agent bierze je za historię.
@@ -205,7 +230,7 @@ public struct AgentRunner: Sendable {
 
     public func run(agent: InstalledAgent, repo: URL, task: String, model: String? = nil, effort: String? = nil,
                     write: Bool = false, branchFrom: String? = nil, timeout: Duration = .seconds(600),
-                    idleLimit: Duration? = nil,
+                    idleLimit: Duration? = nil, check: String? = nil,
                     jobID: String = UUID().uuidString) async throws -> AgentReport {
         if useSandbox && !AgentSandbox.isAvailable {
             throw DelegateError(description: "sandbox-exec is missing on this Mac; agents won't run without a sandbox.")
@@ -341,6 +366,31 @@ public struct AgentRunner: Sendable {
                 throw DelegateError(description: "\(agent.name) \(what).\(note) Partial report:\n\(partial)",
                                     branch: kept)
             }
+            // Kryterium akceptacji: jak senior, który odsyła pracę juniorowi, aż testy przejdą. Poprawki w tej samej
+            // sesji (agent pamięta, co zrobił); w czasie polecenia watchdog ciszy śpi.
+            var checkResult: CheckResult?
+            if write, let check = check?.trimmingCharacters(in: .whitespacesAndNewlines), !check.isEmpty {
+                let runner = CheckRunner(home: home, userHome: userHome, useSandbox: useSandbox)
+                let writable = AgentSandbox.gitWriteDirectories(snapshot)
+                await collector.setWatching(false)
+                var outcome = await runner.run(check, in: snapshot.path, writable: writable, network: true)
+                while !outcome.passed && outcome.fixes < DelegateRequest.maxFixRounds {
+                    await collector.setWatching(true)
+                    do {
+                        _ = try await conn.request("session/prompt", [
+                            "sessionId": .string(session.id),
+                            "prompt": [["type": "text", "text": .string(Self.fixPrompt(check: check, result: outcome))]],
+                        ], timeout: timeout)
+                    } catch {
+                        break   // limit czasu albo cisza w poprawce: zostaje ostatni wynik, praca na gałęzi
+                    }
+                    await collector.setWatching(false)
+                    let fixes = outcome.fixes + 1
+                    outcome = await runner.run(check, in: snapshot.path, writable: writable, network: true)
+                    outcome.fixes = fixes
+                }
+                checkResult = outcome
+            }
             await conn.close()
             var branch: RepoSnapshot.BranchResult?
             if write {
@@ -354,6 +404,7 @@ public struct AgentRunner: Sendable {
                                           stopReason: result["stopReason"]?.stringValue,
                                           includesUncommitted: snapshot.includesUncommitted)
             report.write = write
+            report.check = checkResult
             report.branch = branch
             report.uncommittedLeftOut = snapshot.uncommittedLeftOut
             // Kopia repo znika po zadaniu: ścieżki do niej (np. linki `file://` w raporcie) zamieniamy na oryginał.
@@ -416,10 +467,16 @@ public struct AgentRunner: Sendable {
 actor AgentCollector {
     private(set) var text = ""
     private var lastActivity = Date()
-    /// Sekundy od ostatniej wiadomości od agenta (watchdog zawieszenia).
-    var quietSeconds: Double { Date().timeIntervalSince(lastActivity) }
+    private var watching = true
+    /// Sekundy od ostatniej wiadomości od agenta (watchdog zawieszenia); 0, gdy agent czeka na nas (np. `check`).
+    var quietSeconds: Double { watching ? Date().timeIntervalSince(lastActivity) : 0 }
 
     func touch() { lastActivity = Date() }
+
+    func setWatching(_ on: Bool) {
+        watching = on
+        lastActivity = Date()
+    }
     private var calls: [String: AgentReport.ToolCall] = [:]
     private var order: [String] = []
     private var rejected: [String] = []

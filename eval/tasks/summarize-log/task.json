@@ -1,0 +1,6 @@
+{
+  "prompt": "Przejrzyj logs/server.log (doba z produkcji) i napisz INCIDENTS.md po polsku: każdy incydent z czasem początku i końca, przyczyną i skutkiem; co się powtarza; co naprawić najpierw.",
+  "artifacts": ["INCIDENTS.md"],
+  "judge_reference": "make_log.py",
+  "rubric": "The reference generator's docstring lists the three real incidents. Score on: all three found with correct start/end times (minute precision), correct cause and effect; the recurrence of the worker-3 OOM (three times, growing memory during image-resize) noticed; sensible priority; benign noise (slow queries, cache, cleanup jobs) not reported as incidents."
+}

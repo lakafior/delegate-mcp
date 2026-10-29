@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Order",
+  "type": "object",
+  "required": ["id", "customer", "items", "currency", "status", "createdAt", "shipping"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^ord_[a-z0-9]{8}$" },
+    "customer": {
+      "type": "object",
+      "required": ["id", "email", "country"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^cus_[a-z0-9]{8}$" },
+        "email": { "type": "string", "pattern": "^[^@\\s]+@[^@\\s]+\\.[a-z]{2,}$" },
+        "country": { "type": "string", "enum": ["PL", "DE", "FR", "US", "GB", "NL"] },
+        "vatId": { "type": ["string", "null"] }
+      }
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "required": ["sku", "quantity", "unitPrice"],
+        "additionalProperties": false,
+        "properties": {
+          "sku": { "type": "string", "pattern": "^[A-Z]{3}-[0-9]{4}$" },
+          "quantity": { "type": "integer", "minimum": 1, "maximum": 50 },
+          "unitPrice": { "type": "number", "exclusiveMinimum": 0 }
+        }
+      }
+    },
+    "currency": { "type": "string", "enum": ["PLN", "EUR", "USD", "GBP"] },
+    "status": { "type": "string", "enum": ["pending", "paid", "shipped", "cancelled", "refunded"] },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "shipping": {
+      "type": "object",
+      "required": ["method", "cost"],
+      "additionalProperties": false,
+      "properties": {
+        "method": { "type": "string", "enum": ["courier", "parcel_locker", "pickup"] },
+        "cost": { "type": "number", "minimum": 0 }
+      }
+    },
+    "notes": { "type": ["string", "null"], "maxLength": 200 }
+  }
+}

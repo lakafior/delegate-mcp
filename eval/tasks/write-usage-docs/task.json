@@ -1,0 +1,6 @@
+{
+  "prompt": "Napisz dokumentację użytkownika dla tidy.py w docs/USAGE.md (po angielsku): instalacja/uruchomienie, wszystkie podkomendy i opcje z wartościami domyślnymi, plik konfiguracyjny i jego lokalizacje, zmienne środowiskowe, kody wyjścia i kilka przykładów.",
+  "artifacts": ["docs/USAGE.md"],
+  "judge_inputs": ["tidy.py"],
+  "rubric": "Every subcommand and option documented with correct defaults and behaviour as implemented in tidy.py (not invented); config lookup order, environment variable precedence and exit codes match the code; examples are correct and runnable; clear structure."
+}

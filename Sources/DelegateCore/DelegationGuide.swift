@@ -105,18 +105,18 @@ public struct DelegationGuide: Sendable {
         The model has no tools and sees only `prompt` and `files`, but the server does the file I/O:
         - `files`: absolute paths the server reads. Don't read or retype big files just to pass them on.
         - `output_file`: the server writes the reply there and you get a preview. Use it whenever the result \
-        is a file; then check it with `git diff`.
-        - `background: true`: returns a job ID at once. Start several independent jobs in one turn, keep \
-        working, collect them with `delegate_result`. Use it for anything that may take over ~40 s (whole files, \
-        long output): sync calls are cut off at \(Int(DelegateRequest.syncDeadlineSeconds)) s.
+        is a file; then check it with one `git diff`.
+        - A call waits up to \(Int(DelegateRequest.syncDeadlineSeconds)) s for the reply; a slower one keeps \
+        running as a job for `delegate_result`. `background: true` only to start several jobs at once.
 
-        Good fits: translating or extending locale files; docs, README, changelog, commit message drafts; test \
-        data and fixtures; boilerplate modelled on an example file; mechanical rewrites of one file; summaries \
-        or first-pass reviews of long files and logs (ask for a short report, so you read less); any text over \
-        ~\(wordThreshold) words that doesn't depend on things only you can see. You are the conductor: pick the \
-        files, write a precise brief (task, constraints, exact output format, e.g. "only the file content"), \
-        review what comes back. Do it yourself: edits spanning many files, design, debugging that needs running \
-        code, short answers.
+        Every extra turn re-reads your whole context, so delegating pays only when it replaces a lot of your own \
+        writing or reading: output over ~\(lineThreshold) lines (whole locale files, many fixtures, long docs), \
+        or big inputs you would otherwise read (logs, long files: ask for a short report). Measured: for outputs \
+        under ~200 lines delegating cost more than writing it yourself. Work like a senior with juniors: a short \
+        brief (goal, constraints, output format; nothing the model can read in `files`), and an acceptance `check` \
+        (tests, build, validator): failures go back to the same model, you get one line. Accept on a passing check \
+        and `git diff --stat`; read the diff only if it fails or is risky; don't write your own validators. Do it \
+        yourself: short outputs, edits across many files, design, debugging that needs running code.
 
         Choose `model` from the catalog below by what the task needs, cost (prefer free at similar quality), and \
         data region. Without `model`, the server routes by `task` tag and provider order, falling back on errors.
@@ -131,7 +131,8 @@ public struct DelegationGuide: Sendable {
                 + "user's priority order (omit `agent` for the first allowed; pick another only for a reason): \(agentList). "
                 + "Read mode: repo-wide searches and analysis (where X is used, what must change, a module review) instead of "
                 + "reading many files yourself; spot-check its file:line claims. Write mode: well-scoped changes (translations, "
-                + "tests, refactors, a feature slice) on a branch `delegate/…`; review its diff before merging. "
+                + "tests, refactors, a feature slice) on a branch `delegate/…`, with a `check` (e.g. build and tests); "
+                + "the brief can be short, the agent reads the repo itself. Merge on a passing check after `git diff --stat`. "
                 + "Independent jobs can run in parallel; results via `delegate_result`."
         }
         if !routingGuidance.isEmpty { out += "\n\nUser's rules: " + routingGuidance }
@@ -146,11 +147,12 @@ public struct DelegationGuide: Sendable {
         }
     }
 
-    private var wordThreshold: Int {
+    /// Od ilu linii wyniku delegowanie się opłaca (R1: poniżej ok. 200 linii kosztowało więcej niż pisanie samemu).
+    private var lineThreshold: Int {
         switch mode {
-        case .conservative: 400
-        case .balanced: 150
-        case .aggressive: 50
+        case .conservative: 500
+        case .balanced: 300
+        case .aggressive: 150
         }
     }
 

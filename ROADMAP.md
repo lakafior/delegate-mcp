@@ -11,9 +11,9 @@ Claude (albo inny asystent) jako dyrygent: rozbija pracę na zadania, oddaje je 
 
 | Etap | Zakres | Gotowe, gdy |
 |---|---|---|
-| R1. Pomiar oszczędności | zestaw ok. 10 typowych zadań (tłumaczenie locale, README, fixture, review długiego pliku, analiza repo agentem…), każde przez `claude -p --output-format json` z serwerem `delegate` i bez, po 2 przebiegi; tokeny i koszt Claude'a + ocena wyniku wg rubryki. Najpierw pilot: 3–4 zadania po jednym przebiegu, żeby sprawdzić skrypt i rubrykę | tabela: które rodzaje zadań oszczędzają, które nie; wnioski wpisane do instrukcji serwera |
-| R2. Raporty agentów z dowodami | `delegate_agent` read: stały format raportu (tezy z `plik:linia`, osobno pewne i do sprawdzenia), żeby Claude weryfikował wyrywkowo | w R1 Claude czyta po raporcie mniej plików niż bez agenta |
-| R6, krok 3. Kolejność agentów z danych | w R1 te same ok. 5 zadań przez każdego agenta | domyślna kolejność `[[agent]]` ustawiona z wyników, nie z opinii |
+| R1c. Jakość przy delegowaniu | z R1b: tani model psuje szczegóły, które Opus robi sam (kategorie liczby mnogiej w es/fr), a Opus nie dał `check`. Instrukcje: reguły łatwe do przeoczenia wprost w briefie, `check` przy każdym pliku z formatem (JSON, testy); dużo powtarzalnych danych → skrypt generujący zamiast delegowania | tłumaczenie na 4 języki z `delegate` zachowuje oszczędność ok. 50% i ocenę sędziego ≥ 4 |
+| R2. Raporty agentów z dowodami | `delegate_agent` read: stały format raportu (tezy z `plik:linia`, osobno pewne i do sprawdzenia), żeby Claude weryfikował wyrywkowo. R1b: z agentem dyrygent czytał 3–6 plików zamiast 10–13, ale wciąż weryfikował; sędzia wytknął zmyślone odwołania w jednym raporcie | po raporcie dyrygent czyta najwyżej 1–2 pliki, ocena sędziego 5 |
+| R6, krok 3. Kolejność agentów z danych | te same ok. 5 zadań przez każdego agenta (`delegate_agent` z podanym `agent`) | domyślna kolejność `[[agent]]` ustawiona z wyników, nie z opinii |
 | E. Próba w prawdziwej pracy | uzupełnienie R1: kilka dni normalnej pracy, potem zakładka Usage i statystyki agentów w `list_models` | wiadomo, czy dyrygent sam sięga po agentów, czy trzeba go popychać skillem; które zadania kończą się poprawkami |
 | Później | tylko jeśli R1 pokaże zysk: wagi routingu zamiast samej kolejności (jak „mode packs” w OmniRoute); panel tanich modeli + sędzia do review | osobny plan |
 
@@ -56,6 +56,13 @@ Wersja 0.4.0 (etapy R z 29.10.2026):
 - **R3. Odmowy z instrukcją**: każda odmowa routingu i „All attempts failed” kończą się „What to do:”.
 - **R4. Preset gatewaya**: „Gateway (OmniRoute / LiteLLM)” z obowiązkowym wyborem regionu przy dodawaniu.
 - **R5. Gemini**: niski poziom myślenia dla Flash/Pro 3+, pole `thinking` per model, tokeny myślenia w logu (wyniki niżej).
+- **R1. Pomiar oszczędności** (`eval/`, wyniki niżej) i poprawki z niego: `delegate` bez `background` czeka na wynik
+  w tej samej turze (wolniejszy zostaje zadaniem w tle), instrukcje serwera i blok w `~/.claude/CLAUDE.md` z progiem
+  ~300 linii i zasadą jednej rundy; zły albo nieczytelny klucz nie przechodzi po wszystkich modelach dostawcy.
+- **R1b. Pomiar po poprawkach** (wyniki niżej): delegowanie oszczędza przy dużym wyjściu i z agentem, kosztem jakości szczegółów.
+- **Model seniora z juniorami**: `check` w `delegate` i `delegate_agent` (zapis) z rundami poprawek po stronie serwera
+  (do 2), akceptacja po zielonym `check` i `--stat`, krótkie briefy w instrukcjach i `/swarm`. Z R1: po delegowaniu
+  Opus robił 4–11 wywołań, pisał własne walidatory (venv, `npx ajv`), a briefy miały 1–5 tys. znaków.
 - **R6, kroki 1–2. Ranking agentów**: kolejność `[[agent]]` = priorytet (przeciąganie w apce), `guidance` per agent,
   opcjonalne pole `agent`; przerwy dla agentów (logowanie, limit planu, dwa limity czasu z rzędu), wykrywanie
   zawieszenia po ciszy (180 s odczyt, 360 s zapis), fallback na następnego agenta po błędzie na starcie, statystyki
@@ -91,6 +98,57 @@ Wnioski:
   główną dźwignią zostają instrukcje serwera: trzymać je krótkie (`instructionsStayCompact`).
 
 ## Wyniki
+
+### Pomiar oszczędności (R1, 29.10.2026)
+
+Skrypt: `eval/run.py`, 8 zadań, każde przez `claude -p` z serwerem `delegate` i bez; koszt dyrygenta z `modelUsage`,
+jakość z `check.py` i sędziego (Sonnet, 1–5). Pilot na Sonnecie (1 przebieg), potem Opus (2 przebiegi dla 3 zadań,
+1 dla pozostałych 5: w połowie skończył się limit sesji). Szum przy jednym przebiegu: ok. ±25%.
+
+Opus, koszt dyrygenta z `delegate` względem bez (mediana):
+
+| Zadanie | Delegował? | Koszt | Tury | Sędzia (bez → z) |
+|---|---|---|---|---|
+| fixture'y (25 zamówień) | tak, Mistral | **+49%** (oba przebiegi +48–50%) | 8,5 → 16 | 4,5 → 4,5 |
+| testy jednostkowe | tak | **+57%** | 6 → 15 | 5 → 4 |
+| dokumentacja CLI | tak | **+27%** | 8 → 20 | 5 → 4 |
+| tłumaczenie 199 tekstów | tak | −1% | 5 → 9 | 3 → 4 |
+| analiza repo | nie (agenta ani razu) | −17% | 20,5 → 18,5 | 5 → 5 |
+| incydenty z logu | nie | −12% | 18 → 16 | 4 → 4 |
+| review 422 linii | nie | −7% | 4,5 → 6 | 3,5 → 4 |
+| changelog | nie | +8% | 5 → 5 | 5 → 5 |
+
+Wnioski:
+- **Na krótkich zadaniach delegowanie nie oszczędza, tylko kosztuje.** Każda tura od nowa czyta z cache cały kontekst
+  (100–300 tys. tokenów); delegowanie dokładało 4–12 tur (ToolSearch, `delegate_result`, sprawdzanie wyniku, poprawki).
+  Nawet tokeny wyjścia dyrygenta nie spadały: brief i poprawki zjadały różnicę (testy: 7,9 → 11,1 tys.).
+- **Próg.** Wyjście Opusa jest ok. 5× droższe od wejścia, odczyt cache ok. 10% wejścia, więc jedna tura przy 150 tys.
+  kontekstu to ok. 3 tys. tokenów wyjścia. Przy kilku dodatkowych turach delegowanie zwraca się dopiero powyżej
+  ok. 12–15 tys. tokenów wyjścia (kilkaset linii). Nasze zadania miały 4–9 tys.
+- **Jakość tanich modeli nie jest problemem:** Mistral dał tę samą albo lepszą ocenę (fixture'y, tłumaczenie); gorzej
+  o punkt tylko testy i dokumentacja.
+- **Opus rzadko deleguje i nie użył `delegate_agent` ani razu**, także przy analizie repo. R2 trzeba mierzyć wprost.
+- Różnice w zadaniach bez delegowania (−17%…+8%) to szum, nie efekt serwera.
+
+### Pomiar po poprawkach (R1b, 29.10.2026)
+
+Nowy serwer (`delegate` czeka na wynik w tej samej turze, próg ~300 linii, `check`, briefy w stylu seniora), Opus,
+2 przebiegi na wariant.
+
+| Zadanie | Bez `delegate` | Z `delegate` | Tury | Sędzia (bez → z) |
+|---|---|---|---|---|
+| tłumaczenie 199 tekstów na 4 języki | $1,11 | **$0,56 (−50%)** | 10 → 22,5 | 5 i 4 → 4 i 2 |
+| 200 fixture'ów | $0,48 | $0,48 (0%) | 10,5 → 12 | 4 → 4 |
+| analiza repo, agent wymuszony | $0,98 (z R1) | **$0,61 (−38%)** | 20,5 → 11,5 | 5 → 4 |
+
+Wnioski:
+- **Powyżej progu delegowanie oszczędza:** przy dużym wyjściu (4 tłumaczenia: wyjście dyrygenta 28,6 → 9,1 tys.
+  tokenów) i przy analizie repo agentem (mniej tur, 3–6 odczytów plików zamiast 10–13).
+- **Ceną jest jakość szczegółów:** jedno tłumaczenie dostało 2/5 za błędne kategorie liczby mnogiej (`many` w es/fr
+  z wymyślonymi formami); Opus pisze to poprawnie sam, tani model trzeba o to poprosić. Opus nie użył `check`.
+- **Przy dużych powtarzalnych danych najtańszy jest skrypt:** przy 200 fixture'ach Opus w obu wariantach napisał
+  generator w Pythonie, więc delegowanie nie miało czego oszczędzić.
+- Raport agenta zastępuje część czytania, ale dyrygent go weryfikuje; dowody `plik:linia` w raporcie (R2) mogą to skrócić.
 
 ### Gemini (R5)
 

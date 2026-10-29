@@ -85,6 +85,46 @@ import Testing
         #expect(text.contains("No provider is ready"))
     }
 
+    @Test func rejectedKeySkipsTheProvidersOtherModels() async throws {
+        let cfg = Config(providers: [
+            provider("mistral", "https://api.mistral.ai/v1", key: "MISTRAL_API_KEY",
+                     models: [ModelConfig(id: "a"), ModelConfig(id: "b"), ModelConfig(id: "c")]),
+            ProviderConfig(id: "gemini", kind: .gemini, baseURL: "https://generativelanguage.googleapis.com/v1beta",
+                           apiKeyEnv: "GEMINI_API_KEY", models: [ModelConfig(id: "gemini-flash-lite-latest")]),
+        ])
+        let t = MockTransport([
+            "api.mistral.ai": .init(status: 401, body: #"{"detail":"Invalid API Key"}"#),
+            "generativelanguage.googleapis.com": .init(status: 200, body: geminiBody),
+        ])
+        let log = UsageLog(url: FileManager.default.temporaryDirectory.appendingPathComponent("usage-\(UUID()).jsonl"))
+        let svc = DelegateService(loadConfig: { cfg }, secrets: FixedSecrets(values: ["MISTRAL_API_KEY": "bad", "GEMINI_API_KEY": "g"]),
+                                  transport: t, onDevice: FakeOnDevice(), usage: log)
+        let reply = try await svc.delegate(.init(prompt: "x"))
+        #expect(reply.contains("gemini/"))
+        #expect(reply.contains("2 more model(s) skipped"))
+        #expect(t.calls.filter { $0.url?.host == "api.mistral.ai" }.count == 1)
+        #expect(svc.cooldowns.active().isEmpty)   // zły klucz to nie wina modelu
+        #expect(DelegateService.isKeyRejected(ProviderError.http(status: 402, body: "Authentication required")))
+        #expect(!DelegateService.isKeyRejected(ProviderError.http(status: 402, body: "Insufficient balance")))
+    }
+
+    @Test func unreadableKeyIsReportedInsteadOfSendingAnEmptyOne() async {
+        /// Keychain widzi wpis, ale odczyt zwraca nic (proces sprzed podmiany binarki).
+        struct ListedButUnreadable: SecretStore {
+            func secret(for name: String) -> String? { nil }
+            func hasSecret(for name: String) -> Bool { true }
+        }
+        let cfg = Config(providers: [provider("mistral", "https://api.mistral.ai/v1", key: "MISTRAL_API_KEY",
+                                              models: [ModelConfig(id: "a"), ModelConfig(id: "b")])])
+        let t = MockTransport([:])
+        let log = UsageLog(url: FileManager.default.temporaryDirectory.appendingPathComponent("usage-\(UUID()).jsonl"))
+        let svc = DelegateService(loadConfig: { cfg }, secrets: ListedButUnreadable(), transport: t, onDevice: FakeOnDevice(), usage: log)
+        let error = await #expect(throws: DelegateError.self) { try await svc.delegate(.init(prompt: "x")) }
+        #expect(error?.description.contains("can't read it; restart the MCP server") == true)
+        #expect(t.calls.isEmpty)
+        #expect(ModelCooldowns.cooldown(for: ProviderError.http(status: 402, body: "Authentication required")) == nil)
+    }
+
     @Test func allAttemptsFailed() async {
         let cfg = Config(providers: [provider("mistral", "https://api.mistral.ai/v1", key: "MISTRAL_API_KEY",
                                               models: [ModelConfig(id: "mistral-small-latest")])])

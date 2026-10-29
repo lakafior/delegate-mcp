@@ -166,6 +166,10 @@ public struct AgentSandbox: Sendable {
     public var readableExceptions: [URL] = []
     /// Katalogi, których same metadane (`stat`) są widoczne, choć zawartość nie (git sprawdza ścieżkę oryginalnego repo).
     public var metadataExceptions: [URL] = []
+    /// `false`: bez połączeń sieciowych (gniazda unix zostają), np. dla poleceń `check`.
+    public var network = true
+    /// `false`: bez dostępu do Keychain (`security` nie wyciągnie kluczy), np. dla poleceń `check`.
+    public var keychain = true
 
     public static let executable = URL(fileURLWithPath: "/usr/bin/sandbox-exec")
     public static var isAvailable: Bool { FileManager.default.isExecutableFile(atPath: executable.path) }
@@ -198,6 +202,10 @@ public struct AgentSandbox: Sendable {
         if !metadataExceptions.isEmpty {
             let literals = metadataExceptions.map { "(literal \"\(Self.escape(Self.realPath($0)))\")" }.joined(separator: " ")
             lines.append("(allow file-read-metadata \(literals))")
+        }
+        if !network { lines.append("(deny network-outbound (remote ip))") }
+        if !keychain {
+            lines.append("(deny mach-lookup (global-name \"com.apple.SecurityServer\") (global-name \"com.apple.securityd.xpc\"))")
         }
         return lines.joined(separator: "\n") + "\n"
     }

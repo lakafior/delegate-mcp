@@ -1,0 +1,30 @@
+{
+  "before_tag": [
+    "feat(editor): dark mode follows the system appearance",
+    "feat(sidebar): pinned notes stay at the top",
+    "fix(attachments): report failed uploads over 25 MB",
+    "chore: release 1.2.0"
+  ],
+  "after_tag": [
+    "feat(editor): render and edit Markdown tables",
+    "chore(deps): bump swift-markdown to 0.6.1",
+    "fix(sync): resolve conflicts when the same note is edited on two devices instead of keeping both copies",
+    "ci: cache SwiftPM builds",
+    "feat(export): export a note or a whole notebook to PDF",
+    "refactor(sync): extract SyncEngine from AppModel",
+    "fix(editor): crash when deleting the last line of an empty note",
+    "test(search): add fixtures for diacritics",
+    "fix(search): find notes regardless of diacritics (łódź matches lodz)",
+    "feat(tags): tags can have colors",
+    "docs: typo in CONTRIBUTING",
+    "change(settings): default editor font is now SF Pro Text 15 pt instead of Menlo 13 pt",
+    "remove(importer): drop the legacy Evernote ENEX importer (use the new Markdown import)",
+    "chore: format code with swift-format",
+    "fix(export): PDF export keeps images in their original aspect ratio",
+    "perf(search): index rebuild is 3x faster on large libraries",
+    "fix(sync): retry uploads after the Mac wakes from sleep",
+    "ci: run UI tests on macOS 26",
+    "feat(tags): filter the note list by several tags at once",
+    "chore: release 1.3.0 prep"
+  ]
+}
