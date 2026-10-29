@@ -132,7 +132,8 @@ public struct DelegationGuide: Sendable {
                 + "Read mode: repo-wide searches and analysis (where X is used, what must change, a module review) instead of "
                 + "reading many files yourself; spot-check its file:line claims. Write mode: well-scoped changes (translations, "
                 + "tests, refactors, a feature slice) on a branch `delegate/…`, with a `check` (e.g. build and tests); "
-                + "the brief can be short, the agent reads the repo itself. Merge on a passing check after `git diff --stat`. "
+                + "the brief can be short, the agent reads the repo itself; to act on an earlier report pass `context_jobs` "
+                + "instead of retelling it. Merge on a passing check after `git diff --stat`. "
                 + "Independent jobs can run in parallel; results via `delegate_result`."
         }
         if !routingGuidance.isEmpty { out += "\n\nUser's rules: " + routingGuidance }

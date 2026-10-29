@@ -18,13 +18,20 @@ public actor DelegateJobs {
         public var repo: String?
         public var write: Bool?
         public var branch: String?
+        /// `sensitivity` zadania; zadanie, które dostaje jego wynik (`context_jobs`), nie może mieć łagodniejszej.
+        public var sensitivity: String?
+        /// `report_file`/`output_file`: wynik zadania to wtedy podgląd, całość jest w tym pliku.
+        public var reportFile: String?
 
-        public init(agent: String? = nil, model: String? = nil, repo: String? = nil, write: Bool? = nil, branch: String? = nil) {
+        public init(agent: String? = nil, model: String? = nil, repo: String? = nil, write: Bool? = nil, branch: String? = nil,
+                    sensitivity: String? = nil, reportFile: String? = nil) {
             self.agent = agent
             self.model = model
             self.repo = repo
             self.write = write
             self.branch = branch
+            self.sensitivity = sensitivity
+            self.reportFile = reportFile
         }
     }
 
@@ -79,7 +86,8 @@ public actor DelegateJobs {
     /// Uruchamia zadanie `delegate` i od razu zwraca jego ID.
     public func start(_ request: DelegateRequest) -> String {
         let run = self.run
-        let details = Details(model: request.model ?? request.task.map { "task: \($0)" })
+        let details = Details(model: request.model ?? request.task.map { "task: \($0)" },
+                              sensitivity: request.sensitivity.rawValue, reportFile: request.outputFile)
         return start(label: Self.label(for: request), details: details) { try await run(request) }
     }
 
@@ -243,6 +251,9 @@ public struct JobStore: Sendable {
         // Zapis atomowy: inny proces serwera nigdy nie przeczyta połowy pliku.
         try? encoder.encode(record).write(to: url(job.id), options: .atomic)
     }
+
+    /// Zadanie z dysku (także innej sesji albo sprzed restartu serwera).
+    public func job(_ id: String) -> DelegateJobs.Job? { load(id)?.job }
 
     func load(_ id: String) -> Stored? {
         // ID pochodzi od Claude'a: nie pozwalamy wyjść poza katalog zadań.

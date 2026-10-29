@@ -1,6 +1,6 @@
 # Roadmapa
 
-Stan na 29.10.2026 (wersja 0.4.0). Szczegóły techniczne i wyniki prób agentów: `docs/acp-plan.md`.
+Stan na 29.10.2026 (wersja 0.6.0). Szczegóły techniczne i wyniki prób agentów: `docs/acp-plan.md`.
 
 ## Cel
 
@@ -19,6 +19,10 @@ Claude (albo inny asystent) jako dyrygent: rozbija pracę na zadania, oddaje je 
 
 Drobne:
 - [ ] Pole `thinking` przy modelu (R5) jest tylko w TOML; kontrolka w edytorze modeli w apce.
+- [ ] Claude Code ma `timeout` per serwer MCP (ms, progress go nie przedłuża): sprawdzić, czy pozwala czekać dłużej
+  niż 60 s w jednym wywołaniu; jeśli tak, instalator go wpisuje, a `delegate_result` czeka dłużej (mniej tur).
+- [ ] Pomiar 0.6.0: `translate-four` (czy `alwaysLoad` zdejmuje turę ToolSearch) i nowe zadanie analiza → zmiana
+  z `context_jobs` i bez.
 
 Opcjonalnie:
 - [ ] **G. Inne modele w Claude Agent („model backend”).** Claude Agent to w środku Claude Code, a ten da się przepiąć
@@ -67,6 +71,14 @@ Wersja 0.4.0 (etapy R z 29.10.2026):
   opcjonalne pole `agent`; przerwy dla agentów (logowanie, limit planu, dwa limity czasu z rzędu), wykrywanie
   zawieszenia po ciszy (180 s odczyt, 360 s zapis), fallback na następnego agenta po błędzie na starcie, statystyki
   z logu (30 dni) w `list_models`.
+
+Wersja 0.6.0 (z artykułów i repo z sekcji niżej; jeszcze niezmierzone):
+- **`alwaysLoad`**: `delegate` i `delegate_result` mają `_meta["anthropic/alwaysLoad"]`, więc Claude Code nie chowa ich
+  za ToolSearch (R1 liczył ToolSearch jako dodatkową turę); `doctor` pokazuje, ile narzędzi tak oznaczono.
+- **Kontekst po referencji**: `delegate_agent` z `context_jobs` / `context_files` dostaje pełne raporty wcześniejszych
+  zadań jako pliki w kopii repo, zamiast żeby dyrygent je czytał i przepisywał; najostrzejsza `sensitivity` źródeł.
+- **Najmniejsza zmiana**: polecenie agenta w trybie zapisu zabrania abstrakcji, zależności i refaktoryzacji obok
+  (jak Ponytail u marmelab).
 
 ## Źródła i wnioski (29.10.2026)
 

@@ -147,7 +147,9 @@ przy starcie serwera: kiedy delegować (wyjście powyżej ~300 linii w trybie `b
 `files`, `output_file`, jeden `git diff`; próg z pomiaru R1, `eval/`), katalog po jednej linii na dostawcę
 (region, koszt, do 5 modeli z tagami, wskazówka) i `routing_guidance`. Model wybiera Claude; kolejność
 dostawców to tylko domyślna trasa i fallback (najpierw modele o wspólnych tagach). Instrukcje i opisy narzędzi
-idą w każdym zapytaniu, więc są krótkie (test `instructionsStayCompact`). Teksty dla Claude'a są po angielsku.
+idą w każdym zapytaniu, więc są krótkie (test `instructionsStayCompact`). Claude Code chowa narzędzia MCP za
+ToolSearch (dodatkowa tura dyrygenta); `delegate` i `delegate_result` mają `_meta["anthropic/alwaysLoad"] = true`,
+więc są zawsze w prompcie, reszta zostaje odłożona. `doctor` pokazuje, ile narzędzi tak oznaczono. Teksty dla Claude'a są po angielsku.
 
 Aplikacja (Ogólne → Claude) może dodatkowo dopisać do `~/.claude/CLAUDE.md` krótki blok
 (`ClaudeIntegration.instructions`), który tylko wzmacnia nawyk; starszy blok podmienia przyciskiem „Zaktualizuj”.
@@ -213,7 +215,14 @@ worktree, `.git/objects`, `refs/heads/delegate/*`, metadanych worktree, cache na
 `~/.cache`…) i katalogów tymczasowych użytkownika; hooki, config i inne gałęzie tylko do odczytu. Zgody: wszystko tak
 (tylko w piaskownicy), tryb sesji `acceptEdits`/`accept-edits`. Agent nie commituje; po zadaniu `finishBranch`
 commituje jako „Delegate (<agent>)”, zwraca `--stat` i polecenia review/merge/discard; pusta gałąź jest usuwana.
-SwiftPM w piaskownicy wymaga `--disable-sandbox` (mówi to polecenie dla agenta). Limit równoległych agentów:
+SwiftPM w piaskownicy wymaga `--disable-sandbox` (mówi to polecenie dla agenta). Polecenie (`writePrompt`) każe też
+robić najmniejszą zmianę, bez nowych abstrakcji, zależności i refaktoryzacji obok (jak Ponytail w teście marmelab:
+mniej rund poprawek i mniejszy diff do przejrzenia); niezmierzone u nas.
+**Kontekst po referencji** (`context_jobs`, `context_files`, `AgentContext`): wyniki zakończonych zadań (z
+`report_file`/`output_file` cały plik, nie podgląd) i pliki tekstowe serwer kopiuje do `.delegate-context/` w kopii
+repo, a przed zadaniem dopisuje, gdzie leżą; dyrygent nie przepisuje raportu do briefu. W trybie zapisu katalog jest
+usuwany przed commitem. Zadanie dziedziczy najostrzejszą `sensitivity` źródłowych zadań (zapisaną w `Details`;
+starsze zadania bez niej liczą się jak `personal`). Limit równoległych agentów:
 `max_parallel_agents` (domyślnie 3, `AgentSlots`). `branch_from` (tylko zapis): runda poprawek startuje z gałęzi
 poprzedniego agenta zamiast z `HEAD`.
 **`check` (model seniora z juniorami):** `delegate` (z `output_file`) i `delegate_agent` w trybie zapisu przyjmują polecenie

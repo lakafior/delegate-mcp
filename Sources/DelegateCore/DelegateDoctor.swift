@@ -166,7 +166,7 @@ public struct DelegateDoctor: Sendable {
                 checks.append(DiagnosticCheck(
                     name: "MCP server", severity: ok ? .ok : .warning,
                     message: ok
-                        ? "Responds in \(h.ms) ms (version \(h.serverVersion ?? "?"), \(h.tools.count) tools, instructions for Claude)"
+                        ? "Responds in \(h.ms) ms (version \(h.serverVersion ?? "?"), \(h.tools.count) tools, \(h.alwaysLoaded.count) always loaded, instructions for Claude)"
                         : "Responds, but without instructions for Claude: this is an older version. Rebuild and reinstall the app.",
                     detail: target.path))
             } catch {

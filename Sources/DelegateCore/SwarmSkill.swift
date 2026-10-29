@@ -58,7 +58,8 @@ public enum SwarmSkill {
 
     ## 2. Plan independent tasks
     - Split the goal into tasks that don't touch the same files and don't depend on each other's results. Tasks
-      that must run in sequence go in later waves.
+      that must run in sequence go in later waves; a later task gets an earlier report with `context_jobs: ["<id>"]`
+      instead of you retelling it in the brief.
     - Pick the executor per task:
       - **Long text from files** (translations, docs, changelog, fixtures, one-file rewrites; worth it from a few
         hundred lines of output): `delegate` with `files` in, `output_file` out, a `check`, `background: true`.

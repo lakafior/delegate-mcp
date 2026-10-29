@@ -111,6 +111,10 @@ while True:
             g = subprocess.run(["/usr/bin/git", "status", "--porcelain"], capture_output=True, text=True)
             out.append("status:" + ("ok" if g.returncode == 0 else "fail"))
             chunk(" ".join(out) + " ")
+        ctx = os.environ.get("FAKE_READ")
+        if ctx:
+            try: chunk("ctx:" + open(ctx).read().strip() + " ")
+            except Exception: chunk("ctx:missing ")
         chunk("got: " + text.splitlines()[-1] + "; ")
         send({"jsonrpc": "2.0", "id": "perm-1", "method": "session/request_permission", "params": {
             "sessionId": sid, "toolCall": {"toolCallId": "c1", "kind": os.environ.get("FAKE_PERM_KIND", "edit")},

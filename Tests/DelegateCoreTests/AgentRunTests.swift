@@ -538,6 +538,21 @@ func makeRepo() throws -> URL {
         #expect(try RepoSnapshot.git(["worktree", "list"], in: repo).split(separator: "\n").count == 1)
     }
 
+    @Test func contextReachesTheAgentButNotTheCommit() async throws {
+        let repo = try makeRepo()
+        let context = AgentContext(items: [.init(name: "j1.md", source: "report of job j1", text: "use tabs")],
+                                   sensitivity: .public)
+        let report = try await runner().run(agent: try agent("writer", env: ["FAKE_READ": ".delegate-context/j1.md"]),
+                                            repo: repo, task: "Apply the report", write: true, context: context,
+                                            jobID: "ctx1234")
+        #expect(report.text.contains("ctx:use tabs"))
+        #expect(report.text.contains("got: Apply the report"))   // notka o kontekście idzie przed zadaniem
+        let branch = try #require(report.branch?.branch)
+        let files = try RepoSnapshot.git(["ls-tree", "-r", "--name-only", branch], in: repo)
+        #expect(!files.contains(AgentContext.directory))
+        #expect(files.contains("new.txt"))
+    }
+
     @Test func followUpRoundContinuesOnTheAgentBranch() async throws {
         let repo = try makeRepo()
         let r = try runner()
@@ -664,5 +679,56 @@ func makeRepo() throws -> URL {
             .contains("same subscription as you: only with a cheaper model"))
         #expect(!AgentCatalog.describe(installed: [agent], config: c, checks: [:], clientName: "codex-mcp-client")
             .contains("same subscription"))
+    }
+}
+
+@Suite struct AgentContextTests {
+    private func job(_ id: String, _ state: DelegateJobs.State, sensitivity: String? = "public",
+                     reportFile: String? = nil) -> DelegateJobs.Job {
+        DelegateJobs.Job(id: id, label: "analysis", started: Date(), state: state,
+                         details: .init(agent: "fake", sensitivity: sensitivity, reportFile: reportFile))
+    }
+
+    @Test func jobsAndFilesBecomeFilesWithTheStrictestSensitivity() throws {
+        let dir = try tempDir("ctx")
+        let report = dir.appendingPathComponent("report.md")
+        try "full report".write(to: report, atomically: true, encoding: .utf8)
+        let notes = dir.appendingPathComponent("j1.md")
+        try "notes".write(to: notes, atomically: true, encoding: .utf8)
+        let jobs = ["j1": job("j1", .done("preview"), sensitivity: "personal", reportFile: report.path),
+                    "j2": job("j2", .done("short report"))]
+        let c = try AgentContext.resolve(jobIDs: ["j1", "j2"], files: [notes.path], jobs: jobs)
+        #expect(c.items.map(\.name) == ["j1.md", "j2.md", "2-j1.md"])   // nazwy bez kolizji
+        #expect(c.items.map(\.text) == ["full report", "short report", "notes"])   // z report_file cały plik, nie podgląd
+        #expect(c.sensitivity == .personal)
+        #expect(c.promptNote.contains(".delegate-context/j2.md: report of job j2 (analysis)"))
+
+        let root = try tempDir("copy")
+        try c.write(into: root)
+        #expect(try String(contentsOf: root.appendingPathComponent(".delegate-context/2-j1.md"), encoding: .utf8) == "notes")
+        #expect(throws: DelegateError.self) { try c.write(into: root) }   // istniejący katalog: nie nadpisujemy
+    }
+
+    @Test func unusableSourcesAreRefused() {
+        let jobs = ["run": job("run", .running), "bad": job("bad", .failed("boom"))]
+        for ids in [["run"], ["bad"], ["missing"]] {
+            #expect(throws: DelegateError.self) { try AgentContext.resolve(jobIDs: ids, files: [], jobs: jobs) }
+        }
+        #expect(throws: DelegateError.self) { try AgentContext.resolve(jobIDs: [], files: ["relative.md"], jobs: [:]) }
+        // Zadanie sprzed zapisu wrażliwości liczy się jak personal.
+        let old = try? AgentContext.resolve(jobIDs: ["o"], files: [], jobs: ["o": job("o", .done("x"), sensitivity: nil)])
+        #expect(old?.sensitivity == .personal)
+        #expect(Sensitivity.public < .personal && Sensitivity.personal < .private)
+    }
+}
+
+@Suite struct AgentPromptTests {
+    @Test func writeModeAsksForTheSmallestChangeAndEndsWithTheTask() {
+        let cwd = URL(fileURLWithPath: "/tmp/repo")
+        let write = AgentRunner.writePrompt(task: "Rename foo to bar", cwd: cwd, branch: "delegate/x", base: "abc")
+        #expect(write.contains("Make the smallest change that does what the task asks"))
+        #expect(write.hasSuffix("Task:\nRename foo to bar"))   // atrapa agenta czyta ostatnią linię promptu
+        // W trybie odczytu nic się nie zmienia, więc reguła tylko by zajmowała miejsce.
+        #expect(!AgentRunner.readOnlyPrompt(task: "Map X", cwd: cwd).contains("smallest change"))
     }
 }

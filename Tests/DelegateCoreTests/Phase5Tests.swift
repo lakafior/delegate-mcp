@@ -233,13 +233,14 @@ extension PriceCatalogTests {
         if [ "$1" = "--check-keys" ]; then echo '{"A_KEY":"readable","B_KEY":"needsApproval"}'; exit 0; fi
         read l1; read l2; read l3
         echo '{"jsonrpc":"2.0","id":1,"result":{"serverInfo":{"name":"delegate","version":"9.9"},"instructions":"use it"}}'
-        echo '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"delegate"},{"name":"list_models"}]}}'
+        echo '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"delegate","_meta":{"anthropic/alwaysLoad":true}},{"name":"list_models"}]}}'
         sleep 5
         """#)
         defer { try? FileManager.default.removeItem(at: fake) }
         let probe = HelperProbe(executable: fake)
         let h = try await probe.handshake(timeout: 10)
         #expect(h.serverVersion == "9.9" && h.hasInstructions && h.tools == ["delegate", "list_models"])
+        #expect(h.alwaysLoaded == ["delegate"])
         #expect(try await probe.keyAccess() == ["A_KEY": .readable, "B_KEY": .needsApproval])
     }
 

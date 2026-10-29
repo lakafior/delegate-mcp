@@ -15,6 +15,8 @@ public struct HelperProbe: Sendable {
         public var serverVersion: String?
         public var hasInstructions: Bool
         public var tools: [String]
+        /// Narzędzia z `_meta["anthropic/alwaysLoad"]`: Claude Code nie chowa ich za ToolSearch.
+        public var alwaysLoaded: [String] = []
         public var ms: Int
     }
 
@@ -68,8 +70,11 @@ public struct HelperProbe: Sendable {
                     version = (result?["serverInfo"] as? [String: Any])?["version"] as? String
                     instructions = !((result?["instructions"] as? String) ?? "").isEmpty
                 case 2:
-                    let tools = (result?["tools"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
-                    return Handshake(serverVersion: version, hasInstructions: instructions, tools: tools,
+                    let list = result?["tools"] as? [[String: Any]] ?? []
+                    let alwaysLoaded = list.filter { (($0["_meta"] as? [String: Any])?["anthropic/alwaysLoad"] as? Bool) == true }
+                    return Handshake(serverVersion: version, hasInstructions: instructions,
+                                     tools: list.compactMap { $0["name"] as? String },
+                                     alwaysLoaded: alwaysLoaded.compactMap { $0["name"] as? String },
                                      ms: Int(Date().timeIntervalSince(started) * 1000))
                 default:
                     continue

@@ -219,6 +219,12 @@ public struct AgentRunner: Sendable {
         your changes are committed to the branch for the user when you finish. End with a short Markdown summary: \
         what you changed (file by file), what you ran to check it and the result, and anything left undone.
 
+        Make the smallest change that does what the task asks, in the style of the surrounding code. No new \
+        abstractions, options, dependencies or files the task doesn't need, no refactoring or reformatting of code \
+        you don't have to touch, no extra features "while you're at it". Add tests only if the task asks for them or \
+        the change can't be checked otherwise. If the task seems to need more than that, do the minimal part and say \
+        what else you'd change in the summary.
+
         Task:
         \(task)
         """
@@ -230,7 +236,7 @@ public struct AgentRunner: Sendable {
 
     public func run(agent: InstalledAgent, repo: URL, task: String, model: String? = nil, effort: String? = nil,
                     write: Bool = false, branchFrom: String? = nil, timeout: Duration = .seconds(600),
-                    idleLimit: Duration? = nil, check: String? = nil,
+                    idleLimit: Duration? = nil, check: String? = nil, context: AgentContext? = nil,
                     jobID: String = UUID().uuidString) async throws -> AgentReport {
         if useSandbox && !AgentSandbox.isAvailable {
             throw DelegateError(description: "sandbox-exec is missing on this Mac; agents won't run without a sandbox.")
@@ -250,6 +256,12 @@ public struct AgentRunner: Sendable {
         // Gałąź ze zmianami zostaje w repo użytkownika; pustą (albo przy błędzie przed pracą) usuwamy.
         var keepBranch = false
         defer { snapshot.remove(deleteBranch: write && !keepBranch) }
+        if let context, !context.isEmpty { try context.write(into: snapshot.path) }
+        // Kontekst nie trafia do commitu agenta.
+        func finishBranch(_ message: String) -> RepoSnapshot.BranchResult? {
+            AgentContext.remove(from: snapshot.path)
+            return snapshot.finishBranch(message: message, author: "Delegate (\(agent.name))")
+        }
 
         let homeDir = userHome
         let state = AgentSandbox.stateDirectories(forAgent: agent.id, kind: agent.kind, home: homeDir)
@@ -326,9 +338,10 @@ public struct AgentRunner: Sendable {
                 usedEffort = session.effortOption?.current
             }
 
+            let fullTask = context.flatMap { $0.isEmpty ? nil : $0.promptNote + "\n\n" + task } ?? task
             let prompt = write
-                ? Self.writePrompt(task: task, cwd: snapshot.path, branch: snapshot.branch ?? "", base: snapshot.baseCommit ?? "")
-                : Self.readOnlyPrompt(task: task, cwd: snapshot.path, includesUncommitted: snapshot.includesUncommitted)
+                ? Self.writePrompt(task: fullTask, cwd: snapshot.path, branch: snapshot.branch ?? "", base: snapshot.baseCommit ?? "")
+                : Self.readOnlyPrompt(task: fullTask, cwd: snapshot.path, includesUncommitted: snapshot.includesUncommitted)
             let commitMessage = "\(agent.name): \(DelegateJobs.shortLabel(task))\n\nDelegated task:\n\(task)"
             let result: JSONValue
             let idle = idleLimit ?? Self.idleLimit(write: write)
@@ -356,8 +369,7 @@ public struct AgentRunner: Sendable {
                 let partial = await collector.text
                 var note = ""
                 var kept: String?
-                if write, let b = snapshot.finishBranch(message: commitMessage + "\n\n(unfinished: timed out)",
-                                                        author: "Delegate (\(agent.name))"), b.commits > 0 {
+                if write, let b = finishBranch(commitMessage + "\n\n(unfinished: timed out)"), b.commits > 0 {
                     keepBranch = true
                     kept = b.branch
                     note = "\nUnfinished changes are on branch `\(b.branch)` (\(b.summary)); review before using them."
@@ -394,7 +406,7 @@ public struct AgentRunner: Sendable {
             await conn.close()
             var branch: RepoSnapshot.BranchResult?
             if write {
-                branch = snapshot.finishBranch(message: commitMessage, author: "Delegate (\(agent.name))")
+                branch = finishBranch(commitMessage)
                 keepBranch = (branch?.commits ?? 0) > 0
             }
             // Po udanym zadaniu katalog (profil, log agenta) nie jest potrzebny; po błędzie zostaje do diagnozy.

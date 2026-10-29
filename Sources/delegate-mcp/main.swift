@@ -3,7 +3,7 @@ import Foundation
 import MCP
 
 /// Jedyne źródło wersji: `build-app.sh` wpisuje ją do Info.plist, a workflow wydania sprawdza, czy zgadza się z tagiem.
-let version = "0.5.0"
+let version = "0.6.0"
 let home = DelegateHome.resolve()
 let args = CommandLine.arguments.dropFirst()
 
@@ -159,6 +159,14 @@ func agentTool(_ guide: DelegationGuide, clientName: String?) -> Tool {
                 "description": .string("The whole repo is sent to the agent's cloud model; personal = work or personal code."),
             ]),
             "report_file": prop("string", "Absolute path; write the report there and return only the header and a preview."),
+            "context_jobs": .object([
+                "type": .string("array"), "items": .object(["type": .string("string")]),
+                "description": .string("IDs of finished jobs (e.g. a read-mode analysis) whose full results the agent gets as files; pass them instead of retelling them in `task`. The strictest sensitivity of these jobs applies."),
+            ]),
+            "context_files": .object([
+                "type": .string("array"), "items": .object(["type": .string("string")]),
+                "description": .string("Absolute paths of text files outside the repo (notes, specs, an earlier report_file) copied for the agent."),
+            ]),
             "branch_from": prop("string", "Write mode: branch or commit to start from instead of HEAD, e.g. a previous delegate/… branch for a follow-up round."),
             "check": prop("string", "Write mode: acceptance check run on the agent's branch after it finishes, e.g. `swift build --disable-sandbox && swift test --disable-sandbox` (SwiftPM needs the flag inside the sandbox). If it fails, the agent gets the error and fixes it (up to \(DelegateRequest.maxFixRounds) rounds). With a check the report is short: result, diff stat, summary."),
             "mode": .object([
@@ -168,6 +176,10 @@ func agentTool(_ guide: DelegationGuide, clientName: String?) -> Tool {
         ], required: ["repo", "task"])
     )
 }
+
+/// Claude Code chowa narzędzia MCP za ToolSearch, a to dodatkowa tura dyrygenta przy pierwszym delegowaniu (R1).
+/// `delegate` i `delegate_result` są zawsze w prompcie (stały prefiks, więc cache się nie psuje); reszta zostaje odłożona.
+let alwaysLoad = Metadata(additionalFields: ["anthropic/alwaysLoad": .bool(true)])
 
 func baseTools(_ guide: DelegationGuide) -> [Tool] { [
     Tool(
@@ -201,7 +213,8 @@ func baseTools(_ guide: DelegationGuide) -> [Tool] { [
             "output_file": prop("string", "Absolute path; the server writes the reply there and returns only a short preview."),
             "check": prop("string", "Acceptance check with output_file, e.g. `python3 -m json.tool locales/pl.json` or a test command; runs in the file's repo (sandbox, no network). If it fails, the same model gets the error and fixes the file (up to \(DelegateRequest.maxFixRounds) rounds); you get one line: passed or failed with the error."),
             "background": prop("boolean", "Return a job ID at once (collect with delegate_result); only to start several jobs in parallel. Without it the call waits up to \(Int(DelegateRequest.syncDeadlineSeconds)) s for the reply and, if the model is slower, keeps running as a background job."),
-        ], required: ["prompt"])
+        ], required: ["prompt"]),
+        _meta: alwaysLoad
     ),
     Tool(
         name: "delegate_result",
@@ -214,7 +227,8 @@ func baseTools(_ guide: DelegationGuide) -> [Tool] { [
             ]),
             "wait": prop("number", "Seconds to wait for unfinished jobs (default 0, max \(Int(DelegateJobs.maxWaitSeconds)))."),
         ]),
-        annotations: .init(readOnlyHint: true)
+        annotations: .init(readOnlyHint: true),
+        _meta: alwaysLoad
     ),
     Tool(
         name: "list_remote_models",
@@ -345,7 +359,17 @@ await server.withMethodHandler(CallTool.self) { params in
             guard repo.hasPrefix("/") || repo.hasPrefix("~"), FileManager.default.fileExists(atPath: repoURL.path) else {
                 return .init(content: [reply("repo: give an absolute path to an existing directory.")], isError: true)
             }
-            let sensitivity = Sensitivity(rawValue: a["sensitivity"]?.stringValue ?? "public") ?? .personal
+            let requested = Sensitivity(rawValue: a["sensitivity"]?.stringValue ?? "public") ?? .personal
+            let contextJobIDs = a["context_jobs"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            var contextJobs: [String: DelegateJobs.Job] = [:]
+            for id in contextJobIDs {
+                if let job = await jobs.job(id) ?? jobStore.job(id) { contextJobs[id] = job }
+            }
+            let context = try AgentContext.resolve(jobIDs: contextJobIDs,
+                                                   files: a["context_files"]?.arrayValue?.compactMap(\.stringValue) ?? [],
+                                                   jobs: contextJobs)
+            // Raport w kontekście niesie kod źródłowego repo: obowiązuje najostrzejsza wrażliwość.
+            let sensitivity = max(requested, context.sensitivity)
             let repoRoot = RepoSnapshot.toplevel(of: repoURL) ?? repoURL
             var picked: AgentChoice.Result?
             let agentID: String
@@ -367,7 +391,8 @@ await server.withMethodHandler(CallTool.self) { params in
                 return .init(content: [reply("Agent \"\(agentID)\" isn't installed. Available: \(ids.isEmpty ? "none" : ids.joined(separator: ", ")). Or omit `agent` to use the user's first choice.")], isError: true)
             }
             if let why = AgentRegions.refusal(agentID: agentID, sensitivity: sensitivity, config: agentConfig, repo: repoRoot) {
-                return .init(content: [reply("Not sent: \(why).")], isError: true)
+                let inherited = sensitivity > requested ? " (sensitivity \(sensitivity.rawValue) comes from context_jobs)" : ""
+                return .init(content: [reply("Not sent: \(why)\(inherited).")], isError: true)
             }
             let reportFile = try a["report_file"]?.stringValue.map(OutputFile.validate)
             let settings = agentConfig.agentSettings(agentID)
@@ -382,7 +407,8 @@ await server.withMethodHandler(CallTool.self) { params in
             if check != nil && !write {
                 return .init(content: [reply("check works only with mode \"write\" (it runs on the agent's branch).")], isError: true)
             }
-            let details = DelegateJobs.Details(agent: agentID, model: model, repo: repoRoot.path, write: write)
+            let details = DelegateJobs.Details(agent: agentID, model: model, repo: repoRoot.path, write: write,
+                                               sensitivity: sensitivity.rawValue, reportFile: reportFile?.path)
             let conductor = await clientState.name
             let autoPicked = picked != nil
             let id = await jobs.start(label: "\(agentID)\(write ? " (write)" : ""): " + DelegateJobs.shortLabel(task),
@@ -396,7 +422,7 @@ await server.withMethodHandler(CallTool.self) { params in
                     do {
                         let report = try await agentRunner.run(agent: current, repo: repoURL, task: task, model: currentModel,
                                                                effort: currentEffort, write: write, branchFrom: branchFrom,
-                                                               check: check)
+                                                               check: check, context: context)
                         _ = recordAgentOutcome(current.id, error: nil)
                         usageLog.append(UsageEntry(provider: "agent:\(current.id)", model: report.model ?? "default", task: "agent",
                                                    inputTokens: report.inputTokens, outputTokens: report.outputTokens,
