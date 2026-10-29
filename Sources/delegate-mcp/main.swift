@@ -111,6 +111,25 @@ func usableAgents(_ config: Config) -> [InstalledAgent] {
     return config.prioritizedAgents(enabled.map(\.id)).compactMap { id in enabled.first { $0.id == id } }
 }
 
+/// Aktywne przerwy agentów (klucze `agent:<id>` we wspólnym pliku przerw).
+func agentPauses() -> [String: ModelCooldown] {
+    service.cooldowns.active().filter { $0.key.hasPrefix("agent:") }
+}
+
+/// Po zadaniu agenta: sukces zdejmuje przerwę, błąd może ją założyć (`AgentPause`). Wołać przed zapisem tego
+/// zadania do logu, bo reguła „dwa razy z rzędu” patrzy na poprzednie.
+func recordAgentOutcome(_ agentID: String, error: Error?) -> AgentPause.Kind? {
+    let key = AgentPause.key(agentID)
+    guard let error else {
+        service.cooldowns.clear(key)
+        return nil
+    }
+    let previous = usageLog.entries(since: Date().addingTimeInterval(-7 * 24 * 3600)).last { $0.provider == "agent:\(agentID)" }
+    guard let pause = AgentPause.pause(after: "\(error)", previousError: previous.flatMap { $0.ok ? nil : $0.error }) else { return nil }
+    service.cooldowns.set(key, ModelCooldown(until: Date().addingTimeInterval(pause.seconds), reason: pause.reason))
+    return pause.kind
+}
+
 func currentGuide() -> DelegationGuide {
     let config = (try? service.currentConfig()) ?? Config()
     return service.guide(config: config, agents: usableAgents(config).map(\.id))
@@ -246,9 +265,11 @@ await server.withMethodHandler(CallTool.self) { params in
         switch params.name {
         case "list_models":
             let config = (try? service.currentConfig()) ?? Config()
+            let since = Date().addingTimeInterval(-Double(AgentCatalog.statsDays) * 24 * 3600)
             let agents = AgentCatalog.describe(installed: agentInstaller.installed(), config: config,
                                                checks: AgentCheckCache(url: home.agentChecksURL).load(),
-                                               clientName: await clientState.name)
+                                               clientName: await clientState.name,
+                                               usage: usageLog.entries(since: since), paused: agentPauses())
             return .init(content: [reply(try service.listModels() + agents)], isError: false)
 
         case "delegate":
@@ -323,7 +344,7 @@ await server.withMethodHandler(CallTool.self) { params in
                 let choice = AgentChoice.pick(from: usableAgents(agentConfig).map(\.id), sensitivity: sensitivity,
                                               config: agentConfig, repo: repoRoot,
                                               checks: AgentCheckCache(url: home.agentChecksURL).load(),
-                                              clientName: await clientState.name)
+                                              clientName: await clientState.name, paused: agentPauses())
                 guard let id = choice.agent else {
                     return .init(content: [reply(AgentChoice.refusal(choice))], isError: true)
                 }
@@ -347,30 +368,56 @@ await server.withMethodHandler(CallTool.self) { params in
                 return .init(content: [reply("branch_from works only with mode \"write\".")], isError: true)
             }
             let details = DelegateJobs.Details(agent: agentID, model: model, repo: repoRoot.path, write: write)
+            let conductor = await clientState.name
+            let autoPicked = picked != nil
             let id = await jobs.start(label: "\(agentID)\(write ? " (write)" : ""): " + DelegateJobs.shortLabel(task),
                                       details: details, outcome: {
                 await agentSlots.acquire()
-                let started = Date()
                 defer { Task { await agentSlots.release() } }
-                do {
-                    let report = try await agentRunner.run(agent: agent, repo: repoURL, task: task, model: model,
-                                                           effort: effort, write: write, branchFrom: branchFrom)
-                    usageLog.append(UsageEntry(provider: "agent:\(agentID)", model: report.model ?? "default", task: "agent",
-                                               inputTokens: report.inputTokens, outputTokens: report.outputTokens,
-                                               ok: true, ms: Int(report.seconds * 1000)))
-                    let branch = report.branch.flatMap { $0.commits > 0 ? $0.branch : nil }
-                    guard let reportFile else { return .init(text: report.formatted, branch: branch) }
-                    // Podgląd zaczyna się od nagłówka raportu, więc go nie powtarzamy.
-                    return .init(text: try OutputFile.write(report.formatted, to: reportFile), branch: branch)
-                } catch {
-                    usageLog.append(UsageEntry(provider: "agent:\(agentID)", model: model ?? "default", task: "agent",
-                                               ok: false, error: "\(error)", ms: Int(Date().timeIntervalSince(started) * 1000)))
-                    throw error
+                var current = agent, currentModel = model, currentEffort = effort
+                var tried: [String] = [], notes: [String] = []
+                while true {
+                    let started = Date()
+                    do {
+                        let report = try await agentRunner.run(agent: current, repo: repoURL, task: task, model: currentModel,
+                                                               effort: currentEffort, write: write, branchFrom: branchFrom)
+                        _ = recordAgentOutcome(current.id, error: nil)
+                        usageLog.append(UsageEntry(provider: "agent:\(current.id)", model: report.model ?? "default", task: "agent",
+                                                   inputTokens: report.inputTokens, outputTokens: report.outputTokens,
+                                                   ok: true, ms: Int(report.seconds * 1000)))
+                        let branch = report.branch.flatMap { $0.commits > 0 ? $0.branch : nil }
+                        let text = notes.map { $0 + "\n" }.joined() + report.formatted
+                        guard let reportFile else { return .init(text: text, branch: branch) }
+                        // Podgląd zaczyna się od nagłówka raportu, więc go nie powtarzamy.
+                        return .init(text: try OutputFile.write(text, to: reportFile), branch: branch)
+                    } catch {
+                        let pause = recordAgentOutcome(current.id, error: error)
+                        usageLog.append(UsageEntry(provider: "agent:\(current.id)", model: currentModel ?? "default", task: "agent",
+                                                   ok: false, error: "\(error)", ms: Int(Date().timeIntervalSince(started) * 1000)))
+                        // Agent wybrany przez serwer, który odpadł na starcie (logowanie, limit) i nic nie zapisał:
+                        // następny wg priorytetu. Po pracy (limit czasu, gałąź) wynik wraca do dyrygenta.
+                        guard autoPicked, pause == .signIn || pause == .limit, (error as? DelegateError)?.branch == nil else { throw error }
+                        tried.append(current.id)
+                        let config = (try? service.currentConfig()) ?? Config()
+                        let next = AgentChoice.pick(from: usableAgents(config).map(\.id).filter { !tried.contains($0) },
+                                                    sensitivity: sensitivity, config: config, repo: repoRoot,
+                                                    checks: AgentCheckCache(url: home.agentChecksURL).load(),
+                                                    clientName: conductor, paused: agentPauses())
+                        guard let nextID = next.agent, let nextAgent = agentInstaller.installed(nextID) else { throw error }
+                        let why = "\(error)".prefix { $0 != "\n" }
+                        notes.append("[delegate] \(current.id) failed (\(why)); fell back to \(nextID).")
+                        current = nextAgent
+                        currentModel = config.agentSettings(nextID)?.model
+                        currentEffort = config.agentSettings(nextID)?.effort
+                    }
                 }
             })
             let waiting = await agentSlots.queued
             let queueNote = waiting > 0 ? " \(waiting) job(s) are queued ahead (max \(agentSlots.limit) agents at once)." : ""
             var pickNote = ""
+            if picked == nil, let pause = agentPauses()[AgentPause.key(agentID)] {
+                pickNote = " Note: \(agentID) is paused until \(pause.until.formatted(date: .omitted, time: .shortened)) (\(pause.reason)); it may fail again."
+            }
             if let picked {
                 pickNote = " Picked \(agentID), the first allowed in the user's priority order"
                 pickNote += picked.skipped.isEmpty ? "." : " (skipped: " + picked.skipped.map { "\($0.ref): \($0.reason)" }.joined(separator: "; ") + ")."

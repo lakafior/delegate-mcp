@@ -78,14 +78,34 @@ public enum AssistantClient {
 
 /// Opis agentów dla dyrygenta (sekcja `list_models`): kto jest dostępny, gdzie idą dane, jakie modele i wysiłek.
 public enum AgentCatalog {
+    /// Z ilu dni liczyć statystyki agentów.
+    public static let statsDays = 30
+
+    /// „recent: 7 runs, 6 ok, median 1m 50s” z logu; tylko w `list_models`, nie w opisie narzędzia, bo zmieniające
+    /// się liczby w opisie psułyby cache promptu dyrygenta.
+    static func stats(_ agentID: String, _ usage: [UsageEntry]) -> String? {
+        let runs = usage.filter { $0.provider == "agent:\(agentID)" }
+        guard !runs.isEmpty else { return nil }
+        let ok = runs.filter(\.ok)
+        var out = "last \(statsDays) days: \(runs.count) run\(runs.count == 1 ? "" : "s"), \(ok.count) ok"
+        let times = ok.map(\.ms).sorted()
+        if !times.isEmpty {
+            let seconds = times[times.count / 2] / 1000
+            out += ", median " + (seconds >= 60 ? "\(seconds / 60)m \(seconds % 60)s" : "\(seconds)s")
+        }
+        return out
+    }
+
     /// Bez `default` (to „brak wyboru”) i bez powtórzeń (Copilot ogłasza `auto` dwa razy).
     static func unique(_ values: [String]) -> [String] {
         var seen = Set<String>()
         return values.filter { $0 != "default" && seen.insert($0).inserted }
     }
 
+    /// `usage`: log użycia (statystyki agentów z wpisów `agent:<id>`), `paused`: aktywne przerwy (klucze `agent:<id>`).
     public static func describe(installed: [InstalledAgent], config: Config, checks: [String: AgentCheckRecord],
-                                clientName: String? = nil) -> String {
+                                clientName: String? = nil, usage: [UsageEntry] = [],
+                                paused: [String: ModelCooldown] = [:]) -> String {
         let shared = AssistantClient.sameSubscriptionAgent(clientName: clientName)
         guard !installed.isEmpty else { return "" }
         var out = "\n## Agents (delegate_agent), in the user's priority order\n\n"
@@ -106,8 +126,12 @@ public enum AgentCatalog {
             case nil: line += " · not checked yet"
             default: break
             }
+            if let pause = paused[AgentPause.key(agent.id)] {
+                line += " · PAUSED until \(pause.until.formatted(date: .omitted, time: .shortened)): \(pause.reason)"
+            }
             out += line + "\n"
             if let g = settings?.guidance { out += "  guidance: \(g)\n" }
+            if let stats = stats(agent.id, usage) { out += "  \(stats)\n" }
             if let check, !check.models.isEmpty {
                 let chosen = settings?.model ?? check.defaultModel
                 out += "  models: " + unique(check.models).joined(separator: ", ")

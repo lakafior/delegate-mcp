@@ -38,7 +38,7 @@ Punkt wyjścia: dwa źródła przeczytane 2026-10-29.
 | R1. Pomiar oszczędności | zestaw ok. 10 typowych zadań (tłumaczenie locale, README, fixture, review długiego pliku, analiza repo agentem…), każde przez `claude -p --output-format json` z serwerem `delegate` i bez, po 2 przebiegi; tokeny i koszt Claude'a + ocena wyniku wg rubryki | tabela: które rodzaje zadań oszczędzają, które nie; wnioski wpisane do instrukcji serwera |
 | R2. Raporty agentów z dowodami | `delegate_agent` read: stały format raportu (tezy z `plik:linia`, osobno pewne i do sprawdzenia), żeby Claude weryfikował wyrywkowo | w R1 Claude czyta po raporcie mniej plików niż bez agenta |
 | R3. Odmowy z instrukcją ✅ | gdy routing odrzuci wszystkich dostawców (region, budżet, przerwy), odpowiedź mówi Claude'owi, co zrobić: zrób sam / inna `sensitivity` / inny model | każda ścieżka odmowy w `DelegateService` ma test z treścią wskazówki |
-| R4. Preset gatewaya | „Gateway (OmniRoute / LiteLLM)” w `ProviderPreset`: OpenAI-compatible, model `auto/cheap`, obowiązkowy wybór regionu przy dodawaniu | dodanie w apce bez edycji TOML; region nie jest zgadywany |
+| R4. Preset gatewaya ✅ | „Gateway (OmniRoute / LiteLLM)” w `ProviderPreset`: OpenAI-compatible, model `auto/cheap`, obowiązkowy wybór regionu przy dodawaniu | dodanie w apce bez edycji TOML; region nie jest zgadywany |
 | R5. Niezawodność dostawców ✅ | przyjrzeć się Gemini: w logu 10 z 13 wywołań nieudanych (m.in. „network: cancelled” po 60 s) | przyczyna znana, przerwy i limity czasu dopasowane |
 | R6. Ranking agentów | patrz niżej | `delegate_agent` bez pola `agent` trafia do pierwszego dozwolonego agenta wg priorytetu; większość analiz idzie do szybkiego agenta zamiast do Codexa/Antigravity |
 | Później | tylko jeśli R1 pokaże zysk: wagi routingu zamiast samej kolejności (jak „mode packs” w OmniRoute); panel tanich modeli + sędzia do review | osobny plan |
@@ -77,7 +77,7 @@ Krok 1 (tani, największy efekt) ✅ zrobione:
   Codex: darmowy plan z limitami, wolny, tylko trudne zmiany w wielu plikach; Antigravity: niestabilny, w ostateczności.
 - Pole `agent` opcjonalne: bez niego serwer wybiera pierwszego dozwolonego wg priorytetu (region, `[[repo]]`, przerwy).
 
-Krok 2 (dane zamiast opinii):
+Krok 2 (dane zamiast opinii) ✅ zrobione (wykrywanie zawieszenia po ciszy: 180 s odczyt, 360 s zapis):
 - Przerwy dla agentów (jak `ModelCooldowns`): limit planu → do resetu, „not signed in” → do zalogowania, dwa limity
   czasu z rzędu → godzina. Wstrzymany agent odpada z wyboru; fallback na następnego tylko, gdy agent niczego nie zapisał.
 - Wykrywanie zawieszenia: brak aktualizacji ACP przez N sekund → koniec zadania zamiast czekania 600 s.

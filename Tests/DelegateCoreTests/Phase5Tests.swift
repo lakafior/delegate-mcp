@@ -346,6 +346,19 @@ extension PriceCatalogTests {
         #expect(presets.providers.allSatisfy { $0.privacy == .local })
     }
 
+    @Test func gatewayPresetAsksForRegionAndKeepsTheChoice() throws {
+        let preset = try #require(ProviderPreset.all.first { $0.id == "gateway" })
+        #expect(preset.asksRegion && preset.privacy == nil)
+        #expect(ProviderPreset.all.filter { $0.asksRegion }.map { $0.id } == ["gateway"])
+        var c = Config()
+        c.addProvider(from: preset, privacy: .eu)
+        #expect(c.providers[0].privacy == .eu && c.providers[0].effectivePrivacy == .eu)
+        #expect(c.providers[0].models.map(\.id) == ["auto/cheap"])
+        // Bez wyboru (np. z kodu) i tak nie dostaje `local`: adres na localhost to `other`.
+        c.addProvider(from: preset)
+        #expect(c.providers[1].id == "gateway-2" && c.providers[1].effectivePrivacy == .other)
+    }
+
     @Test func gatewayOnLocalhostGetsNoPrivateTasksAndCountsTowardBudget() throws {
         let log = FileManager.default.temporaryDirectory.appendingPathComponent("usage-\(UUID()).jsonl")
         UsageLog(url: log).append(UsageEntry(provider: "x", model: "y", costUSD: 1, ok: true, ms: 1))

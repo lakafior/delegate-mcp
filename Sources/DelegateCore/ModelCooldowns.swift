@@ -6,6 +6,11 @@ import Foundation
 public struct ModelCooldown: Codable, Sendable, Equatable {
     public var until: Date
     public var reason: String
+
+    public init(until: Date, reason: String) {
+        self.until = until
+        self.reason = reason
+    }
 }
 
 public struct ModelCooldowns: Sendable {
@@ -130,4 +135,41 @@ private final class MemoryBox: @unchecked Sendable {
         get { lock.withLock { _value } }
         set { lock.withLock { _value = newValue } }
     }
+}
+
+/// Przerwy dla agentów ACP: ten sam plik co modele (`ModelCooldowns`), klucz `agent:<id>`.
+public enum AgentPause {
+    public static func key(_ agentID: String) -> String { "agent:\(agentID)" }
+
+    public enum Kind: Sendable, Equatable {
+        /// Agent nie jest zalogowany: przerwa do zalogowania w apce (sprawdzenie zdejmuje ją wcześniej).
+        case signIn
+        /// Limit planu albo zapytań: do resetu, jeśli agent go podał, inaczej godzina.
+        case limit
+        /// Drugi z rzędu limit czasu albo zawieszenie.
+        case timeouts
+    }
+
+    /// Przerwa po nieudanym zadaniu. `previousError`: błąd poprzedniego zadania tego agenta z logu (`nil` = udane
+    /// albo żadnego), do reguły „dwa razy z rzędu”. Patrzymy tylko na pierwszą linię: dalej bywa częściowy raport.
+    public static func pause(after error: String, previousError: String?) -> (seconds: TimeInterval, reason: String, kind: Kind)? {
+        let line = firstLine(error)
+        if ["isn't signed in", "not signed in", "authentication required"].contains(where: line.contains) {
+            return (ModelCooldowns.week, "not signed in (the user signs in in the Delegate app)", .signIn)
+        }
+        if limitMarkers.contains(where: line.contains) {
+            let wait = ModelCooldowns.retryDelay(in: error).map { min(max($0, 60), ModelCooldowns.day) } ?? 3600
+            return (wait, "plan or rate limit reached", .limit)
+        }
+        if isTimeLimit(line), let previousError, isTimeLimit(firstLine(previousError)) {
+            return (3600, "timed out or stopped responding twice in a row", .timeouts)
+        }
+        return nil
+    }
+
+    static let limitMarkers = ["usage limit", "rate limit", "quota", "limit reached", "too many requests", "429",
+                               "out of credits", "credit balance", "resource_exhausted"]
+
+    static func firstLine(_ text: String) -> String { String(text.prefix { $0 != "\n" }).lowercased() }
+    static func isTimeLimit(_ line: String) -> Bool { line.contains("didn't finish in") || line.contains("stopped responding") }
 }

@@ -93,6 +93,9 @@ Katalog: `~/Library/Application Support/Delegate/` (nadpisywany przez `$DELEGATE
   ceny modelu czatowego, oraz ręcznie (Ogólne → Cennik LiteLLM, „Uzupełnij z API” przy dostawcy). `modelInfos` uzupełnia z niego ceny,
   których API dostawcy nie podaje (Mistral, Gemini, DeepSeek, Anthropic, OpenAI…); dopasowanie po hoście `base_url`.
 
+Preset „Gateway (OmniRoute / LiteLLM)” (`asksRegion`): apka przy dodaniu pyta, dokąd gateway wysyła dane, i zapisuje
+`privacy`; bez wyboru i tak `other` (R0).
+
 Klucze: zmienna środowiska → `.env` → Keychain (service `com.mar.delegate`, account =
 `api_key_env` z configu). Dostawca bez klucza jest pomijany, nic się nie psuje. Zmiana nazwy dostawcy
 lub `api_key_env` w aplikacji przenosi wpis w Keychain; usunięcie dostawcy usuwa jego klucz.
@@ -184,7 +187,14 @@ tabeli `AgentRegions`. **Priorytet:** kolejność `[[agent]]` (`Config.prioritiz
 bocznym, `reorderAgents`); wpis bez ustawień zostaje jako samo `id`, bo trzyma miejsce. Instrukcje serwera, opis
 `delegate_agent` i `list_models` wymieniają agentów w tej kolejności z `guidance`. Pole `agent` jest opcjonalne: bez
 niego `AgentChoice.pick` bierze pierwszego dozwolonego (reguła repo, wrażliwość, zalogowanie; agenta dyrygenta tylko
-z ustawionym tańszym modelem), a odpowiedź mówi, kogo pominął. Reguły repo `[[repo]] path/agents` (`RepoRule`, sekcja w Routingu): najdłuższa pasująca ścieżka,
+z ustawionym tańszym modelem), a odpowiedź mówi, kogo pominął.
+**Przerwy i zawieszenia agentów:** watchdog w `AgentRunner.run` kończy zadanie po ciszy (brak `session/update` i próśb
+o zgodę; `idleLimit`: 180 s odczyt, 360 s zapis) zamiast czekać 600 s. `AgentPause` (we wspólnym `model_cooldowns.json`,
+klucz `agent:<id>`): brak logowania → tydzień (zdejmuje udane sprawdzenie w apce), limit planu → do resetu albo godzina,
+drugi z rzędu limit czasu/zawieszenie → godzina; sukces zdejmuje przerwę. Wstrzymany agent odpada z automatycznego
+wyboru; przy wyborze automatycznym błąd na starcie (logowanie, limit) bez gałęzi z pracą przechodzi na następnego
+agenta. `list_models` pokazuje przerwy i statystyki z logu (30 dni: zadania, udane, mediana czasu); w opisie narzędzia
+ich nie ma (cache promptu). Reguły repo `[[repo]] path/agents` (`RepoRule`, sekcja w Routingu): najdłuższa pasująca ścieżka,
 pusta lista = żaden agent; sprawdzane w `AgentRegions.refusal` razem z wrażliwością. Lista agentów liczona przy każdym
 wywołaniu, serwer wysyła `tools/list_changed` po zmianie (co 30 s). `list_models` opisuje agentów z
 `agents/checks.json` (`AgentCheckCache`, zapisuje apka). Tryb sesji: pierwszy dostępny z `plan`, `ask`.

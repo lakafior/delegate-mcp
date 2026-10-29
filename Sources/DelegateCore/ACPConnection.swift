@@ -29,13 +29,24 @@ public actor ACPConnection {
     public enum ConnectionError: Error, Sendable, CustomStringConvertible {
         case exited(status: Int32)
         case timeout(method: String)
+        /// Agent przestał przysyłać cokolwiek (`abort` z watchdoga).
+        case idle(seconds: Int)
         case badMessage(String)
 
         public var description: String {
             switch self {
             case .exited(let s): "agent exited (status \(s))"
             case .timeout(let m): "agent didn't answer \(m) in time"
+            case .idle(let s): "agent sent nothing for \(s) s"
             case .badMessage(let m): "bad message from agent: \(m)"
+            }
+        }
+
+        /// Koniec przez limit czasu albo ciszę: agent mógł już coś zrobić (częściowy raport, gałąź).
+        public var isTimeLimit: Bool {
+            switch self {
+            case .timeout, .idle: true
+            default: false
             }
         }
     }
@@ -133,6 +144,9 @@ public actor ACPConnection {
     }
 
     public var isRunning: Bool { process.isRunning }
+
+    /// Przerywa oczekujące żądania tym błędem (np. agent przestał się odzywać); potem trzeba wywołać `close`.
+    public func abort(_ error: ConnectionError) { finishAll(error) }
 
     private func write(_ message: JSONValue) throws {
         var data = try JSONEncoder().encode(message)

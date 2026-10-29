@@ -15,11 +15,13 @@ public struct ProviderPreset: Sendable, Identifiable {
     public var keyURL: String?
     /// Region zapisywany jawnie przy dodaniu (`ProviderConfig.privacy`), żeby nie zależał od portu w adresie.
     public var privacy: PrivacyRegion?
+    /// Region trzeba wybrać przy dodaniu (gateway: dane idą tam, dokąd on je prześle, adres tego nie mówi).
+    public var asksRegion: Bool
     public var models: [ModelConfig]
 
     public init(id: String, title: String, kind: ProviderKind, baseURL: String = "", apiKeyEnv: String = "",
                 note: String? = nil, guidance: String? = nil, keyURL: String? = nil, privacy: PrivacyRegion? = nil,
-                models: [ModelConfig] = []) {
+                asksRegion: Bool = false, models: [ModelConfig] = []) {
         self.id = id
         self.title = title
         self.kind = kind
@@ -29,6 +31,7 @@ public struct ProviderPreset: Sendable, Identifiable {
         self.guidance = guidance
         self.keyURL = keyURL
         self.privacy = privacy
+        self.asksRegion = asksRegion
         self.models = models
     }
 
@@ -85,6 +88,13 @@ public struct ProviderPreset: Sendable, Identifiable {
             guidance: "Runs locally on this Mac: fine for private content.",
             privacy: .local),
         ProviderPreset(
+            id: "gateway", title: "Gateway (OmniRoute / LiteLLM)", kind: .openai,
+            baseURL: "http://localhost:20128/v1", apiKeyEnv: "GATEWAY_API_KEY",
+            note: "One OpenAI-compatible endpoint in front of many providers. Its region is wherever it forwards your data, so pick the strictest one it can use. OmniRoute listens on port 20128, LiteLLM on 4000.",
+            guidance: "Gateway that picks the upstream model itself: quality and speed vary.",
+            asksRegion: true,
+            models: [ModelConfig(id: "auto/cheap", tags: ["general"], cost: "varies")]),
+        ProviderPreset(
             id: "apple", title: "Apple on-device", kind: .foundation,
             note: "On-device model (Apple Intelligence): free, private, offline. Small context window, short tasks only.",
             guidance: "On-device and private, but a small context window: only short tasks.",
@@ -97,9 +107,9 @@ public struct ProviderPreset: Sendable, Identifiable {
 
 extension Config {
     /// Dodaje dostawcę z presetu; przy kolizji ID dokleja numer (i dopasowuje domyślną nazwę klucza).
-    /// Zwraca ID nowego dostawcy.
+    /// `privacy` (wybór użytkownika) wygrywa z regionem presetu. Zwraca ID nowego dostawcy.
     @discardableResult
-    public mutating func addProvider(from preset: ProviderPreset) -> String {
+    public mutating func addProvider(from preset: ProviderPreset, privacy: PrivacyRegion? = nil) -> String {
         var id = preset.id
         var n = 1
         while providers.contains(where: { $0.id == id }) { n += 1; id = "\(preset.id)-\(n)" }
@@ -107,7 +117,7 @@ extension Config {
         if id != preset.id, !keyEnv.isEmpty { keyEnv = Self.defaultKeyEnv(for: id) }
         providers.append(ProviderConfig(
             id: id, kind: preset.kind, baseURL: preset.baseURL, apiKeyEnv: keyEnv,
-            note: preset.note, guidance: preset.guidance, privacy: preset.privacy, models: preset.models.map { ModelConfig(id: $0.id, tags: $0.tags, cost: $0.cost) }))
+            note: preset.note, guidance: preset.guidance, privacy: privacy ?? preset.privacy, models: preset.models.map { ModelConfig(id: $0.id, tags: $0.tags, cost: $0.cost) }))
         return id
     }
 

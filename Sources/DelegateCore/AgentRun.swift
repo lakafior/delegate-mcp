@@ -112,14 +112,19 @@ public enum AgentChoice {
         public var skipped: [RoutingExclusion]
     }
 
-    /// `agents`: zainstalowani i włączeni, już w kolejności priorytetu.
+    /// `agents`: zainstalowani i włączeni, już w kolejności priorytetu. `paused`: aktywne przerwy (`ModelCooldowns`,
+    /// klucze `agent:<id>`).
     public static func pick(from agents: [String], sensitivity: Sensitivity, config: Config, repo: URL?,
-                            checks: [String: AgentCheckRecord], clientName: String?) -> Result {
+                            checks: [String: AgentCheckRecord], clientName: String?,
+                            paused: [String: ModelCooldown] = [:]) -> Result {
         let shared = AssistantClient.sameSubscriptionAgent(clientName: clientName)
         var skipped: [RoutingExclusion] = []
         for id in agents {
             if let why = AgentRegions.refusal(agentID: id, sensitivity: sensitivity, config: config, repo: repo) {
                 skipped.append(RoutingExclusion(ref: id, reason: why, kind: .region))
+            } else if let pause = paused[AgentPause.key(id)] {
+                let until = pause.until.formatted(date: .omitted, time: .shortened)
+                skipped.append(RoutingExclusion(ref: id, reason: "\(RoutingExclusion.pausePrefix) \(until): \(pause.reason)", kind: .pause))
             } else if checks[id]?.status == "needsSignIn" {
                 skipped.append(RoutingExclusion(ref: id, reason: "not signed in (the user signs in in the Delegate app)", kind: .unavailable))
             } else if id == shared, config.agentSettings(id)?.model == nil {
@@ -194,8 +199,13 @@ public struct AgentRunner: Sendable {
         """
     }
 
+    /// Tyle ciszy (bez `session/update` i próśb o zgodę) znaczy, że agent się zawiesił. W trybie zapisu dłużej:
+    /// pierwsze `swift build` albo testy potrafią trwać minuty bez żadnej aktualizacji.
+    public static func idleLimit(write: Bool) -> Duration { write ? .seconds(360) : .seconds(180) }
+
     public func run(agent: InstalledAgent, repo: URL, task: String, model: String? = nil, effort: String? = nil,
                     write: Bool = false, branchFrom: String? = nil, timeout: Duration = .seconds(600),
+                    idleLimit: Duration? = nil,
                     jobID: String = UUID().uuidString) async throws -> AgentReport {
         if useSandbox && !AgentSandbox.isAvailable {
             throw DelegateError(description: "sandbox-exec is missing on this Mac; agents won't run without a sandbox.")
@@ -243,9 +253,11 @@ public struct AgentRunner: Sendable {
             workingDirectory: snapshot.path,
             stderrLog: jobDir.appendingPathComponent("agent.log"),
             onRequest: { [useSandbox] method, params in
-                await Self.permissionPolicy(method, params, collector, sandboxed: useSandbox, write: write)
+                await collector.touch()
+                return await Self.permissionPolicy(method, params, collector, sandboxed: useSandbox, write: write)
             },
             onNotification: { method, params in
+                await collector.touch()
                 if method == "session/update" { await collector.update(params["update"] ?? .null) }
             })
 
@@ -294,11 +306,26 @@ public struct AgentRunner: Sendable {
                 : Self.readOnlyPrompt(task: task, cwd: snapshot.path, includesUncommitted: snapshot.includesUncommitted)
             let commitMessage = "\(agent.name): \(DelegateJobs.shortLabel(task))\n\nDelegated task:\n\(task)"
             let result: JSONValue
+            let idle = idleLimit ?? Self.idleLimit(write: write)
+            await collector.touch()
+            // Zawieszony agent (np. czeka na własne zadanie w tle) nie zjada całego limitu: po ciszy kończymy.
+            let watchdog = Task { [collector] in
+                let step = min(Duration.seconds(10), idle / 4)
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: step)
+                    let quiet = await collector.quietSeconds
+                    if quiet >= Double(idle.components.seconds) {
+                        await conn.abort(.idle(seconds: Int(quiet)))
+                        return
+                    }
+                }
+            }
+            defer { watchdog.cancel() }
             do {
                 result = try await conn.request("session/prompt", [
                     "sessionId": .string(session.id), "prompt": [["type": "text", "text": .string(prompt)]],
                 ], timeout: timeout)
-            } catch ACPConnection.ConnectionError.timeout {
+            } catch let stop as ACPConnection.ConnectionError where stop.isTimeLimit {
                 try? await conn.notify("session/cancel", ["sessionId": .string(session.id)])
                 await conn.close()
                 let partial = await collector.text
@@ -310,7 +337,8 @@ public struct AgentRunner: Sendable {
                     kept = b.branch
                     note = "\nUnfinished changes are on branch `\(b.branch)` (\(b.summary)); review before using them."
                 }
-                throw DelegateError(description: "\(agent.name) didn't finish in \(timeout).\(note) Partial report:\n\(partial)",
+                let what = if case .idle(let s) = stop { "stopped responding (nothing for \(s) s)" } else { "didn't finish in \(timeout)" }
+                throw DelegateError(description: "\(agent.name) \(what).\(note) Partial report:\n\(partial)",
                                     branch: kept)
             }
             await conn.close()
@@ -387,6 +415,11 @@ public struct AgentRunner: Sendable {
 /// Zbiera powiadomienia `session/update` w raport.
 actor AgentCollector {
     private(set) var text = ""
+    private var lastActivity = Date()
+    /// Sekundy od ostatniej wiadomości od agenta (watchdog zawieszenia).
+    var quietSeconds: Double { Date().timeIntervalSince(lastActivity) }
+
+    func touch() { lastActivity = Date() }
     private var calls: [String: AgentReport.ToolCall] = [:]
     private var order: [String] = []
     private var rejected: [String] = []

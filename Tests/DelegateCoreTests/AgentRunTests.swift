@@ -29,6 +29,19 @@ func makeRepo() throws -> URL {
                               env: env.merging(["FAKE_SCENARIO": scenario]) { a, _ in a }, installedAt: Date())
     }
 
+    @Test func silentAgentEndsAfterTheIdleLimitNotTheFullTimeout() async throws {
+        let started = Date()
+        do {
+            _ = try await runner().run(agent: try agent("hang"), repo: try makeRepo(), task: "Never answers",
+                                       timeout: .seconds(60), idleLimit: .seconds(2))
+            Issue.record("expected the watchdog to stop the agent")
+        } catch let e as DelegateError {
+            #expect(e.description.hasPrefix("Fake Agent stopped responding (nothing for "))
+            #expect(Date().timeIntervalSince(started) < 30)
+            #expect(AgentPause.pause(after: e.description, previousError: e.description)?.kind == .timeouts)
+        }
+    }
+
     @Test func readOnlySnapshotInSandbox() async throws {
         let repo = try makeRepo()
         let secret = repo.appendingPathComponent(".env").path
@@ -446,6 +459,43 @@ func makeRepo() throws -> URL {
         let vibe = try #require(catalog.range(of: "`mistral-vibe`")), anti = try #require(catalog.range(of: "`antigravity-acp`"))
         #expect(vibe.lowerBound < anti.lowerBound)
         #expect(catalog.contains("  guidance: Default for analysis; fast.\n"))
+    }
+}
+
+@Suite struct AgentPauseTests {
+    @Test func failuresMapToPauses() {
+        let signIn = AgentPause.pause(after: "Codex isn't signed in (ChatGPT). Sign in to the agent first, then retry.", previousError: nil)
+        #expect(signIn?.kind == .signIn && signIn?.seconds == ModelCooldowns.week)
+        let reset = AgentPause.pause(after: "You've hit your usage limit. Please retry in 2h0m0s.", previousError: nil)
+        #expect(reset?.kind == .limit && reset?.seconds == 7200)
+        #expect(AgentPause.pause(after: "HTTP 429: rate limit exceeded", previousError: nil)?.seconds == 3600)
+        // Jeden limit czasu to jeszcze nie powód; drugi z rzędu tak.
+        let timeout = "Codex didn't finish in 600 seconds.\nPartial report:\nchecked the quota module"
+        #expect(AgentPause.pause(after: timeout, previousError: nil) == nil)
+        #expect(AgentPause.pause(after: timeout, previousError: "agent exited (status 1)") == nil)
+        #expect(AgentPause.pause(after: timeout, previousError: "X stopped responding (nothing for 180 s).")?.kind == .timeouts)
+        #expect(AgentPause.pause(after: "agent exited (status 3)", previousError: nil) == nil)
+    }
+
+    @Test func pausedAgentsAreSkippedAndShown() {
+        let pause = ModelCooldown(until: Date().addingTimeInterval(600), reason: "plan or rate limit reached")
+        let choice = AgentChoice.pick(from: ["codex-acp", "mistral-vibe"], sensitivity: .public, config: Config(), repo: nil,
+                                      checks: [:], clientName: nil, paused: [AgentPause.key("codex-acp"): pause])
+        #expect(choice.agent == "mistral-vibe")
+        #expect(choice.skipped.first?.kind == .pause && choice.skipped.first?.reason.contains("plan or rate limit") == true)
+
+        let now = Date()
+        let usage = [
+            UsageEntry(ts: now, provider: "agent:codex-acp", model: "m", ok: true, ms: 90_000),
+            UsageEntry(ts: now, provider: "agent:codex-acp", model: "m", ok: true, ms: 330_000),
+            UsageEntry(ts: now, provider: "agent:codex-acp", model: "m", ok: false, error: "x", ms: 600_000),
+            UsageEntry(ts: now, provider: "codex-acp", model: "m", ok: true, ms: 1),
+        ]
+        let agent = InstalledAgent(id: "codex-acp", name: "Codex", version: "1", executable: "/x", args: [], env: [:], installedAt: now)
+        let text = AgentCatalog.describe(installed: [agent], config: Config(), checks: [:], usage: usage,
+                                         paused: [AgentPause.key("codex-acp"): pause])
+        #expect(text.contains("· PAUSED until "))
+        #expect(text.contains("  last 30 days: 3 runs, 2 ok, median 5m 30s\n"))
     }
 }
 

@@ -415,6 +415,11 @@ final class AppModel {
             agentChecks[id] = check
             // Serwer pokazuje to dyrygentowi w `list_models` (modele, wysiłek, stan logowania).
             AgentCheckCache(url: home.agentChecksURL).save(id, AgentCheckRecord(check))
+            // Zalogowany agent nie potrzebuje przerwy „not signed in” (ani innej sprzed sprawdzenia).
+            if case .signedIn = check.signIn {
+                ModelCooldowns(url: home.cooldownsURL).clear(AgentPause.key(id))
+                cooldownsRevision += 1
+            }
             agentActivity[id] = nil
         }
     }
@@ -447,8 +452,8 @@ final class AppModel {
 
     // MARK: edycja listy dostawców
 
-    func addProvider(from preset: ProviderPreset) -> String {
-        let id = config.addProvider(from: preset)
+    func addProvider(from preset: ProviderPreset, privacy: PrivacyRegion? = nil) -> String {
+        let id = config.addProvider(from: preset, privacy: privacy)
         refresh()
         return id
     }

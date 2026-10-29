@@ -36,6 +36,8 @@ struct SettingsView: View {
     @State private var pendingDelete: String?
     @State private var renamingProvider: String?
     @State private var renameDraft = ""
+    /// Preset czekający na wybór regionu (gateway): bez wyboru nie dodajemy.
+    @State private var presetNeedingRegion: ProviderPreset?
 
     var body: some View {
         NavigationSplitView {
@@ -124,7 +126,11 @@ struct SettingsView: View {
                     Menu("Add provider", systemImage: "plus") {
                         ForEach(ProviderPreset.all) { preset in
                             Button {
-                                selection = .provider(model.addProvider(from: preset))
+                                if preset.asksRegion {
+                                    presetNeedingRegion = preset
+                                } else {
+                                    selection = .provider(model.addProvider(from: preset))
+                                }
                             } label: {
                                 Label(preset.title, systemImage: preset.kind.symbol)
                             }
@@ -151,6 +157,23 @@ struct SettingsView: View {
             }
         } message: {
             Text("This provider's API key will be removed from Keychain.")
+        }
+        .confirmationDialog(
+            "Where does this gateway send your data?",
+            isPresented: Binding(get: { presetNeedingRegion != nil }, set: { if !$0 { presetNeedingRegion = nil } }),
+            titleVisibility: .visible
+        ) {
+            ForEach([PrivacyRegion.eu, .us, .cn, .other, .local], id: \.self) { region in
+                Button(region == .other ? "Mixed or unknown" : region.title) {
+                    if let preset = presetNeedingRegion {
+                        selection = .provider(model.addProvider(from: preset, privacy: region))
+                    }
+                    presetNeedingRegion = nil
+                }
+            }
+            Button("Cancel", role: .cancel) { presetNeedingRegion = nil }
+        } message: {
+            Text("Pick the strictest region among the providers it forwards to. Personal tasks go only to the regions you allow; \"Mixed or unknown\" gets public tasks only, \"local\" means it uses only models on this Mac.")
         }
         .alert(
             "Rename provider",
