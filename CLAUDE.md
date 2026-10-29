@@ -91,7 +91,9 @@ z `data-app="delegate"`; lokalnie się nie ładuje. Zrzuty to kopie `docs/screen
 Katalog: `~/Library/Application Support/Delegate/` (nadpisywany przez `$DELEGATE_HOME`).
 
 - `delegate.toml` — config. Tworzony z domyślnego, jeśli go brak (`delegate-mcp --init`). Domyślny ma tylko
-  model na urządzeniu; chmurowych dostawców dodaje się z presetów (`ProviderPreset`, menu + w aplikacji).
+  model na urządzeniu; chmurowych dostawców dodaje się z presetów (`ProviderPreset`, menu + w aplikacji). Darmowe bez
+  karty: Mistral (Experiment), Gemini, Groq, NVIDIA NIM, SambaNova (20 zapytań dziennie na model), Cloudflare Workers AI
+  (w adresie `ACCOUNT_ID` do podmiany, brak `/models`).
   Wczytywany przy każdym wywołaniu, więc restart nie jest potrzebny.
 - `.env` — awaryjne klucze (`MISTRAL_API_KEY=...`), `chmod 600`.
 - `delegate_usage.jsonl` — log użycia (tylko metadane, bez treści promptów).
@@ -169,6 +171,9 @@ i podgląd w zakładce Routing):
   429 z `limit: 0` → doba, 429 z „retry in …” → tyle, ile podał dostawca, inny 429 → 60 s, 402 → godzina,
   503/502/504/529 i timeout (gdy model miał pełny limit albo co najmniej 25 s) → 5 min, 500 → 2 min, 404 i 400 „only supports…”
   → tydzień. Sukces zdejmuje przerwę; w Routingu przycisk „Resume paused models” zdejmuje wszystkie.
+  Z wyprzedzeniem (`RateLimit`): po udanej odpowiedzi API zgodnego z OpenAI nagłówki `x-ratelimit-remaining-*` /
+  `x-ratelimit-reset-*` (Groq, SambaNova…) dają przerwę do odnowienia, gdy licznik spadł do zera albo tokenów zostało
+  mniej, niż zużyło to zapytanie; model odpada przed odmową. Przy 429 nagłówek `retry-after` ustala długość przerwy.
   Odrzucony klucz (401, 403, 402 „authentication”) nie daje przerwy, ale pozostałe modele tego dostawcy odpadają w tym
   wywołaniu (`DelegateService.isKeyRejected`), a błąd mówi, czyje klucze sprawdzić.
 - **Myślenie Gemini** (`ProviderClient.geminiThinking`): Flash i Pro 3+ (także `-latest`) dostają `thinkingLevel: low`,

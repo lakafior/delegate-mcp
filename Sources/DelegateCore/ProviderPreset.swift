@@ -70,6 +70,46 @@ public struct ProviderPreset: Sendable, Identifiable {
             keyURL: "https://openrouter.ai/settings/keys",
             models: [ModelConfig(id: "openrouter/auto", tags: ["general"], cost: "varies")]),
         ProviderPreset(
+            id: "groq", title: "Groq", kind: .openai,
+            baseURL: "https://api.groq.com/openai/v1", apiKeyEnv: "GROQ_API_KEY",
+            note: "Free plan without a card: per model about 30 requests/min, 1,000 a day and 8K tokens/min, so short tasks only. The free plan may allow use of your data.",
+            guidance: "Very fast open models, small free limits (8K tokens/min): short tasks.",
+            keyURL: "https://console.groq.com/keys", privacy: .us,
+            models: [
+                ModelConfig(id: "openai/gpt-oss-120b", tags: ["general", "code", "fast"], cost: "free"),
+                ModelConfig(id: "openai/gpt-oss-20b", tags: ["general", "fast", "short"], cost: "free"),
+            ]),
+        ProviderPreset(
+            id: "nvidia", title: "NVIDIA NIM", kind: .openai,
+            baseURL: "https://integrate.api.nvidia.com/v1", apiKeyEnv: "NVIDIA_API_KEY",
+            note: "Free trial inference (build.nvidia.com) with a request-per-minute limit and no token cap; under NVIDIA's API Trial Terms.",
+            guidance: "Free trial endpoint with many open models; rate-limited per minute.",
+            keyURL: "https://build.nvidia.com", privacy: .us,
+            models: [
+                ModelConfig(id: "deepseek-ai/deepseek-v4.1-flash", tags: ["general", "code"], cost: "free"),
+                ModelConfig(id: "nvidia/nemotron-3-super-120b-a12b", tags: ["general", "reasoning"], cost: "free"),
+            ]),
+        ProviderPreset(
+            id: "sambanova", title: "SambaNova", kind: .openai,
+            baseURL: "https://api.sambanova.ai/v1", apiKeyEnv: "SAMBANOVA_API_KEY",
+            note: "Free tier while no payment method is linked: per model 20 requests/min, 20 a day and 200K tokens a day.",
+            guidance: "Strong open models free, but only 20 requests a day per model.",
+            keyURL: "https://cloud.sambanova.ai/apis", privacy: .us,
+            models: [
+                ModelConfig(id: "DeepSeek-V3.1", tags: ["general", "code"], cost: "free"),
+                ModelConfig(id: "gpt-oss-120b", tags: ["general", "reasoning"], cost: "free"),
+            ]),
+        ProviderPreset(
+            id: "cloudflare", title: "Cloudflare Workers AI", kind: .openai,
+            baseURL: "https://api.cloudflare.com/client/v4/accounts/ACCOUNT_ID/ai/v1", apiKeyEnv: "CLOUDFLARE_AI_TOKEN",
+            note: "Replace ACCOUNT_ID in the address with your account ID (Workers AI page → Use REST API, where you also create the token). Free: 10,000 Neurons a day, roughly 130K output tokens on a small model. No model list over the API: add model IDs by hand.",
+            guidance: "Small free daily allowance: short tasks on small models.",
+            keyURL: "https://dash.cloudflare.com/?to=/:account/ai/workers-ai", privacy: .us,
+            models: [
+                ModelConfig(id: "@cf/openai/gpt-oss-20b", tags: ["general", "short"], cost: "free"),
+                ModelConfig(id: "@cf/mistralai/mistral-small-3.1-24b-instruct", tags: ["general", "translate", "short"], cost: "free"),
+            ]),
+        ProviderPreset(
             id: "anthropic", title: "Anthropic API", kind: .anthropic,
             baseURL: "https://api.anthropic.com/v1", apiKeyEnv: "ANTHROPIC_API_KEY",
             note: "Paid API, separate from the Claude subscription.",

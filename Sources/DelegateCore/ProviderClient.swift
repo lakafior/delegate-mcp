@@ -53,6 +53,8 @@ public struct ChatReply: Sendable, Equatable {
     public var text: String
     public var inputTokens: Int?
     public var outputTokens: Int?
+    /// Liczniki z `x-ratelimit-*` (API zgodne z OpenAI); pusto, gdy dostawca ich nie podaje.
+    public var rateLimits: [RateLimit] = []
 }
 
 struct ProviderClient {
@@ -165,7 +167,7 @@ struct ProviderClient {
         var req = try makeRequest(url: join(p.baseURL, "chat/completions"), method: "POST")
         authorize(&req, provider: p, apiKey: key)
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let json = try await perform(req)
+        let (json, http) = try await send(req)
 
         let message = (json["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any]
         guard let text = message?["content"] as? String, !text.isEmpty else {
@@ -174,7 +176,8 @@ struct ProviderClient {
         let usage = json["usage"] as? [String: Any]
         return ChatReply(text: text,
                          inputTokens: usage?["prompt_tokens"] as? Int,
-                         outputTokens: usage?["completion_tokens"] as? Int)
+                         outputTokens: usage?["completion_tokens"] as? Int,
+                         rateLimits: RateLimit.parse(http.allHeaderFields))
     }
 
     // MARK: Gemini
@@ -310,18 +313,27 @@ struct ProviderClient {
     }
 
     private func perform(_ req: URLRequest) async throws -> [String: Any] {
+        try await send(req).json
+    }
+
+    private func send(_ req: URLRequest) async throws -> (json: [String: Any], http: HTTPURLResponse) {
         let data: Data, http: HTTPURLResponse
         do { (data, http) = try await transport.send(req) }
         catch let e as ProviderError { throw e }
         catch { throw ProviderError.network(error.localizedDescription) }
 
         guard (200..<300).contains(http.statusCode) else {
-            let body = Self.parseErrorBody(data)
+            var body = Self.parseErrorBody(data)
+            // Groq i inni podają czas tylko w nagłówku; `ModelCooldowns.retryDelay` czyta go z treści błędu.
+            if http.statusCode == 429, let after = http.value(forHTTPHeaderField: "retry-after"),
+               let seconds = RateLimit.duration(after), !body.lowercased().contains("retry") {
+                body += " (retry after \(Int(seconds.rounded(.up)))s)"
+            }
             throw ProviderError.http(status: http.statusCode, body: body)
         }
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ProviderError.badResponse("response is not a JSON object")
         }
-        return json
+        return (json, http)
     }
 }

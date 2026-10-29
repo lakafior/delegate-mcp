@@ -1,6 +1,6 @@
 # Roadmapa
 
-Stan na 29.10.2026 (wersja 0.6.0). Szczegóły techniczne i wyniki prób agentów: `docs/acp-plan.md`.
+Stan na 29.10.2026 (wersja 0.7.0). Szczegóły techniczne i wyniki prób agentów: `docs/acp-plan.md`.
 
 ## Cel
 
@@ -71,6 +71,12 @@ Wersja 0.4.0 (etapy R z 29.10.2026):
   opcjonalne pole `agent`; przerwy dla agentów (logowanie, limit planu, dwa limity czasu z rzędu), wykrywanie
   zawieszenia po ciszy (180 s odczyt, 360 s zapis), fallback na następnego agenta po błędzie na starcie, statystyki
   z logu (30 dni) w `list_models`.
+
+Wersja 0.7.0 (z katalogu darmowych dostawców OmniRoute, bez gatewaya):
+- **Darmowi dostawcy**: presety Groq, NVIDIA NIM, SambaNova i Cloudflare Workers AI (API zgodne z OpenAI, bez karty,
+  region `us`); poza nimi zostały dostawcy z ostrzeżeniami w regulaminie (webowe czaty, cudze logowania OAuth).
+- **Limity z wyprzedzeniem**: nagłówki `x-ratelimit-*` po udanej odpowiedzi dają przerwę, zanim model odmówi;
+  `retry-after` przy 429 ustala długość przerwy.
 
 Wersja 0.6.0 (z artykułów i repo z sekcji niżej; jeszcze niezmierzone):
 - **`alwaysLoad`**: `delegate` i `delegate_result` mają `_meta["anthropic/alwaysLoad"]`, więc Claude Code nie chowa ich

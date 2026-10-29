@@ -26,7 +26,8 @@ public enum PrivacyRegion: String, Codable, Sendable, CaseIterable {
         if matches(["mistral.ai"]) { return .eu }
         if matches(["deepseek.com"]) { return .cn }
         if matches(["googleapis.com", "openai.com", "anthropic.com", "openrouter.ai", "venice.ai", "aionlabs.ai",
-                    "x.ai", "groq.com", "together.xyz", "perplexity.ai"]) { return .us }
+                    "x.ai", "groq.com", "together.xyz", "perplexity.ai", "nvidia.com", "sambanova.ai",
+                    "cloudflare.com"]) { return .us }
         return .other
     }
 }

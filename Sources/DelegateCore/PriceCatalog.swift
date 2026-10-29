@@ -47,6 +47,9 @@ public struct PriceCatalog: Sendable {
             ("api.groq.com", "groq"),
             ("api.together.xyz", "together_ai"),
             ("api.perplexity.ai", "perplexity"),
+            ("integrate.api.nvidia.com", "nvidia_nim"),
+            ("api.sambanova.ai", "sambanova"),
+            ("api.cloudflare.com", "cloudflare"),
         ]
         return known.first { host == $0.0 || host.hasSuffix("." + $0.0) }?.1
     }

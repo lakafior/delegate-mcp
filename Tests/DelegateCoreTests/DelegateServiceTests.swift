@@ -4,7 +4,7 @@ import Testing
 
 /// Transport z gotowymi odpowiedziami wg hosta; zapamiętuje wywołania.
 final class MockTransport: HTTPTransport, @unchecked Sendable {
-    struct Reply { var status: Int; var body: String }
+    struct Reply { var status: Int; var body: String; var headers: [String: String] = [:] }
     private let lock = NSLock()
     private let replies: [String: Reply]
     private var recorded: [URLRequest] = []
@@ -16,7 +16,7 @@ final class MockTransport: HTTPTransport, @unchecked Sendable {
         lock.withLock { recorded.append(request) }
         let host = request.url?.host ?? ""
         let reply = replies[host] ?? Reply(status: 404, body: "{}")
-        let http = HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: nil, headerFields: nil)!
+        let http = HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: nil, headerFields: reply.headers)!
         return (Data(reply.body.utf8), http)
     }
 }

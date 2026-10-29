@@ -481,6 +481,11 @@ public struct DelegateService: Sendable {
                 }
                 let ms = Int(Date().timeIntervalSince(started) * 1000)
                 cooldowns.clear(c.ref)
+                // Limit prawie wyczerpany: model odpada, zanim odmówi (następne wywołanie bierze inny).
+                let used = (reply.inputTokens ?? 0) + (reply.outputTokens ?? 0)
+                if let pause = RateLimit.pause(reply.rateLimits, usedTokens: used > 0 ? used : nil) {
+                    cooldowns.set(c.ref, ModelCooldown(until: Date().addingTimeInterval(pause.seconds), reason: pause.reason))
+                }
                 let cost = CostCalculator.computeCost(model: c.model, inputTokens: reply.inputTokens, outputTokens: reply.outputTokens)
                 usage.append(UsageEntry(provider: c.provider.id, model: c.model.id, task: request.task,
                                         inputTokens: reply.inputTokens, outputTokens: reply.outputTokens,
