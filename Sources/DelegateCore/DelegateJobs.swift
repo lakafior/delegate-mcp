@@ -210,6 +210,9 @@ public struct JobStore: Sendable {
         }
     }
 
+    /// Z ułamkami sekund: zadania startujące w tej samej sekundzie muszą się dać posortować.
+    private static let dateFormat = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+
     private func url(_ id: String) -> URL { directory.appendingPathComponent("\(id).json") }
 
     func exists(_ id: String) -> Bool { FileManager.default.fileExists(atPath: url(id).path) }
@@ -223,7 +226,10 @@ public struct JobStore: Sendable {
         let record = Record(id: job.id, label: job.label, started: job.started, finished: job.finished,
                             state: state, text: text, pid: ProcessInfo.processInfo.processIdentifier, details: job.details)
         let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
+        encoder.dateEncodingStrategy = .custom { date, encoder in
+            var c = encoder.singleValueContainer()
+            try c.encode(date.formatted(Self.dateFormat))
+        }
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         // Zapis atomowy: inny proces serwera nigdy nie przeczyta połowy pliku.
         try? encoder.encode(record).write(to: url(job.id), options: .atomic)
@@ -233,7 +239,12 @@ public struct JobStore: Sendable {
         // ID pochodzi od Claude'a: nie pozwalamy wyjść poza katalog zadań.
         guard !id.contains("/"), !id.hasPrefix("."), let data = try? Data(contentsOf: url(id)) else { return nil }
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let text = try decoder.singleValueContainer().decode(String.self)
+            // Starsze pliki mają sekundy bez ułamków.
+            if let date = (try? Date(text, strategy: Self.dateFormat)) ?? (try? Date(text, strategy: .iso8601)) { return date }
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "bad date \(text)"))
+        }
         guard let r = try? decoder.decode(Record.self, from: data) else { return nil }
         let state: DelegateJobs.State = switch r.state {
         case "done": .done(r.text ?? "")

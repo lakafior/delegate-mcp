@@ -244,11 +244,16 @@ extension PriceCatalogTests {
     }
 
     @Test func handshakeTimesOutOnSilentServer() async throws {
-        let fake = try script("sleep 30\n")
+        // `sleep` jest procesem potomnym: trzyma stdout po `terminate()` powłoki, więc czekanie na EOF trwałoby 120 s.
+        // Próg jest luźny, bo na wolnym runnerze CI wznowienie zadania potrafi czekać kilkanaście sekund na wątek.
+        let fake = try script("sleep 120\n")
         defer { try? FileManager.default.removeItem(at: fake) }
         let started = Date()
-        await #expect(throws: HelperProbe.ProbeError.self) { try await HelperProbe(executable: fake).handshake(timeout: 1) }
-        #expect(Date().timeIntervalSince(started) < 5)
+        let error = await #expect(throws: HelperProbe.ProbeError.self) {
+            try await HelperProbe(executable: fake).handshake(timeout: 1)
+        }
+        #expect(error?.description.contains("no response within") == true)
+        #expect(Date().timeIntervalSince(started) < 60)
     }
 }
 
