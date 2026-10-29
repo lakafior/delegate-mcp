@@ -255,16 +255,16 @@ public struct DelegateService: Sendable {
         for p in config.providers {
             let st = status(of: p)
             guard st == .ready else {
-                excluded.append(RoutingExclusion(ref: p.id, reason: st.label))
+                excluded.append(RoutingExclusion(ref: p.id, reason: st.label, kind: .unavailable))
                 continue
             }
             let region = p.effectivePrivacy
             switch request.sensitivity {
             case .private where region != .local:
-                excluded.append(RoutingExclusion(ref: p.id, reason: "private task stays on the Mac (region: \(region.rawValue))"))
+                excluded.append(RoutingExclusion(ref: p.id, reason: "private task stays on the Mac (region: \(region.rawValue))", kind: .region))
                 continue
             case .personal where !config.personalRegions.contains(region):
-                excluded.append(RoutingExclusion(ref: p.id, reason: "personal data doesn't go to region \(region.rawValue)"))
+                excluded.append(RoutingExclusion(ref: p.id, reason: "personal data doesn't go to region \(region.rawValue)", kind: .region))
                 continue
             default:
                 usable.append(p)
@@ -280,7 +280,7 @@ public struct DelegateService: Sendable {
             let time = DateFormatter()
             time.dateFormat = "HH:mm"
             excluded += all.compactMap { c in
-                cooling[c.ref].map { RoutingExclusion(ref: c.ref, reason: "\(RoutingExclusion.pausePrefix) \(time.string(from: $0.until)): \($0.reason)") }
+                cooling[c.ref].map { RoutingExclusion(ref: c.ref, reason: "\(RoutingExclusion.pausePrefix) \(time.string(from: $0.until)): \($0.reason)", kind: .pause) }
             }
             all = all.filter { cooling[$0.ref] == nil }
         }
@@ -292,7 +292,7 @@ public struct DelegateService: Sendable {
             spent = s
             if s >= budget {
                 let reason = String(format: "daily budget used up ($%.2f of $%.2f)", s, budget)
-                excluded += all.filter { !$0.model.isFree(at: $0.provider) }.map { RoutingExclusion(ref: $0.ref, reason: reason) }
+                excluded += all.filter { !$0.model.isFree(at: $0.provider) }.map { RoutingExclusion(ref: $0.ref, reason: reason, kind: .budget) }
                 all = all.filter { $0.model.isFree(at: $0.provider) }
             }
         }
@@ -342,7 +342,8 @@ public struct DelegateService: Sendable {
         let list = plan.candidates
         guard !list.isEmpty else {
             let why = plan.excluded.prefix(10).map { "- \($0.ref): \($0.reason)" }.joined(separator: "\n")
-            let detail = why.isEmpty ? "" : "\nSkipped:\n" + why
+            var detail = why.isEmpty ? "" : "\nSkipped:\n" + why
+            detail += "\nWhat to do:\n" + plan.refusalAdvice(for: request, config: config).map { "- \($0)" }.joined(separator: "\n")
             if let m = request.model {
                 throw DelegateError(description: "Model \"\(m)\" unavailable for this task.\(detail)")
             }
@@ -433,7 +434,8 @@ public struct DelegateService: Sendable {
                 if !request.allowFallback { break }
             }
         }
-        throw DelegateError(description: "All attempts failed:\n" + failures.map { "- \($0)" }.joined(separator: "\n"))
+        throw DelegateError(description: "All attempts failed:\n" + failures.map { "- \($0)" }.joined(separator: "\n")
+            + "\nWhat to do: retry later or with another model from list_models (failed models may now be paused), or do the task yourself.")
     }
 
     private func header(_ c: Candidate, _ r: ChatReply, ms: Int, cost: Double?, failures: [String]) -> String {

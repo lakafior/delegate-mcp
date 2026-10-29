@@ -63,12 +63,30 @@ extension ModelConfig {
 
 /// Dlaczego dostawca albo model odpadł z kolejki (do podglądu w GUI i komunikatów błędów).
 public struct RoutingExclusion: Sendable, Equatable {
+    public enum Kind: Sendable {
+        /// Brak klucza albo dostawca wyłączony.
+        case unavailable
+        /// Region danych nie pasuje do `sensitivity`.
+        case region
+        /// Przerwa po błędzie (`ModelCooldowns`).
+        case pause
+        /// Dzienny budżet wydany, a model jest płatny.
+        case budget
+    }
+
     public var ref: String
     public var reason: String
+    public var kind: Kind
+
+    public init(ref: String, reason: String, kind: Kind) {
+        self.ref = ref
+        self.reason = reason
+        self.kind = kind
+    }
 
     static let pausePrefix = "paused until"
     /// Model pominięty, bo ma przerwę po błędzie (`ModelCooldowns`).
-    public var isPause: Bool { reason.hasPrefix(Self.pausePrefix) }
+    public var isPause: Bool { kind == .pause }
 }
 
 /// Co serwer zrobiłby z zadaniem: kolejność prób i co pominął.
@@ -77,4 +95,48 @@ public struct RoutingPlan: Sendable {
     public var excluded: [RoutingExclusion]
     /// Wydane dziś na płatne modele (z logu), gdy ustawiono budżet.
     public var spentToday: Double?
+
+    /// Co Claude ma zrobić, gdy routing nikogo nie zostawił: po linii na każdy powód odmowy, na końcu „zrób sam”.
+    /// Odmowa bez wskazówki kończy się zwykle ponowieniem tego samego wywołania.
+    public func refusalAdvice(for request: DelegateRequest, config: Config) -> [String] {
+        var relevant = excluded
+        let pinned = request.model.map { !$0.isEmpty && !request.allowFallback } ?? false
+        if pinned, let m = request.model {
+            // Bez fallbacku liczą się tylko powody, dla których odpadł wskazany model, nie cały katalog.
+            relevant = excluded.filter { e in
+                e.ref == m || m.hasPrefix(e.ref + "/") || e.ref.hasSuffix("/" + m)
+                    || config.providers.contains { $0.id == e.ref && $0.models.contains { $0.id == m } }
+            }
+        }
+        let kinds = Set(relevant.map(\.kind))
+        var out: [String] = []
+        if pinned, let m = request.model {
+            let known = config.providers.contains { p in p.models.contains { "\(p.id)/\($0.id)" == m || $0.id == m } }
+            out.append(known
+                ? "Pick another model from list_models, or drop fallback = false so the server can route around \"\(m)\"."
+                : "\"\(m)\" is not in the catalog: pick a model from list_models, or omit `model` to route automatically.")
+        }
+        if kinds.contains(.region) {
+            switch request.sensitivity {
+            case .private:
+                out.append("Private tasks run only on local models and none is ready (the user can add Ollama, LM Studio or Apple on-device in the Delegate app). Lower `sensitivity` only if the content really allows it.")
+            case .personal:
+                let regions = config.personalRegions.map(\.rawValue).sorted().joined(separator: ", ")
+                out.append("Personal data goes only to regions \(regions). Use sensitivity: public only if the content has nothing personal or work-related.")
+            case .public:
+                break
+            }
+        }
+        if kinds.contains(.budget) {
+            out.append("Today's budget for paid models is spent and no free model is left; the user can raise daily_budget_usd.")
+        }
+        if kinds.contains(.pause) {
+            out.append("Some models are paused after errors: retry after the time shown, or pick another model from list_models.")
+        }
+        if kinds == [.unavailable] || (kinds.isEmpty && !pinned) {
+            out.append("No provider is ready (missing keys, disabled or no models): the user sets them up in the Delegate app.")
+        }
+        out.append("Otherwise do the task yourself.")
+        return out
+    }
 }
