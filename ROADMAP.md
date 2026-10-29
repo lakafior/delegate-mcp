@@ -1,104 +1,130 @@
 # Roadmapa
 
-Stan na 27.10.2026. Szczegóły techniczne i wyniki prób agentów: `docs/acp-plan.md`.
+Stan na 29.10.2026 (wersja 0.4.0). Szczegóły techniczne i wyniki prób agentów: `docs/acp-plan.md`.
 
 ## Cel
 
 Claude (albo inny asystent) jako dyrygent: rozbija pracę na zadania, oddaje je w tle tańszym modelom i agentom
 (każdy na swoim loginie albo kluczu), a sam tylko przegląda wyniki i scala. Oszczędza to limity głównej subskrypcji.
 
-## Zrobione
-
-- [x] **Delegowanie tekstu** — `delegate` z `files` (serwer czyta pliki sam), `output_file` (wynik prosto na dysk),
-  `background` + `delegate_result` (kilka zadań naraz), limity czasu dopasowane do klienta MCP.
-- [x] **Odporność na awarie dostawców** — przerwy dla modeli po 429/503/400/404 (`model_cooldowns.json`), fallback do
-  podobnych modeli, informacja o pominiętych w nagłówku odpowiedzi.
-- [x] **Agenci ACP do analizy repo** — `delegate_agent`: agent z rejestru ACP (jak w Zedzie) pracuje w tle na kopii repo,
-  w piaskownicy macOS, tylko do odczytu, na swoim loginie. Przetestowani na żywo: Mistral Vibe, Google Antigravity,
-  GitHub Copilot. Zainstalowani też Codex i Claude Agent.
-- [x] **Instalacja agentów** — binarki (suma SHA-256 z rejestru albo podpis Developer ID, niepodpisane za zgodą),
-  paczki npm przez systemowy Node, logowanie z apki (przeglądarka albo Terminal).
-- [x] **Agenci w apce** — sekcja w pasku bocznym ze stronami agentów, przeglądanie rejestru, diagnostyka w Overview.
-
 ## Do zrobienia (w tej kolejności)
 
-### A. Ustawienia per agent — fundament pod resztę
-- [x] **A1. Domyślny model i wysiłek per agent.** Przykład, dla którego to robimy: Claude Code oddaje zadanie
-  Claude Agentowi z modelem `haiku` i wysiłkiem `low` — ta sama subskrypcja, ale dużo mniej zużytego limitu
-  (jak subagent z tańszym modelem, tylko w tle i w piaskownicy). Claude Agent ogłasza modele `haiku`/`sonnet`/
-  `opus`/`fable`, poziomy `low`…`max` i tryb `plan`. Zapis w `delegate.toml` (sekcja `[[agent]]`).
-- [x] **A2. Region danych i włącz/wyłącz per agent.** Dziś region pochodzi z wbudowanej tabeli.
-- [x] **A3. Lista agentów sprawdzana na bieżąco po stronie serwera**, żeby nowo zainstalowany agent działał bez
-  restartu Claude'a (dziś schemat `delegate_agent` powstaje przy starcie sesji).
-- [x] **A4. Zgoda per repo** — „to repo może iść do Copilota, to firmowe nigdzie”. Ważniejsze przed trybem zapisu.
-- [x] **A5. Natywny tryb tylko do odczytu agenta** (np. `plan` w Claude Agent) jako dodatek do piaskownicy.
+| Etap | Zakres | Gotowe, gdy |
+|---|---|---|
+| R1. Pomiar oszczędności | zestaw ok. 10 typowych zadań (tłumaczenie locale, README, fixture, review długiego pliku, analiza repo agentem…), każde przez `claude -p --output-format json` z serwerem `delegate` i bez, po 2 przebiegi; tokeny i koszt Claude'a + ocena wyniku wg rubryki. Najpierw pilot: 3–4 zadania po jednym przebiegu, żeby sprawdzić skrypt i rubrykę | tabela: które rodzaje zadań oszczędzają, które nie; wnioski wpisane do instrukcji serwera |
+| R2. Raporty agentów z dowodami | `delegate_agent` read: stały format raportu (tezy z `plik:linia`, osobno pewne i do sprawdzenia), żeby Claude weryfikował wyrywkowo | w R1 Claude czyta po raporcie mniej plików niż bez agenta |
+| R6, krok 3. Kolejność agentów z danych | w R1 te same ok. 5 zadań przez każdego agenta | domyślna kolejność `[[agent]]` ustawiona z wyników, nie z opinii |
+| E. Próba w prawdziwej pracy | uzupełnienie R1: kilka dni normalnej pracy, potem zakładka Usage i statystyki agentów w `list_models` | wiadomo, czy dyrygent sam sięga po agentów, czy trzeba go popychać skillem; które zadania kończą się poprawkami |
+| Później | tylko jeśli R1 pokaże zysk: wagi routingu zamiast samej kolejności (jak „mode packs” w OmniRoute); panel tanich modeli + sędzia do review | osobny plan |
 
-- [x] **Dodatek:** `list_models` pokazuje agentów z modelami, poziomami wysiłku, ustawieniami domyślnymi, stanem
-  logowania i regułami repo (z `agents/checks.json`, zapisywanego przez apkę przy sprawdzaniu agentów).
+Drobne:
+- [ ] Pole `thinking` przy modelu (R5) jest tylko w TOML; kontrolka w edytorze modeli w apce.
 
-### B. Tryb zapisu — serce swarmu, największy kawałek pracy
-- [x] **B1.** Agent dostaje worktree na gałęzi `delegate/<zadanie>`, który może zmieniać; wszystko poza nim nadal
-  blokuje piaskownica.
-- [x] **B2.** Agent może uruchomić testy (`swift build`, `npm test`): zapis w swoim worktree i, dla menedżerów
-  pakietów, sieć.
-- [x] **B3.** Wynik: gałąź z commitem, `git diff --stat` i raport. Dyrygent robi `git diff main...delegate/<zadanie>`,
-  przegląda i scala albo odrzuca. Gałąź jest w Twoim repo, więc do scalenia nie trzeba nowych narzędzi.
-- [x] **B4.** Sprzątanie porzuconych gałęzi i limit równoległych agentów (żeby pięć naraz nie wyczerpało
-  subskrypcji w kwadrans).
+Opcjonalnie:
+- [ ] **G. Inne modele w Claude Agent („model backend”).** Claude Agent to w środku Claude Code, a ten da się przepiąć
+  zmiennymi `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_MODEL` na dostawcę, który udaje API Anthropic
+  (oficjalnie DeepSeek: `https://api.deepseek.com/anthropic`). Na stronie Claude Agent wybór „subskrypcja Claude” albo
+  dostawca z configu; serwer wstawia adres, klucz z Keychain i model, a dla dyrygenta to osobny agent, np.
+  `claude-acp@deepseek`. Region od dostawcy (DeepSeek zostaje `cn`). Działa na kluczu API, nie na loginie.
 
-### C. Skill `/swarm` — jawny tryb dyrygenta
-- [x] Skill w `~/.claude/skills/swarm/SKILL.md` (`SwarmSkill`, instalacja z Overview), plus `branch_from` w
-  `delegate_agent` na rundy poprawek na gałęzi agenta. Do sprawdzenia w prawdziwej pracy (E).
-- Instrukcje serwera tylko zachęcają do delegowania, a Claude i tak decyduje sam. `/swarm wdroż roadmapę
-  z ROADMAP.md` daje mu procedurę: rozbić cel na niezależne zadania → dobrać agentów i modele → wysłać równolegle →
-  przejrzeć wyniki → scalić dobre, zgłosić resztę. Najpewniej największy efekt najmniejszym kosztem; ma sens po B.
+## Zrobione
 
-### D. Podgląd zadań w apce
-- [x] Zakładka „Jobs” (`JobsView`): zadania wszystkich sesji z `jobs/*.json` (trwające, zakończone, przerwane)
-  z agentem/modelem, repo, trybem, czasem, wynikiem i gałęzią; polecenia review/merge/discard do skopiowania,
-  „Clear finished”. Szczegóły zadania (`DelegateJobs.Details`) zapisuje serwer, gałąź po zakończeniu trybu zapisu.
+Podstawy:
+- **Delegowanie tekstu**: `delegate` z `files` (serwer czyta pliki sam), `output_file` (wynik prosto na dysk),
+  `background` + `delegate_result` (kilka zadań naraz), limity czasu dopasowane do klienta MCP.
+- **Odporność na awarie dostawców**: przerwy dla modeli po 429/503/400/404 (`model_cooldowns.json`), fallback do
+  podobnych modeli, informacja o pominiętych w nagłówku odpowiedzi.
+- **Apka**: status i koszt w menu bar, szybki test połączeń, tylko angielski interfejs, publiczne repo z dokumentacją,
+  CI i wydania z podpisem i notaryzacją.
 
-### E. Próba w prawdziwej pracy
-- [ ] Kilka dni normalnej pracy, potem zakładka Usage: czy dyrygent sam sięga po agentów, czy trzeba go popychać
-  skillem; które zadania się opłacają, a które kończą się poprawkami.
+Agenci ACP (etapy A–D, F):
+- **Analiza repo**: `delegate_agent` pracuje w tle na kopii repo, w piaskownicy macOS, tylko do odczytu, na loginie agenta.
+- **Instalacja**: binarki (SHA-256 z rejestru albo podpis Developer ID, niepodpisane za zgodą), paczki npm przez
+  systemowy Node, logowanie z apki (przeglądarka albo Terminal).
+- **A. Ustawienia per agent**: domyślny model i wysiłek, region, włącz/wyłącz, lista agentów liczona na bieżąco,
+  zgoda per repo (`[[repo]]`), natywny tryb tylko do odczytu; `list_models` opisuje agentów.
+- **B. Tryb zapisu**: worktree na gałęzi `delegate/…`, testy i budowanie w piaskownicy, wynik jako commit + `--stat`,
+  sprzątanie gałęzi, limit równoległych agentów.
+- **C. Skill `/swarm`** (instalacja z Overview) i `branch_from` na rundy poprawek.
+- **D. Zakładka Jobs**: zadania wszystkich sesji z agentem, modelem, repo, trybem, czasem, wynikiem i gałęzią.
+- **F. Inni klienci MCP**: przyciski podpięcia (Codex, Cursor, Zed, VS Code, Gemini CLI, Antigravity), teksty bez
+  nazwy Claude'a, dyrygent rozpoznawany z `clientInfo`.
 
-### F. Zgodność z innymi narzędziami AI
-F1 i F2 zrobione pierwszym `/swarm` (27.10.2026): Codex → `MCPClients.swift` (Cursor, VS Code, Gemini CLI,
-Antigravity, Zed), Mistral Vibe → `CodexMCPConfig.swift` (po nieudanej próbie Antigravity), Claude Agent (haiku)
-→ teksty F2; UI i scalanie zrobił dyrygent.
-Serwer to zwykły serwer MCP, więc działa w każdym kliencie MCP (Codex, Cursor, Zed, VS Code, Antigravity). Brakuje:
-- [x] **F1.** Przycisków podpięcia w Overview dla innych klientów: Codex (`~/.codex/config.toml`), Cursor
-  (`~/.cursor/mcp.json`), Zed (`context_servers`), VS Code, Gemini/Antigravity (`~/.gemini/settings.json`).
-- [x] **F2.** Uogólnienia tekstów pisanych pod Claude'a („save the user's Claude usage limits”).
-- [x] **F3.** Użycia nazwy klienta z `initialize` (`clientInfo`): serwer wie, kto jest dyrygentem, i może podpowiedzieć,
-  że agent na tej samej subskrypcji (Claude Code → Claude Agent, Codex → Codex) ma sens tylko z tańszym modelem.
+Wersja 0.4.0 (etapy R z 29.10.2026):
+- **R0. Region gatewayów**: localhost jest `local` tylko na portach Ollamy (11434) i LM Studio (1234), inaczej `other`;
+  presety Ollama i LM Studio zapisują region jawnie.
+- **R3. Odmowy z instrukcją**: każda odmowa routingu i „All attempts failed” kończą się „What to do:”.
+- **R4. Preset gatewaya**: „Gateway (OmniRoute / LiteLLM)” z obowiązkowym wyborem regionu przy dodawaniu.
+- **R5. Gemini**: niski poziom myślenia dla Flash/Pro 3+, pole `thinking` per model, tokeny myślenia w logu (wyniki niżej).
+- **R6, kroki 1–2. Ranking agentów**: kolejność `[[agent]]` = priorytet (przeciąganie w apce), `guidance` per agent,
+  opcjonalne pole `agent`; przerwy dla agentów (logowanie, limit planu, dwa limity czasu z rzędu), wykrywanie
+  zawieszenia po ciszy (180 s odczyt, 360 s zapis), fallback na następnego agenta po błędzie na starcie, statystyki
+  z logu (30 dni) w `list_models`.
 
-### G. Inne modele w Claude Agent („model backend”) — opcjonalnie
-- [ ] Claude Agent to w środku Claude Code, a ten da się przepiąć zmiennymi `ANTHROPIC_BASE_URL` /
-  `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_MODEL` na dostawcę, który udaje API Anthropic (oficjalnie DeepSeek:
-  `https://api.deepseek.com/anthropic`). Na stronie Claude Agent wybór „subskrypcja Claude” albo dostawca z configu;
-  serwer wstawia adres, klucz z Keychain i model, a dla dyrygenta to osobny agent, np. `claude-acp@deepseek`.
-  Region od dostawcy (DeepSeek zostaje `cn`). To działa na kluczu API, nie na loginie — dlatego na końcu.
+## Źródła i wnioski (29.10.2026)
 
-### Odłożone
+- **Anthropic, „Building agents: when to fold subagents into your main agent loop”** (2026-10-22). Jeden agent
+  z jednym kontekstem, skillami i narzędziami zwykle wygrywa z orkiestratorem i specjalistami: każde przekazanie
+  między agentami gubi szczegóły. Subagenci mają sens, gdy kontekst puchnie, gdy zadania idą równolegle w świeżych,
+  wyrzucanych kontekstach, albo gdy model myli narzędzia. Dzielić pracę według kontekstu (niezależne ścieżki
+  badania, komponenty z czystym interfejsem, weryfikacja „czarnej skrzynki”), nie według rodzaju problemu.
+  Ewaluacje: ok. 10 złotych przykładów end-to-end, każde zadanie więcej niż raz. Reguły i uprawnienia w narzędziach
+  (odmowa z instrukcją, co dalej), procedury w skillach. Wybór narzędzi psuje się powyżej 30–50 definicji.
+  O delegowaniu do tańszych modeli artykuł nie mówi nic.
+- **OmniRoute** (`cheaper-inference/OmniRoute`, kanoniczne repo prawdopodobnie `diegosouzapw/OmniRoute`). Gateway
+  w TypeScripcie z jednym endpointem zgodnym z OpenAI: 377 dostawców, scoring z 16 czynników, łączenie darmowych
+  limitów, fallback subskrypcja → klucz → tani → darmowy, dashboard, MCP. Claude Code podpina się przez
+  `ANTHROPIC_BASE_URL`. Liczby oszczędności i darmowych tokenów podaje sam projekt; TPROXY (przechwytywanie TLS)
+  i maskowanie odcisku TLS wymagają przeglądu bezpieczeństwa.
+
+Wnioski:
+- **Nie stajemy się gatewayem.** OmniRoute podmienia model pod klientem; my zostawiamy Claude'a jako dyrygenta na
+  jego subskrypcji i oddajemy zadania poboczne. Wyróżniki: natywny macOS, Keychain, egzekwowane regiony danych,
+  agenci ACP w piaskownicy. Gateway może być jednym z naszych dostawców (R4).
+- **Model „pliki na wejściu, `output_file` na wyjściu” jest zgodny z artykułem**: mało kontekstu przechodzi przez
+  granicę, wynik da się sprawdzić `git diff`.
+- **Najsłabszy punkt: raporty `delegate_agent` w trybie read.** To dokładnie stratne streszczenie, przed którym
+  ostrzega artykuł. Pytanie z `acp-plan.md` („czy Claude po raporcie i tak czyta te same pliki?”) trzeba zmierzyć (R1, R2).
+- **Nie mamy żadnego pomiaru, czy delegowanie oszczędza** tokeny Claude'a przy tej samej jakości. Bez tego każda
+  kolejna funkcja routingu to zgadywanie (R1).
+- Narzędzi jest 7, więc limit 30–50 nas nie dotyczy. Claude Code ładuje je przez tool search (odroczone), więc
+  główną dźwignią zostają instrukcje serwera: trzymać je krótkie (`instructionsStayCompact`).
+
+## Wyniki
+
+### Gemini (R5)
+
+- Stary log (13 wywołań, 27.10): „cancelled” po 60 s i timeout po 120 s były przed poprawką limitów czasu
+  (`fa92325`); 400 „Interactions API”, 500 z Gemmy i 429 `limit: 0` z Pro już mają przerwy, a modele wyleciały z configu.
+- Prawdziwa przyczyna wolnych odpowiedzi: `gemini-flash-latest` (Gemini 3.x) domyślnie myśli na `medium`/`high`.
+  To samo zadanie (README na 400 słów, w tle): domyślne myślenie → timeout po 120 s (dwa razy), `thinkingLevel: low` → 36,5 s.
+  Serwer wysyła `low` dla Flash/Pro 3+, Flash-Lite zostaje na swoim `minimal` (`ProviderClient.geminiThinking`).
+- Darmowy plan i tak jest wolny (flash-lite ok. 14 tokenów/s, 20–25 s na 300 tokenów) i `flash-latest` często zwraca 503
+  w godzinach szczytu: wszystko dłuższe niż akapit tylko w tle.
+
+### Agenci przed R6 (z `jobs/`, mała próbka, głównie 27.10)
+
+Problem był taki: Claude wybierał agentów z listy w kolejności alfabetycznej, bez danych, więc często brał Antigravity
+(pierwszy na liście, dużo błędów) i Codexa (darmowy plan z limitami, długo myśli), a prawie nigdy Mistral Vibe, który
+zwykle wystarcza i jest najszybszy.
+
+| Agent | Udane | Czas (read) | Czas (write) | Uwagi |
+|---|---|---|---|---|
+| mistral-vibe (glm-5-3) | 3/3 | 19–29 s | 278 s | raporty trafne |
+| claude-acp (haiku, low) | 7/7 | 7–122 s | — | ta sama subskrypcja co dyrygent |
+| codex-acp (gpt-6-luna, medium) | 6/7 | 332 s | 160–280 s | 1× limit 600 s, 38–66 kroków |
+| antigravity-acp | 2/3 | 78–394 s | — | 1× limit 600 s: uruchomił zadanie w tle i czekał na nie do końca |
+| github-copilot-cli | 1/2 | 30 s | — | 1× niezalogowany |
+
+Statystyki liczymy z logu użycia, nie z `JobStore`: pliki zadań znikają po tygodniu. Są tylko w `list_models`, nie
+w opisie narzędzia, bo opis jest w cache'owanym prefiksie i zmieniające się liczby psułyby prompt cache dyrygenta.
+
+## Czego nie robimy
+
+- Własnego proxy pod `ANTHROPIC_BASE_URL` ani łączenia kont subskrypcyjnych (regulaminy, inny produkt).
+- Hierarchii subagentów i kolejnych narzędzi MCP bez pomiaru, że pomagają.
+- Gonienia OmniRoute liczbą dostawców: kto potrzebuje setek modeli, podpina gateway jako dostawcę (R4).
+
+Odłożone:
 - Agenci wymagający `uv` (2 niszowe, bez własnych modeli).
 - Własny harness przez OpenCode/goose dla dostawców bez agenta z logowaniem.
-
----
-
-## Wcześniejsze fazy
-
-  - Dodanie `.github/workflows/ci.yml` kompilującego i testującego projekt (`swift test`) oraz budującego aplikację produkcyjną pod macOS.
-
----
-
-## Faza 5: UI/UX, Menu Bar i Dystrybucja (Polish & Ecosystem)
-*Cel: Dostępność dla społeczności globalnej i wygoda codziennego użytkowania.*
-
-- [x] **5.1. Skróty i status w Menu Bar**
-  - Pokazywanie bieżącego statusu (lub dzisiejszego kosztu) w nagłówku menu bar oraz w widoku rozwijanym.
-  - Przycisk szybkiego testu wszystkich połączeń bezpośrednio z menu podręcznego wraz ze wskaźnikami statusu na żywo.
-- [x] **5.2. Język: tylko angielski**
-  - Interfejs, odpowiedzi narzędzi i diagnostyka po angielsku. Polską lokalizację (`Localizable.xcstrings`) usunięto: teksty dla Claude'a po angielsku są skuteczniejsze i tańsze w tokenach, a przełącznik języka nie był potrzebny.
-- [x] **5.3. Publiczne repozytorium i dokumentacja open-source**
-  - Kompletna dokumentacja w języku angielskim (`README.md`), instrukcje kontrybucji (`CONTRIBUTING.md`) oraz szablony zgłoszeń GitHub (`bug_report.md`, `feature_request.md`).
