@@ -3,7 +3,7 @@ import Foundation
 import MCP
 
 /// Jedyne źródło wersji: `build-app.sh` wpisuje ją do Info.plist, a workflow wydania sprawdza, czy zgadza się z tagiem.
-let version = "0.3.0"
+let version = "0.4.0"
 let home = DelegateHome.resolve()
 let args = CommandLine.arguments.dropFirst()
 
