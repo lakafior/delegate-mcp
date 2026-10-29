@@ -19,6 +19,8 @@ jobs:
         run: swift --version
 
       - name: Run swift test
+        # Zawieszony test (np. atrapa agenta ACP) ma skończyć się błędem, a nie godziną czekania.
+        timeout-minutes: 10
         run: swift test
 
       - name: Build production app

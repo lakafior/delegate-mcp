@@ -37,6 +37,8 @@ jobs:
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Run swift test
+        # Zawieszony test (np. atrapa agenta ACP) ma skończyć się błędem, a nie godziną czekania.
+        timeout-minutes: 10
         run: swift test
 
       - name: Import Developer ID certificate
