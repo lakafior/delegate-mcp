@@ -23,26 +23,30 @@ public struct ModelConfig: Codable, Sendable, Equatable, Identifiable {
     public var priceIn: Double?
     public var priceOut: Double?
     public var note: String?
+    /// Poziom myślenia wysyłany do dostawcy (Gemini: `thinkingLevel`, np. `minimal`, `low`, `high`);
+    /// `default` = nic nie wysyłać, `nil` = domyślne serwera (`ProviderClient.defaultThinking`).
+    public var thinking: String?
 
     public init(id: String, tags: [String] = [], cost: String? = nil,
-                priceIn: Double? = nil, priceOut: Double? = nil, note: String? = nil) {
+                priceIn: Double? = nil, priceOut: Double? = nil, note: String? = nil, thinking: String? = nil) {
         self.id = id
         self.tags = tags
         self.cost = cost
         self.priceIn = priceIn
         self.priceOut = priceOut
         self.note = note
+        self.thinking = thinking
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, tags, cost, note
+        case id, tags, cost, note, thinking
         case priceIn = "price_in"
         case priceOut = "price_out"
     }
 
     public static func == (a: ModelConfig, b: ModelConfig) -> Bool {
         a.id == b.id && a.tags == b.tags && a.cost == b.cost && a.note == b.note
-            && a.priceIn == b.priceIn && a.priceOut == b.priceOut
+            && a.priceIn == b.priceIn && a.priceOut == b.priceOut && a.thinking == b.thinking
     }
 
     public init(from decoder: Decoder) throws {
@@ -53,6 +57,7 @@ public struct ModelConfig: Codable, Sendable, Equatable, Identifiable {
         priceIn = try c.decodeNumberIfPresent(forKey: .priceIn)
         priceOut = try c.decodeNumberIfPresent(forKey: .priceOut)
         note = try c.decodeIfPresent(String.self, forKey: .note)
+        thinking = try c.decodeIfPresent(String.self, forKey: .thinking)
     }
 
     /// Czytelny koszt: kwoty, jeśli są, w przeciwnym razie kategoria.

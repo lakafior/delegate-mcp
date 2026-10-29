@@ -39,9 +39,19 @@ Punkt wyjścia: dwa źródła przeczytane 2026-10-29.
 | R2. Raporty agentów z dowodami | `delegate_agent` read: stały format raportu (tezy z `plik:linia`, osobno pewne i do sprawdzenia), żeby Claude weryfikował wyrywkowo | w R1 Claude czyta po raporcie mniej plików niż bez agenta |
 | R3. Odmowy z instrukcją ✅ | gdy routing odrzuci wszystkich dostawców (region, budżet, przerwy), odpowiedź mówi Claude'owi, co zrobić: zrób sam / inna `sensitivity` / inny model | każda ścieżka odmowy w `DelegateService` ma test z treścią wskazówki |
 | R4. Preset gatewaya | „Gateway (OmniRoute / LiteLLM)” w `ProviderPreset`: OpenAI-compatible, model `auto/cheap`, obowiązkowy wybór regionu przy dodawaniu | dodanie w apce bez edycji TOML; region nie jest zgadywany |
-| R5. Niezawodność dostawców | przyjrzeć się Gemini: w logu 10 z 13 wywołań nieudanych (m.in. „network: cancelled” po 60 s) | przyczyna znana, przerwy i limity czasu dopasowane |
+| R5. Niezawodność dostawców ✅ | przyjrzeć się Gemini: w logu 10 z 13 wywołań nieudanych (m.in. „network: cancelled” po 60 s) | przyczyna znana, przerwy i limity czasu dopasowane |
 | R6. Ranking agentów | patrz niżej | `delegate_agent` bez pola `agent` trafia do pierwszego dozwolonego agenta wg priorytetu; większość analiz idzie do szybkiego agenta zamiast do Codexa/Antigravity |
 | Później | tylko jeśli R1 pokaże zysk: wagi routingu zamiast samej kolejności (jak „mode packs” w OmniRoute); panel tanich modeli + sędzia do review | osobny plan |
+
+## R5. Gemini: wyniki (2026-10-29)
+
+- Stary log (13 wywołań, 27.10): „cancelled” po 60 s i timeout po 120 s były przed poprawką limitów czasu
+  (`fa92325`); 400 „Interactions API”, 500 z Gemmy i 429 `limit: 0` z Pro już mają przerwy, a modele wyleciały z configu.
+- Prawdziwa przyczyna wolnych odpowiedzi: `gemini-flash-latest` (Gemini 3.x) domyślnie myśli na `medium`/`high`.
+  To samo zadanie (README na 400 słów, w tle): domyślne myślenie → timeout po 120 s (dwa razy), `thinkingLevel: low` → 36,5 s.
+  Teraz serwer wysyła `low` dla Flash/Pro 3+, Flash-Lite zostaje na swoim `minimal` (`ProviderClient.geminiThinking`).
+- Darmowy plan i tak jest wolny (flash-lite ok. 14 tokenów/s, 20–25 s na 300 tokenów) i `flash-latest` często zwraca 503
+  w godzinach szczytu: wszystko dłuższe niż akapit tylko w tle.
 
 ## R6. Ranking agentów
 

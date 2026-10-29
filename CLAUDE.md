@@ -157,6 +157,10 @@ i podgląd w zakładce Routing):
   429 z `limit: 0` → doba, 429 z „retry in …” → tyle, ile podał dostawca, inny 429 → 60 s, 402 → godzina,
   503/502/504/529 i timeout (gdy model miał pełny limit albo co najmniej 25 s) → 5 min, 500 → 2 min, 404 i 400 „only supports…”
   → tydzień. Sukces zdejmuje przerwę; w Routingu przycisk „Resume paused models” zdejmuje wszystkie.
+- **Myślenie Gemini** (`ProviderClient.geminiThinking`): Flash i Pro 3+ (także `-latest`) dostają `thinkingLevel: low`,
+  bo ich domyślne `medium`/`high` to minuty na zwykłe zadanie; Flash-Lite (domyślnie `minimal`), 1.x/2.x i Gemma nic.
+  Nadpisanie per model: `thinking = "high"` w `[[provider.model]]`, `"default"` = nic nie wysyłać. Odrzucony poziom
+  (400 o „thinking”) → jedno ponowienie bez niego. `thoughtsTokenCount` liczy się do tokenów wyjścia.
 - **Odmowy z instrukcją**: gdy nikt nie zostanie, błąd ma „What to do:” z `RoutingPlan.refusalAdvice` (po linii na
   rodzaj wykluczenia, `RoutingExclusion.Kind`: region, budżet, przerwa, brak klucza; przy `fallback = false` tylko powody
   wskazanego modelu), na końcu „do the task yourself”. „All attempts failed” też kończy się wskazówką.

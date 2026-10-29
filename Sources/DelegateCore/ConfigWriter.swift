@@ -39,6 +39,7 @@ enum ConfigWriter {
                 if let v = m.priceIn { out += "price_in = \(number(v))\n" }
                 if let v = m.priceOut { out += "price_out = \(number(v))\n" }
                 if let n = m.note, !n.isEmpty { out += "note = \(string(n, multiline: true))\n" }
+                if let t = m.thinking { out += "thinking = \(string(t))\n" }
             }
         }
         // Wszystkie wpisy, także same `id`: kolejność `[[agent]]` to priorytet.

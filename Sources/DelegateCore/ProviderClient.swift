@@ -35,13 +35,17 @@ public struct ChatRequest: Sendable {
     public var temperature: Double?
     public var maxTokens: Int?
     public var jsonMode: Bool
+    /// `ModelConfig.thinking` modelu, do którego idzie zapytanie.
+    public var thinking: String?
 
-    public init(prompt: String, system: String? = nil, temperature: Double? = nil, maxTokens: Int? = nil, jsonMode: Bool = false) {
+    public init(prompt: String, system: String? = nil, temperature: Double? = nil, maxTokens: Int? = nil, jsonMode: Bool = false,
+                thinking: String? = nil) {
         self.prompt = prompt
         self.system = system
         self.temperature = temperature
         self.maxTokens = maxTokens
         self.jsonMode = jsonMode
+        self.thinking = thinking
     }
 }
 
@@ -182,20 +186,43 @@ struct ProviderClient {
         if let t = r.temperature { gen["temperature"] = t }
         if let m = r.maxTokens { gen["maxOutputTokens"] = m }
         if r.jsonMode { gen["responseMimeType"] = "application/json" }
-        if !gen.isEmpty { body["generationConfig"] = gen }
+        let thinking = Self.geminiThinking(model: model, configured: r.thinking)
+        if let thinking { gen["thinkingConfig"] = ["thinkingLevel": thinking] }
 
-        var req = try makeRequest(url: join(p.baseURL, "models/\(model):generateContent"), method: "POST")
-        authorize(&req, provider: p, apiKey: key)
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let json = try await perform(req)
+        func send(_ gen: [String: Any]) async throws -> [String: Any] {
+            var body = body
+            if !gen.isEmpty { body["generationConfig"] = gen }
+            var req = try makeRequest(url: join(p.baseURL, "models/\(model):generateContent"), method: "POST")
+            authorize(&req, provider: p, apiKey: key)
+            req.httpBody = try JSONSerialization.data(withJSONObject: body)
+            return try await perform(req)
+        }
+        let json: [String: Any]
+        do {
+            json = try await send(gen)
+        } catch ProviderError.http(400, let message) where thinking != nil && message.lowercased().contains("thinking") {
+            // Model nie zna tego poziomu (albo w ogóle `thinkingLevel`, jak seria 2.5): jeszcze raz z jego domyślnym.
+            gen["thinkingConfig"] = nil
+            json = try await send(gen)
+        }
 
         let content = (json["candidates"] as? [[String: Any]])?.first?["content"] as? [String: Any]
         let text = (content?["parts"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined()
         guard !text.isEmpty else { throw ProviderError.badResponse("empty model reply") }
         let usage = json["usageMetadata"] as? [String: Any]
-        return ChatReply(text: text,
-                         inputTokens: usage?["promptTokenCount"] as? Int,
-                         outputTokens: usage?["candidatesTokenCount"] as? Int)
+        // Tokeny myślenia są płatne jak wyjście, a `candidatesTokenCount` ich nie liczy.
+        let output = (usage?["candidatesTokenCount"] as? Int).map { $0 + (usage?["thoughtsTokenCount"] as? Int ?? 0) }
+        return ChatReply(text: text, inputTokens: usage?["promptTokenCount"] as? Int, outputTokens: output)
+    }
+
+    /// Poziom myślenia Gemini. Flash i Pro 3+ (także aliasy `-latest`) domyślnie myślą na `medium`/`high`: dla zadań
+    /// delegowanych to minuty zamiast sekund, więc bez ustawienia w configu wysyłamy `low`. Flash-Lite domyślnie ma
+    /// `minimal` (niżej niż `low`), a seria 1.x/2.x i Gemma nie znają `thinkingLevel`: im nic. `default` = nic nie wysyłać.
+    static func geminiThinking(model: String, configured: String?) -> String? {
+        if let configured { return configured == "default" ? nil : configured }
+        let id = model.lowercased()
+        let keepDefault = ["gemini-1", "gemini-2", "gemma"].contains { id.hasPrefix($0) } || id.contains("lite")
+        return keepDefault ? nil : "low"
     }
 
     // MARK: Anthropic

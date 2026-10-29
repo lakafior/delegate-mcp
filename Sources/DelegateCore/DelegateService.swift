@@ -368,7 +368,7 @@ public struct DelegateService: Sendable {
         let (request, config, plan, attached, output) = (p.request, p.config, p.plan, p.attached, p.output)
         let list = plan.candidates
 
-        let chat = ChatRequest(prompt: request.prompt, system: request.system,
+        var chat = ChatRequest(prompt: request.prompt, system: request.system,
                                temperature: request.temperature, maxTokens: request.maxTokens,
                                jsonMode: request.jsonMode)
         var failures: [String] = []
@@ -388,6 +388,7 @@ public struct DelegateService: Sendable {
                 timeout = min(timeout, more ? left * 0.6 : left)
             }
             let client = ProviderClient(transport: transport, timeout: timeout)
+            chat.thinking = c.model.thinking
             let key = secrets.secret(for: c.provider.apiKeyEnv) ?? ""
             let started = Date()
             do {
