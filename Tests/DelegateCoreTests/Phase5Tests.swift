@@ -238,7 +238,7 @@ extension PriceCatalogTests {
         """#)
         defer { try? FileManager.default.removeItem(at: fake) }
         let probe = HelperProbe(executable: fake)
-        let h = try await probe.handshake(timeout: 3)
+        let h = try await probe.handshake(timeout: 10)
         #expect(h.serverVersion == "9.9" && h.hasInstructions && h.tools == ["delegate", "list_models"])
         #expect(try await probe.keyAccess() == ["A_KEY": .readable, "B_KEY": .needsApproval])
     }

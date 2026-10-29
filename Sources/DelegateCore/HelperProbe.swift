@@ -51,37 +51,31 @@ public struct HelperProbe: Sendable {
         ]
         try stdin.fileHandleForWriting.write(contentsOf: Data((requests.joined(separator: "\n") + "\n").utf8))
 
-        let reader = stdout.fileHandleForReading
-        let kill = ProcessBox(process)
-        let result = try await withThrowingTaskGroup(of: Handshake.self) { group in
-            group.addTask {
-                var version: String?
-                var instructions = false
-                for try await line in reader.bytes.lines {
-                    guard let msg = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else { continue }
-                    let result = msg["result"] as? [String: Any]
-                    switch msg["id"] as? Int {
-                    case 1:
-                        version = (result?["serverInfo"] as? [String: Any])?["version"] as? String
-                        instructions = !((result?["instructions"] as? String) ?? "").isEmpty
-                    case 2:
-                        let tools = (result?["tools"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
-                        return Handshake(serverVersion: version, hasInstructions: instructions, tools: tools,
-                                         ms: Int(Date().timeIntervalSince(started) * 1000))
-                    default:
-                        continue
-                    }
+        var version: String?
+        var instructions = false
+        var pending = Data()
+        let result = try await read(stdout.fileHandleForReading, timeout: timeout,
+                                    timeoutMessage: "no response within \(Int(timeout)) s") { chunk in
+            guard let chunk else { throw ProbeError(description: "server exited without a response to tools/list") }
+            pending.append(chunk)
+            while let newline = pending.firstIndex(of: UInt8(ascii: "\n")) {
+                let line = pending[..<newline]
+                pending = Data(pending[pending.index(after: newline)...])
+                guard let msg = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { continue }
+                let result = msg["result"] as? [String: Any]
+                switch msg["id"] as? Int {
+                case 1:
+                    version = (result?["serverInfo"] as? [String: Any])?["version"] as? String
+                    instructions = !((result?["instructions"] as? String) ?? "").isEmpty
+                case 2:
+                    let tools = (result?["tools"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
+                    return Handshake(serverVersion: version, hasInstructions: instructions, tools: tools,
+                                     ms: Int(Date().timeIntervalSince(started) * 1000))
+                default:
+                    continue
                 }
-                throw ProbeError(description: "server exited without a response to tools/list")
             }
-            group.addTask {
-                try await Task.sleep(for: .seconds(timeout))
-                // Grupa czeka na wszystkie zadania: zabicie procesu zamyka stdout i kończy czytanie.
-                kill.process.terminate()
-                throw ProbeError(description: "no response within \(Int(timeout)) s")
-            }
-            defer { group.cancelAll() }
-            return try await group.next()!
+            return nil
         }
         try? stdin.fileHandleForWriting.close()
         return result
@@ -96,17 +90,12 @@ public struct HelperProbe: Sendable {
         try process.run()
         defer { if process.isRunning { process.terminate() } }
 
-        let reader = stdout.fileHandleForReading
-        let kill = ProcessBox(process)
-        let data = try await withThrowingTaskGroup(of: Data.self) { group in
-            group.addTask { try reader.readToEnd() ?? Data() }
-            group.addTask {
-                try await Task.sleep(for: .seconds(timeout))
-                kill.process.terminate()
-                throw ProbeError(description: "--check-keys: no response within \(Int(timeout)) s")
-            }
-            defer { group.cancelAll() }
-            return try await group.next()!
+        var collected = Data()
+        let data = try await read(stdout.fileHandleForReading, timeout: timeout,
+                                  timeoutMessage: "--check-keys: no response within \(Int(timeout)) s") { chunk in
+            guard let chunk else { return collected }
+            collected.append(chunk)
+            return nil
         }
         guard let raw = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
             throw ProbeError(description: "--check-keys: unreadable response (older server version?)")
@@ -115,8 +104,61 @@ public struct HelperProbe: Sendable {
     }
 }
 
-/// `Process` nie jest `Sendable`; tylko do `terminate()` z zadania pilnującego czasu.
-private final class ProcessBox: @unchecked Sendable {
-    let process: Process
-    init(_ process: Process) { self.process = process }
+extension HelperProbe {
+    /// Czyta `handle` przez `readabilityHandler` (kolejka GCD, nie pula wątków Swift Concurrency: blokujące
+    /// czytanie w zadaniach zagładzało ją na wolnych runnerach CI). `consume` dostaje kolejne kawałki, `nil` przy EOF,
+    /// i zwraca wynik, gdy ma komplet. Po czasie kończy od razu, nie czekając na EOF: stdout może trzymać
+    /// otwarty proces potomny, którego `terminate()` nie zabija.
+    fileprivate func read<T: Sendable>(_ handle: FileHandle, timeout: TimeInterval, timeoutMessage: String,
+                                       consume: @escaping (Data?) throws -> T?) async throws -> T {
+        let once = OnceContinuation<T>()
+        let consumer = Consumer(consume)
+        defer { handle.readabilityHandler = nil }
+        return try await withCheckedThrowingContinuation { continuation in
+            once.set(continuation)
+            handle.readabilityHandler = { h in
+                let chunk = h.availableData
+                do {
+                    if let value = try consumer.call(chunk.isEmpty ? nil : chunk) {
+                        once.resume(.success(value))
+                    } else if chunk.isEmpty {
+                        once.resume(.failure(ProbeError(description: "server exited without a response")))
+                    }
+                } catch {
+                    once.resume(.failure(error))
+                }
+                if chunk.isEmpty || once.isDone { h.readabilityHandler = nil }
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                once.resume(.failure(ProbeError(description: timeoutMessage)))
+            }
+        }
+    }
+}
+
+/// `readabilityHandler` jest `@Sendable`, ale FileHandle woła go szeregowo, więc stan w `consume` jest bezpieczny.
+private final class Consumer<T>: @unchecked Sendable {
+    let call: (Data?) throws -> T?
+    init(_ call: @escaping (Data?) throws -> T?) { self.call = call }
+}
+
+/// Kontynuacja wznawiana dokładnie raz: wygrywa pierwszy z czytnika i timera.
+private final class OnceContinuation<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<T, any Error>?
+    private var done = false
+
+    var isDone: Bool { lock.withLock { done } }
+
+    func set(_ c: CheckedContinuation<T, any Error>) { lock.withLock { continuation = c } }
+
+    func resume(_ result: Result<T, any Error>) {
+        let c: CheckedContinuation<T, any Error>? = lock.withLock {
+            guard !done else { return nil }
+            done = true
+            defer { continuation = nil }
+            return continuation
+        }
+        c?.resume(with: result)
+    }
 }
