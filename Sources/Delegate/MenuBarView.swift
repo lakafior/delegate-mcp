@@ -9,6 +9,7 @@ struct MenuBarView: View {
         VStack(alignment: .leading, spacing: 14) {
             header
             Divider()
+            update
             runningJobs
             recent
             Divider()
@@ -40,6 +41,27 @@ struct MenuBarView: View {
                     Stat(value: String(format: "$%.2f", stats.costToday), label: "cost today")
                 }
             }
+        }
+    }
+
+    // MARK: nowa wersja z GitHub Releases
+
+    @ViewBuilder
+    private var update: some View {
+        if let release = model.availableUpdate {
+            Button {
+                NSWorkspace.shared.open(release.dmgURL ?? release.pageURL)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.down.circle.fill").foregroundStyle(.tint)
+                    Text("Delegate \(release.version) is available")
+                    Spacer()
+                    Text("Download").foregroundStyle(.tint)
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .font(.callout)
         }
     }
 

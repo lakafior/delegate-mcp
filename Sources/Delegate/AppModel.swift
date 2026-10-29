@@ -68,11 +68,14 @@ final class AppModel {
         _ = try? UsageLog(url: home.usageURL).prune(olderThan: 365)
         refreshUsage()
         refreshJobs()
+        // Przy starcie zawsze: znaleziona wersja nie jest zapisywana, więc po restarcie baner by zniknął na dobę.
+        if checkForUpdates { Task { await checkForUpdatesNow() } }
         // Serwer dopisuje do logu w innym procesie; sprawdzamy datę pliku, a czytamy tylko po zmianie.
         usageTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.refreshUsage()
                 self?.refreshJobs()
+                self?.checkForUpdatesIfDue()
             }
         }
     }
@@ -542,6 +545,47 @@ final class AppModel {
     /// Liczba dzisiejszych zadań (i koszt, jeśli > 0) obok ikony w pasku menu.
     var showUsageInMenuBar: Bool {
         didSet { UserDefaults.standard.set(showUsageInMenuBar, forKey: Self.showUsageKey) }
+    }
+
+    // MARK: aktualizacje (GitHub Releases)
+
+    private static let checkUpdatesKey = "checkForUpdates"
+    private static let lastUpdateCheckKey = "lastUpdateCheck"
+
+    /// Wersja z Info.plist; `nil` dla binarki z `swift build` (bez paczki), wtedy nie sprawdzamy.
+    var appVersion: String? { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String }
+
+    var checkForUpdates: Bool = UserDefaults.standard.object(forKey: AppModel.checkUpdatesKey) as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(checkForUpdates, forKey: Self.checkUpdatesKey)
+            if checkForUpdates { checkForUpdatesIfDue() } else { availableUpdate = nil }
+        }
+    }
+    private(set) var availableUpdate: AppRelease?
+    private(set) var checkingForUpdates = false
+    private(set) var updateCheckError: String?
+    private(set) var lastUpdateCheck: Date? = UserDefaults.standard.object(forKey: AppModel.lastUpdateCheckKey) as? Date
+
+    /// Raz na dobę, tylko gdy użytkownik nie wyłączył sprawdzania.
+    func checkForUpdatesIfDue() {
+        guard checkForUpdates, !checkingForUpdates else { return }
+        if let last = lastUpdateCheck, Date().timeIntervalSince(last) < 24 * 3600 { return }
+        Task { await checkForUpdatesNow() }
+    }
+
+    func checkForUpdatesNow() async {
+        guard let current = appVersion, !checkingForUpdates else { return }
+        checkingForUpdates = true
+        defer { checkingForUpdates = false }
+        do {
+            availableUpdate = try await UpdateChecker().newerRelease(than: current)
+            updateCheckError = nil
+        } catch {
+            updateCheckError = "\(error)"
+        }
+        // Datę zapisujemy też po błędzie: bez sieci nie pytamy co 10 s.
+        lastUpdateCheck = Date()
+        UserDefaults.standard.set(lastUpdateCheck, forKey: Self.lastUpdateCheckKey)
     }
 
     /// Ostrzeżenie w pasku menu: tylko to, co użytkownik może naprawić (brak klucza, nieudany test).

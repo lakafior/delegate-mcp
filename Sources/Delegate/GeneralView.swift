@@ -15,6 +15,37 @@ struct GeneralView: View {
             }
 
             Section {
+                Toggle("Check for updates daily", isOn: $model.checkForUpdates)
+                LabeledContent("Version") {
+                    HStack {
+                        Text(updateStatus).foregroundStyle(.secondary)
+                        if model.checkingForUpdates { ProgressView().controlSize(.small) }
+                        Button("Check Now") { Task { await model.checkForUpdatesNow() } }
+                            .disabled(model.checkingForUpdates || model.appVersion == nil)
+                    }
+                }
+                if let update = model.availableUpdate {
+                    LabeledContent("Version \(update.version) is available") {
+                        HStack {
+                            Button("Release Notes") { NSWorkspace.shared.open(update.pageURL) }
+                            Button("Download") { NSWorkspace.shared.open(update.dmgURL ?? update.pageURL) }
+                                .buttonStyle(.borderedProminent)
+                        }
+                    }
+                    if !update.notes.isEmpty {
+                        Text(LocalizedStringKey(Self.inlineMarkdown(update.notes)))
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(8)
+                    }
+                }
+            } header: {
+                Text("Updates")
+            } footer: {
+                Text("Asks GitHub Releases for the latest version; nothing else is sent. To update, open the DMG and replace Delegate in Applications.")
+            }
+
+            Section {
                 LabeledContent("Config") {
                     Button(model.home.configURL.path(percentEncoded: false)) {
                         NSWorkspace.shared.activateFileViewerSelecting([model.home.configURL])
@@ -50,6 +81,26 @@ struct GeneralView: View {
         .sheet(isPresented: $isEditingRawToml) {
             RawTomlEditorSheet(model: model, isPresented: $isEditingRawToml)
         }
+    }
+
+    /// `Text` rozumie tylko Markdown w linii: nagłówki z notatek GitHuba pogrubiamy, listy zamieniamy na kropki.
+    private static func inlineMarkdown(_ notes: String) -> String {
+        notes.split(separator: "\n", omittingEmptySubsequences: false).map { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("#") {
+                return "**\(trimmed.drop { $0 == "#" }.trimmingCharacters(in: .whitespaces))**"
+            }
+            if trimmed.hasPrefix("* ") || trimmed.hasPrefix("- ") { return "• " + trimmed.dropFirst(2) }
+            return String(line)
+        }.joined(separator: "\n")
+    }
+
+    private var updateStatus: String {
+        guard let version = model.appVersion else { return "development build" }
+        if model.availableUpdate != nil { return "\(version), update available" }
+        if model.updateCheckError != nil { return "\(version), couldn't check" }
+        guard let last = model.lastUpdateCheck else { return version }
+        return "\(version), up to date (checked \(last.formatted(.relative(presentation: .named))))"
     }
 }
 
